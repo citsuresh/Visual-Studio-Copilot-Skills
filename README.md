@@ -22,6 +22,11 @@ the skill into a project's own short trigger prompts).
 - For `project-memory-management-graph` specifically: [GraphTools](https://github.com/citsuresh/GraphTools)
   cloned and built separately — this skill invokes `GraphTools.Builder.exe`/`GraphTools.Query.exe`
   by absolute path, so confirm that repo is built before using this skill.
+  **`project-memory-management-graph/SKILL.md` hardcodes the GraphTools executable paths as
+  `C:\MyFiles\Git\GraphTools\... Before installing this skill, edit
+  the "GraphTools invocation" section of that `SKILL.md` to point at wherever you cloned/built
+  GraphTools on your own machine.** If the paths are wrong or GraphTools hasn't been built, the
+  skill will stop and tell you rather than silently failing or attempting to locate/build it itself.
 
 ## Installing
 
