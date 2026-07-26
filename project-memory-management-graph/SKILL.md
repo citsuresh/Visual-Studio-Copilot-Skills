@@ -60,6 +60,26 @@ code knowledge graph via the standalone `GraphTools` executables.
   report the full error to the user — do not treat a partial/failed graph as success, and do
   not retry automatically.
 
+### GraphTools.Query.exe usage (for on-demand graph lookups, not just Bootstrap/End Session)
+
+Use these whenever the Persistent Project Memory rule above says to prefer the graph over a
+general search tool:
+
+```
+GraphTools.Query.exe --graph "<repo root>\docs\full-graph.json" --symbol "<fully-qualified-id>"
+GraphTools.Query.exe --graph "<path>" --symbol "<id>" --direction callers
+GraphTools.Query.exe --graph "<path>" --symbol "<id>" --direction callees
+GraphTools.Query.exe --graph "<path>" --list-symbols --project "<project name>"
+```
+
+- Use `--list-symbols --project` first if the exact symbol ID isn't already known, to discover
+  it before querying it directly.
+- All output is JSON — parse it, don't dump it back verbatim to the user unless they ask to see
+  the raw output.
+- If the query returns a "symbol not found" error, do not assume the symbol doesn't exist in
+  the codebase — the graph may be stale (e.g. a recent Bootstrap/End Session hasn't run yet).
+  Mention this possibility before falling back to a general search tool.
+
 ## Workflow 1: Bootstrap (Project Memory Bootstrap)
 
 Bootstrap persistent project memory for this codebase so future chat sessions can be
@@ -108,9 +128,19 @@ and update them incrementally instead of overwriting/duplicating content.
    - If it exists, read `docs/PROJECT_STATE.md` and `docs/ROADMAP.md` when the user asks
 	 "do you remember", references prior work, or asks what's next.
    - If it exists, mention `docs/full-graph.json`/`docs/project-dependencies.json` are
-	 available and should be queried via `GraphTools.Query.exe` (never read wholesale) when a
-	 question needs call-graph or symbol-dependency information beyond what the docs files
-	 capture.
+	 available and should be queried via `GraphTools.Query.exe` (never read wholesale). This is
+	 a default, not a judgment call: before using a general-purpose search tool (text search,
+	 symbol search, grep, or similar) to locate a class/interface/enum, find a method's
+	 definition, find its callers, find its callees, check how two types relate, or otherwise
+	 answer "where is X" / "what uses X" for anything that is a C# symbol, first check whether
+	 `docs/full-graph.json` exists in this project, and if so, query it via `GraphTools.Query.exe`
+	 instead of a general search tool. This applies even to a simple "find this file/class"
+	 request, not only explicit call-graph or architecture questions.
+   - Fallback: if `docs/full-graph.json` does not exist, if `GraphTools.Query.exe` errors or
+	 exits non-zero, or if the graph doesn't contain an answer to the specific question (e.g.
+	 the question is about non-code content, file layout, or something the graph doesn't track),
+	 fall back to normal search tools and proceed — do not treat a missing/failed graph query as
+	 a blocking error.
    - Update `docs/CODE_SUMMARY.md` when: a new project is added, a new structural class/service
 	 is added, a component's responsibility changes, or a project/component dependency changes.
 	 Do not update for routine bug fixes or small edits that don't affect structure.
