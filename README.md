@@ -8,7 +8,7 @@ across sessions, with an optional Roslyn-based code knowledge graph for larger s
 | Folder | Purpose |
 |---|---|
 | `project-memory-management/` | Core skill: maintains `docs/CODE_SUMMARY.md`, `DESIGN_DECISIONS.md`, `PROJECT_STATE.md`, `ROADMAP.md`, and wires them into `.github/copilot-instructions.md`. |
-| `project-memory-management-graph/` | Everything the core skill does, plus builds/updates a code knowledge graph via [GraphTools](https://github.com/<your-username>/GraphTools) and copies a visual graph viewer into the project. |
+| `project-memory-management-graph/` | Everything the core skill does, plus builds/updates a code knowledge graph via [GraphTools](https://github.com/citsuresh/GraphTools) and copies a visual graph viewer into the project. |
 | `Install-Skills.ps1` | Copies both skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
 
 Each skill has three workflows: **Bootstrap** (start of session / first-time setup),
@@ -19,7 +19,7 @@ the skill into a project's own short trigger prompts).
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free
   Community edition), version 18.5 or later.
-- For `project-memory-management-graph` specifically: [GraphTools](https://github.com/<your-username>/GraphTools)
+- For `project-memory-management-graph` specifically: [GraphTools](https://github.com/citsuresh/GraphTools)
   cloned and built separately — this skill invokes `GraphTools.Builder.exe`/`GraphTools.Query.exe`
   by absolute path, so confirm that repo is built before using this skill.
 
