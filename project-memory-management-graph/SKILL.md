@@ -86,8 +86,13 @@ Bootstrap persistent project memory for this codebase so future chat sessions ca
 resumed cheaply (low token usage) instead of re-exploring the codebase or re-summarizing
 conversation history every time.
 
-This workflow is project-agnostic and idempotent: if the target files already exist, review
-and update them incrementally instead of overwriting/duplicating content.
+This workflow is project-agnostic and idempotent for the four memory files
+(`docs/CODE_SUMMARY.md`, `DESIGN_DECISIONS.md`, `PROJECT_STATE.md`, `ROADMAP.md`): if they
+already exist, review and update them incrementally instead of overwriting/duplicating content.
+This incremental/merge-safe rule applies ONLY to those four files — it does not apply to the
+"Persistent Project Memory" section of `.github/copilot-instructions.md` (see Step 6, which is
+fully regenerated every run) nor override the merge-safe handling separately specified for
+"Project Guidelines"/"Response Guidelines" in Steps 7-8.
 
 ### Steps
 
@@ -127,7 +132,11 @@ and update them incrementally instead of overwriting/duplicating content.
    `copilot-instructions.md` (not this skill file) has no other way to find it.
 
    Update (or create) the repo-scoped `.github/copilot-instructions.md` to add or refresh a
-   "Persistent Project Memory" section stating:
+   "Persistent Project Memory" section stating: this section must be fully regenerated
+   (overwritten) on every Bootstrap run, regardless of whether `copilot-instructions.md` or this
+   section already exists — unlike "Project Guidelines" (Step 7) and "Response Guidelines"
+   (Step 8), which ARE merge-safe/additive-only, this section is NOT merge-safe and should not
+   be skipped just because the file already exists.
    - If it exists, read `docs/CODE_SUMMARY.md` and `docs/DESIGN_DECISIONS.md` before exploring
 	 the codebase with search tools for a new task. If these files do not exist, fall back to
 	 normal exploration — their absence is not an error.
