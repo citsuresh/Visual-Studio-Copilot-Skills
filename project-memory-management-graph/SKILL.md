@@ -120,7 +120,13 @@ and update them incrementally instead of overwriting/duplicating content.
    (e.g., Near-term / Backlog sections). State explicitly that this file is edited
    deliberately when priorities change, not automatically overwritten each session.
 
-6. Update (or create) the repo-scoped `.github/copilot-instructions.md` to add or refresh a
+6. Before writing the "Persistent Project Memory" section below, confirm via `Test-Path` (or
+   equivalent) the actual current absolute path of `GraphTools.Query.exe` on this machine (see
+   "GraphTools invocation" above). Use that confirmed path inline in the template text — do not
+   write the section referencing the tool by name alone, since a future session reading only
+   `copilot-instructions.md` (not this skill file) has no other way to find it.
+
+   Update (or create) the repo-scoped `.github/copilot-instructions.md` to add or refresh a
    "Persistent Project Memory" section stating:
    - If it exists, read `docs/CODE_SUMMARY.md` and `docs/DESIGN_DECISIONS.md` before exploring
 	 the codebase with search tools for a new task. If these files do not exist, fall back to
@@ -128,14 +134,15 @@ and update them incrementally instead of overwriting/duplicating content.
    - If it exists, read `docs/PROJECT_STATE.md` and `docs/ROADMAP.md` when the user asks
 	 "do you remember", references prior work, or asks what's next.
    - If it exists, mention `docs/full-graph.json`/`docs/project-dependencies.json` are
-	 available and should be queried via `GraphTools.Query.exe` (never read wholesale). This is
-	 a default, not a judgment call: before using a general-purpose search tool (text search,
-	 symbol search, grep, or similar) to locate a class/interface/enum, find a method's
-	 definition, find its callers, find its callees, check how two types relate, or otherwise
-	 answer "where is X" / "what uses X" for anything that is a C# symbol, first check whether
-	 `docs/full-graph.json` exists in this project, and if so, query it via `GraphTools.Query.exe`
-	 instead of a general search tool. This applies even to a simple "find this file/class"
-	 request, not only explicit call-graph or architecture questions.
+	 available and should be queried via `GraphTools.Query.exe` (located at `<confirmed absolute
+	 path>`) (never read wholesale). This is a default, not a judgment call: before using a
+	 general-purpose search tool (text search, symbol search, grep, or similar) to locate a
+	 class/interface/enum, find a method's definition, find its callers, find its callees, check
+	 how two types relate, or otherwise answer "where is X" / "what uses X" for anything that is
+	 a C# symbol, first check whether `docs/full-graph.json` exists in this project, and if so,
+	 query it via `GraphTools.Query.exe` (located at `<confirmed absolute path>`) instead of a
+	 general search tool. This applies even to a simple "find this file/class" request, not only
+	 explicit call-graph or architecture questions.
    - Fallback: if `docs/full-graph.json` does not exist, if `GraphTools.Query.exe` errors or
 	 exits non-zero, or if the graph doesn't contain an answer to the specific question (e.g.
 	 the question is about non-code content, file layout, or something the graph doesn't track),
