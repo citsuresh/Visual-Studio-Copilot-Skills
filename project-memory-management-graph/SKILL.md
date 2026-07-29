@@ -209,8 +209,14 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	  is fully owned by this skill, unlike the docs/*.md files, so overwriting it is always safe
 	  and does not need a confirmation prompt.
 
-11. If any of the target files already exist from a prior bootstrap, do not overwrite blindly:
-	read them first, then merge/update only what's missing or outdated.
+11. If any of the four `docs/*.md` memory files already exist from a prior bootstrap, do not
+	overwrite blindly: read them first, then merge/update only what's missing or outdated. This
+	rule applies ONLY to those four files. It does NOT apply to `.github/copilot-instructions.md`:
+	its "Persistent Project Memory" section (Step 6) must always be force-checked and fully
+	regenerated/overwritten this run even if `copilot-instructions.md` already exists — never
+	skip Step 6 on the grounds that the file already exists. Its "Project Guidelines" (Step 7)
+	and "Response Guidelines" (Step 8) sections remain separately merge-safe/additive-only, as
+	specified in those steps.
 
 12. Report back a short summary of what was created/updated, the graph's node/edge counts and
 	build time, and confirm the build still succeeds.
