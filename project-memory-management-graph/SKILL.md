@@ -151,7 +151,12 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	 a C# symbol, first check whether `docs/full-graph.json` exists in this project, and if so,
 	 query it via `GraphTools.Query.exe` (located at `<confirmed absolute path>`) instead of a
 	 general search tool. This applies even to a simple "find this file/class" request, not only
-	 explicit call-graph or architecture questions.
+	 explicit call-graph or architecture questions. This preference applies regardless of how the
+	 question is phrased: conceptual/explanatory framings ("explain X", "walk me through X",
+	 "how does X work", "describe the Y flow") are NOT exempt just because they aren't literally
+	 worded as a find/locate request. The test is whether answering the question requires
+	 locating, identifying, or relating specific named C# classes/interfaces/methods — not
+	 whether the question is phrased as a lookup. If it does, query the graph first.
    - Fallback: if `docs/full-graph.json` does not exist, if `GraphTools.Query.exe` errors or
 	 exits non-zero, or if the graph doesn't contain an answer to the specific question (e.g.
 	 the question is about non-code content, file layout, or something the graph doesn't track),
