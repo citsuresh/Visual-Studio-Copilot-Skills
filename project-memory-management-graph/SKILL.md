@@ -80,6 +80,28 @@ GraphTools.Query.exe --graph "<path>" --list-symbols --project "<project name>"
   the codebase — the graph may be stale (e.g. a recent Bootstrap/End Session hasn't run yet).
   Mention this possibility before falling back to a general search tool.
 
+## Domain lookup patterns capture (applies whenever graph-first lookups happen, not just Bootstrap)
+
+- Trigger: during an exploratory or "how does this work" task, the graph alone was not
+  sufficient to answer efficiently because the answer depended on domain conventions, naming
+  patterns, or business logic — not just structural facts the graph represents (who calls
+  what, what implements what). Example: understanding an OBIS-code lookup convention or a
+  domain-specific naming scheme that required extra manual investigation beyond graph queries.
+- When this happens, propose recording the pattern, then only add or update
+  `docs/domain-lookup-patterns.md` (same location convention as the other docs files) after the
+  user explicitly confirms the pattern is worth recording. Never record it unprompted.
+- Do NOT create this file upfront or as an empty placeholder during Bootstrap or on any project
+  regardless of size — it must only come into existence the first time a genuine domain lookup
+  pattern is actually identified and confirmed. Small/simple projects should never end up with
+  an empty version of this file.
+- Unlike `docs/CODE_SUMMARY.md` and `docs/DESIGN_DECISIONS.md`, this file is NOT merge-safe or
+  auto-refreshed during Bootstrap/End Session — it is manually curated. Do not scan for or
+  regenerate its contents automatically; only touch it in direct response to the user
+  confirming a specific pattern in the current session.
+- Each entry should capture: the domain concept/convention, where/how it's implemented, and why
+  a graph query alone wasn't enough to resolve it (so future sessions know when to expect this
+  gap and reference the pattern instead of re-discovering it).
+
 ## Workflow 1: Bootstrap (Project Memory Bootstrap)
 
 Bootstrap persistent project memory for this codebase so future chat sessions can be
@@ -142,6 +164,9 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	 normal exploration — their absence is not an error.
    - If it exists, read `docs/PROJECT_STATE.md` and `docs/ROADMAP.md` when the user asks
 	 "do you remember", references prior work, or asks what's next.
+   - If it exists, read `docs/domain-lookup-patterns.md` when a task requires domain
+	 conventions, naming schemes, or business logic that the graph doesn't represent — check it
+	 before falling back to manual exploration or a fresh graph query.
    - If it exists, mention `docs/full-graph.json`/`docs/project-dependencies.json` are
 	 available and should be queried via `GraphTools.Query.exe` (located at `<confirmed absolute
 	 path>`) (never read wholesale). This is a default, not a judgment call: before using a
@@ -256,13 +281,21 @@ sweep). This keeps the closing update low-token.
 4. Do not modify `docs/ROADMAP.md` unless the user explicitly discussed a priority/plan change in
    this session.
 
-5. If `full-graph.json` exists in `docs/`, update the knowledge graph incrementally: run
+5. If a domain lookup pattern was identified and explicitly confirmed by the user earlier in
+   this session (per the "Domain lookup patterns capture" rule above) but has not yet been
+   recorded in `docs/domain-lookup-patterns.md`, record it now as part of End Session wrap-up.
+   This is a safety net only — do not scan the session to invent or retroactively identify new
+   patterns; only cover a pattern the user already explicitly confirmed earlier but that wasn't
+   yet written to the file. Skip this step entirely if no such already-confirmed-but-unrecorded
+   pattern exists.
+
+6. If `full-graph.json` exists in `docs/`, update the knowledge graph incrementally: run
    `GraphTools.Builder.exe --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode incremental --graph "<repo root>\docs\full-graph.json"`.
    If `full-graph.json` does not exist, skip this step silently (do not build it fresh here —
    that is Bootstrap's job).
 
-6. Report back a short (2-5 line) summary of what was updated (or confirm nothing needed
-   updating), including the graph's changed-file count and updated node/edge counts if step 5
+7. Report back a short (2-5 line) summary of what was updated (or confirm nothing needed
+   updating), including the graph's changed-file count and updated node/edge counts if step 6
    ran.
 
 ## Workflow 3: Initialize
