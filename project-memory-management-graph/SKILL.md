@@ -189,7 +189,13 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	 a blocking error.
    - Update `docs/CODE_SUMMARY.md` when: a new project is added, a new structural class/service
 	 is added, a component's responsibility changes, or a project/component dependency changes.
-	 Do not update for routine bug fixes or small edits that don't affect structure.
+	 Do not update for routine bug fixes or small edits that don't affect structure. Also update
+	 its "Key Flows" section when a new end-to-end flow spanning multiple C# symbols is fully
+	 traced and confirmed during the session (e.g., via a graph query and/or a domain lookup
+	 pattern investigation): add it as a short arrow-chain (e.g., `A -> B -> C -> D`), consistent
+	 with the existing entries. Key Flows entries remain short symbol arrow-chains only — no
+	 domain-specific details (e.g. specific config/XML file names or device-specific values),
+	 which belong in `docs/domain-lookup-patterns.md` instead.
    - Update `docs/DESIGN_DECISIONS.md` (append-only, dated entries) when: a non-obvious
 	 architectural/design choice is made, an alternative approach is rejected with a reason, or
 	 a past decision is reversed. Never delete prior entries.
@@ -277,6 +283,13 @@ sweep). This keeps the closing update low-token.
    reflected, update the relevant section of `docs/CODE_SUMMARY.md` inline. Do not re-derive the
    whole file or re-scan unrelated parts of the codebase. Skip if the file does not exist or if
    no structural change occurred.
+
+   Also update the "Key Flows" section if a new end-to-end flow spanning multiple C# symbols
+   was fully traced and confirmed during this session (e.g., via a graph query and/or a domain
+   lookup pattern investigation): add it as a short arrow-chain (e.g., `A -> B -> C -> D`),
+   consistent with the existing entries. Keep entries as short symbol arrow-chains only — no
+   domain-specific details (e.g. specific config/XML file names or device-specific values),
+   which belong in `docs/domain-lookup-patterns.md` instead. Skip if no such flow was traced.
 
 4. Do not modify `docs/ROADMAP.md` unless the user explicitly discussed a priority/plan change in
    this session.
