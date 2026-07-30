@@ -193,9 +193,16 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	 its "Key Flows" section when a new end-to-end flow spanning multiple C# symbols is fully
 	 traced and confirmed during the session (e.g., via a graph query and/or a domain lookup
 	 pattern investigation): add it as a short arrow-chain (e.g., `A -> B -> C -> D`), consistent
-	 with the existing entries. Key Flows entries remain short symbol arrow-chains only — no
-	 domain-specific details (e.g. specific config/XML file names or device-specific values),
-	 which belong in `docs/domain-lookup-patterns.md` instead.
+	 with the existing entries. Skip if no such flow was traced. Key Flows entries remain short
+	 symbol arrow-chains only — no domain-specific details (e.g. specific config/XML file names
+	 or device-specific values), which belong in `docs/domain-lookup-patterns.md` instead. If a
+	 relevant `docs/domain-lookup-patterns.md` entry already exists for that specific flow (the
+	 flow involves a domain convention already documented there), append a short one-line
+	 pointer to the Key Flows entry referencing it, e.g. `ImageTransferInitiate ->
+	 ImageBlockTransfer -> ImageVerify -> ImageActivate (see domain-lookup-patterns.md for OBIS
+	 code mapping)` — this is a pointer only, never pull domain-specific details themselves into
+	 CODE_SUMMARY.md. Only add the pointer if a relevant entry genuinely already exists; skip
+	 silently (no pointer) if none exists — do not invent, infer, or speculatively cross-reference.
    - Update `docs/DESIGN_DECISIONS.md` (append-only, dated entries) when: a non-obvious
 	 architectural/design choice is made, an alternative approach is rejected with a reason, or
 	 a past decision is reversed. Never delete prior entries.
@@ -287,9 +294,16 @@ sweep). This keeps the closing update low-token.
    Also update the "Key Flows" section if a new end-to-end flow spanning multiple C# symbols
    was fully traced and confirmed during this session (e.g., via a graph query and/or a domain
    lookup pattern investigation): add it as a short arrow-chain (e.g., `A -> B -> C -> D`),
-   consistent with the existing entries. Keep entries as short symbol arrow-chains only — no
-   domain-specific details (e.g. specific config/XML file names or device-specific values),
-   which belong in `docs/domain-lookup-patterns.md` instead. Skip if no such flow was traced.
+   consistent with the existing entries. Skip if no such flow was traced. Keep entries as short
+   symbol arrow-chains only — no domain-specific details (e.g. specific config/XML file names or
+   device-specific values), which belong in `docs/domain-lookup-patterns.md` instead. If a
+   relevant `docs/domain-lookup-patterns.md` entry already exists for that specific flow (the
+   flow involves a domain convention already documented there), append a short one-line pointer
+   to the Key Flows entry referencing it, e.g. `ImageTransferInitiate -> ImageBlockTransfer ->
+   ImageVerify -> ImageActivate (see domain-lookup-patterns.md for OBIS code mapping)` — this is
+   a pointer only, never pull domain-specific details themselves into CODE_SUMMARY.md. Only add
+   the pointer if a relevant entry genuinely already exists; skip silently (no pointer) if none
+   exists — do not invent, infer, or speculatively cross-reference.
 
 4. Do not modify `docs/ROADMAP.md` unless the user explicitly discussed a priority/plan change in
    this session.
