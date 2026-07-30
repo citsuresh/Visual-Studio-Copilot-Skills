@@ -187,6 +187,11 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	 the question is about non-code content, file layout, or something the graph doesn't track),
 	 fall back to normal search tools and proceed — do not treat a missing/failed graph query as
 	 a blocking error.
+   - If, during graph-first or domain-lookup work, you notice a recurring friction point (e.g.
+	 a manual step done more than once that a structural tool could answer instead), mention it
+	 briefly at the end of your response — don't act on it, just note it. Skip this if nothing
+	 recurring was noticed; don't proactively search for optimization opportunities outside of
+	 graph/domain-lookup work.
    - Update `docs/CODE_SUMMARY.md` when: a new project is added, a new structural class/service
 	 is added, a component's responsibility changes, or a project/component dependency changes.
 	 Do not update for routine bug fixes or small edits that don't affect structure. Also update
