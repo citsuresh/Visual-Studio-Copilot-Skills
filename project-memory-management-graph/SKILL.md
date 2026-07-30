@@ -84,6 +84,12 @@ GraphTools.Query.exe --graph "<path>" --list-symbols --project "<project name>"
 
 - Use `--list-symbols --project` first if the exact symbol ID isn't already known, to discover
   it before querying it directly.
+- Use the exact command templates shown above verbatim, substituting only the path/symbol/project
+  values — do not guess at flag names or invent flags (e.g. there is no `--callers` flag; use
+  `--symbol "<id>" --direction callers` instead; there is no `--filter` flag on `--list-symbols`,
+  only `--project`). Do NOT rely on `GraphTools.Query.exe --help` for syntax guidance — it does
+  not reliably print usable usage text. If a command using the exact templates above still
+  errors, report the full error rather than guessing at alternative flags.
 - All output is JSON — parse it, don't dump it back verbatim to the user unless they ask to see
   the raw output.
 - If the query returns a "symbol not found" error, do not assume the symbol doesn't exist in
