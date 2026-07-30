@@ -59,6 +59,16 @@ code knowledge graph via the standalone `GraphTools` executables.
 - If `GraphTools.Builder.exe` exits with a non-zero exit code or prints an error, stop and
   report the full error to the user — do not treat a partial/failed graph as success, and do
   not retry automatically.
+- To check whether `docs/full-graph.json` exists before querying it, do NOT use `file_search`
+  or any filename-index/workspace search tool as the existence check — an empty result from
+  those tools is not reliable evidence of absence (the file can be excluded from search
+  indexing, or the query string may not match how the tool tokenizes paths). Instead, confirm
+  existence with a direct file read (`get_file`) or a terminal existence check (e.g.
+  `Test-Path`), or simply invoke `GraphTools.Query.exe` directly and treat a file-not-found
+  error from the tool itself as the existence signal. If any document already read this session
+  (e.g. `docs/PROJECT_STATE.md`) states the graph was recently built or rebuilt, that is
+  stronger evidence than an ambiguous or empty search result — do not fall back to search/grep
+  tools without first reconciling that contradiction.
 
 ### GraphTools.Query.exe usage (for on-demand graph lookups, not just Bootstrap/End Session)
 
