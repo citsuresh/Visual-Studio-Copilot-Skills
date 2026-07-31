@@ -1,15 +1,18 @@
 ---
 name: project-memory-management-graph
-description: 'Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) plus a Roslyn-based code knowledge graph (full-graph.json, project-dependencies.json via GraphTools), wired into copilot-instructions.md. For large/complex solutions. Use for: Bootstrap (start of session or first-time setup, builds full graph), End Session (cheap snapshot, incremental graph update), Initialize (one-time setup creating local prompt files). Scoped to the current project only; never creates a repo.'
+description: 'Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) plus a Roslyn-based code knowledge graph (full-graph.json, project-dependencies.json via GraphTools), wired into copilot-instructions.md. For large/complex solutions. Use for: Begin Session (optional, cheap session-start readiness check), Bootstrap (start of session or first-time setup, builds full graph), End Session (cheap snapshot, incremental graph update), Initialize (one-time setup creating local prompt files). Begin Session is not a substitute for Bootstrap or End Session. Scoped to the current project only; never creates a repo.'
 ---
 # Project Memory Management (Graph-Enabled)
 
-This skill has three workflows: **Bootstrap** (start of session / first-time setup),
-**End Session** (end of session, cheap snapshot), and **Initialize** (one-time project setup
-that wires this skill into a project's own prompt files). Use Bootstrap when the four memory
-files don't exist yet, or when the user asks to (re)initialize project memory. Use End Session
-at the close of a working session to record what happened. Use Initialize when the user asks
-to set up this skill / project memory prompts in a new project.
+This skill has four workflows: **Begin Session** (optional, cheap session-start readiness
+check), **Bootstrap** (start of session / first-time setup), **End Session** (end of session,
+cheap snapshot), and **Initialize** (one-time project setup that wires this skill into a
+project's own prompt files). Use Begin Session to explicitly force project memory inputs into
+context at session start when auto-load may be inconsistent. Use Bootstrap when the core memory
+and graph files do not exist yet, or when the user asks to (re)initialize project memory. Use
+End Session at the close of a working session to record what happened. Use Initialize when the
+user asks to set up this skill / project memory prompts in a new project. Begin Session is not
+a substitute for Bootstrap or End Session.
 
 This is the graph-enabled variant, intended for large/complex solutions. It does everything
 the plain `project-memory-management` skill does, plus building and maintaining a Roslyn-based
@@ -117,6 +120,40 @@ GraphTools.Query.exe --graph "<path>" --list-symbols --project "<project name>"
 - Each entry should capture: the domain concept/convention, where/how it's implemented, and why
   a graph query alone wasn't enough to resolve it (so future sessions know when to expect this
   gap and reference the pattern instead of re-discovering it).
+
+## Workflow: Begin Session
+
+Optional, lightweight session-start readiness check. This is a cheap way to deterministically
+force key project memory inputs into context when `.github/copilot-instructions.md` auto-load
+may be inconsistent. It is not a required ritual, and it is explicitly NOT a substitute for
+Bootstrap or End Session.
+
+### Steps
+
+1. Explicitly read `.github/copilot-instructions.md` via a direct file read tool (`get_file`).
+   Do this regardless of whether it appears to already be in context. Do not assume auto-load
+   succeeded, and do not use `file_search` or any filename-index/workspace search tool first.
+
+2. Directly check (via `get_file` or a terminal existence check such as `Test-Path`, never
+   `file_search` or another filename-index/workspace search tool) whether each of these files
+   exists:
+   - `docs/CODE_SUMMARY.md`
+   - `docs/DESIGN_DECISIONS.md`
+   - `docs/PROJECT_STATE.md`
+   - `docs/ROADMAP.md`
+   - `docs/domain-lookup-patterns.md` (optional; absence is normal, not an error)
+   - `docs/full-graph.json`
+   - `docs/project-dependencies.json`
+
+3. Report back briefly: which of the files above were found and which were missing, plus a
+   one-line readiness summary (for example, the current focus line from
+   `docs/PROJECT_STATE.md` if present). Keep this short: this is a readiness check only, not
+   a full project-state summary and not a re-derivation of `CODE_SUMMARY.md` or End Session
+   output.
+
+4. Do NOT rebuild the graph, run `GraphTools.Builder.exe`, re-scan the codebase, or create any
+   missing file as part of Begin Session. That work belongs to Bootstrap. If the core memory
+   files are missing entirely, say so plainly and suggest running Bootstrap.
 
 ## Workflow 1: Bootstrap (Project Memory Bootstrap)
 
@@ -349,29 +386,35 @@ sweep). This keeps the closing update low-token.
 ## Workflow 3: Initialize
 
 One-time setup that wires this skill into a project via its own prompt files, so the user can
-invoke Bootstrap/End Session through short project-local prompts.
+invoke Begin Session/Bootstrap/End Session through short project-local prompts.
 
 ### Steps
 
-1. Determine the target content for `.github/prompts/bootstrap.prompt.md`: an instruction to
+1. Determine the target content for `.github/prompts/begin-session.prompt.md`: an instruction to
+   invoke the project-memory-management-graph skill and run its Begin Session workflow exactly
+   as defined.
+
+2. Determine the target content for `.github/prompts/bootstrap.prompt.md`: an instruction to
    invoke the project-memory-management-graph skill and run its Bootstrap workflow exactly as
    defined.
 
-2. Determine the target content for `.github/prompts/end-session.prompt.md`: an instruction to
+3. Determine the target content for `.github/prompts/end-session.prompt.md`: an instruction to
    invoke the project-memory-management-graph skill and run its End Session workflow exactly as
    defined.
 
-3. Before writing either file, check if it already exists:
+4. Before writing any of the three files, check if each file already exists:
    - If it does not exist, create it with the target content.
    - If it exists and its content matches the target content, leave it as-is.
    - If it exists and its content differs from the target content, do NOT overwrite it
      silently — tell the user the file already exists (with its current content or a summary
      of the difference) and ask whether to overwrite it. Only overwrite if the user confirms.
 
-4. After both files are created/confirmed, show the user the final content of both
-   `.github/prompts/bootstrap.prompt.md` and `.github/prompts/end-session.prompt.md`, and
-   confirm both were created (or left unchanged, per user's choice).
+5. After all three files are created/confirmed, show the user the final content of
+   `.github/prompts/begin-session.prompt.md`, `.github/prompts/bootstrap.prompt.md`, and
+   `.github/prompts/end-session.prompt.md`, and confirm all three were created (or left
+   unchanged, per user's choice).
 
-5. Ask the user: "Do you want to run Bootstrap now?"
-   - If yes, run the Bootstrap workflow immediately, in this same session.
-   - If no, stop and wait for further instructions — do not run Bootstrap automatically.
+6. Ask the user: "Do you want to run Bootstrap and Begin Session now?"
+   - If yes, run the Bootstrap workflow first (since it creates the files Begin Session checks
+     for), then run Begin Session immediately after, in this same session.
+   - If no, stop and wait for further instructions — do not run either automatically.
