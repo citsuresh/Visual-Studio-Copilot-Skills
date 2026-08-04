@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 2`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 3`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -51,6 +51,13 @@ re-sync — without the user having to remember or manually redo anything per pr
     Every command template in "GraphTools invocation", Bootstrap Step 9, and End Session Step 6
     changed to call the wrapper. Projects bootstrapped under v1 have stale
     `copilot-instructions.md` text pointing at the raw `.exe` paths and should re-run Bootstrap.
+  - v3 — Begin Session gains a new Step 2a: a cheap, read-only graph-staleness check. If
+    `docs/project-dependencies.json` exists, read its `CommitSha` field and compare it against
+    the repo's live `git rev-parse HEAD`, then report plainly whether the graph matches, is
+    behind, or predates commit-tracking (field missing/null). This is a report-only comparison —
+    no diffing, no commit-distance calculation, no automatic rebuild or Bootstrap suggestion.
+    Bootstrap and End Session are unaffected; they already regenerate/update the graph directly
+    and don't need this comparison.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -236,15 +243,35 @@ Bootstrap or End Session.
    - `docs/full-graph.json`
    - `docs/project-dependencies.json`
 
-3. Report back briefly: which of the files above were found and which were missing, plus a
-   one-line readiness summary (for example, the current focus line from
-   `docs/PROJECT_STATE.md` if present). Keep this short: this is a readiness check only, not
-   a full project-state summary and not a re-derivation of `CODE_SUMMARY.md` or End Session
-   output.
+2a. If `docs/project-dependencies.json` was found in Step 2, do a cheap, read-only graph-staleness
+    check:
+    - Read the file (`get_file`) and extract its `CommitSha` field.
+    - If `CommitSha` is missing or null (e.g. the graph was built before this field existed, or
+      git resolution failed at build time), treat this as "unknown" — not an error, and do not
+      attempt to fix or rebuild anything. Report it plainly, e.g. "graph predates
+      commit-tracking".
+    - If `CommitSha` is present, run `git rev-parse HEAD` in the repo root to get the current
+      live commit SHA and compare:
+      - Match: the graph is current relative to the last commit — mention this briefly (e.g.
+        "graph is up to date with the current commit").
+      - Mismatch: report plainly, e.g. "graph was built from commit `<short SHA>`; current
+        commit is `<short SHA>`". Do NOT attempt to determine how many commits apart they are,
+        run a diff, or judge whether this matters — that's for the user to decide.
+    - This check is a single `get_file` read plus one `git rev-parse HEAD` call — no rebuilding,
+      no `GraphTools.Builder.exe`/wrapper invocation, and no automatically suggesting Bootstrap
+      because of what this check finds. If `docs/project-dependencies.json` was missing in Step
+      2, skip this step entirely (already covered by Step 2's existence report).
+
+3. Report back briefly: which of the files above were found and which were missing, the Step 2a
+   graph-staleness result (if applicable), plus a one-line readiness summary (for example, the
+   current focus line from `docs/PROJECT_STATE.md` if present). Keep this short: this is a
+   readiness check only, not a full project-state summary and not a re-derivation of
+   `CODE_SUMMARY.md` or End Session output.
 
 4. Do NOT rebuild the graph, run `GraphTools.Builder.exe`, re-scan the codebase, or create any
    missing file as part of Begin Session. That work belongs to Bootstrap. If the core memory
-   files are missing entirely, say so plainly and suggest running Bootstrap.
+   files are missing entirely, say so plainly and suggest running Bootstrap. Step 2a's staleness
+   result is informational only — never let it push you toward auto-suggesting Bootstrap.
 
 ## Workflow 1: Bootstrap (Project Memory Bootstrap)
 
