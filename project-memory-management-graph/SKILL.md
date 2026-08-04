@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 3`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 4`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -58,6 +58,13 @@ re-sync — without the user having to remember or manually redo anything per pr
     no diffing, no commit-distance calculation, no automatic rebuild or Bootstrap suggestion.
     Bootstrap and End Session are unaffected; they already regenerate/update the graph directly
     and don't need this comparison.
+  - v4 — Step 2a's `CommitSha` mismatch case now gates instead of only reporting: on a mismatch,
+    Begin Session asks (via the `ask_user` tool, same pattern as Workflow 0's version-staleness
+    gate) whether to run Bootstrap now or continue as-is. Choosing Bootstrap runs it immediately,
+    then Begin Session's remaining steps continue afterward (if Begin Session was the only thing
+    requested); choosing to continue proceeds without rebuilding and does not ask again later in
+    the same session. The match and unknown/missing `CommitSha` cases are unchanged — still
+    report-only, no gate.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -256,10 +263,19 @@ Bootstrap or End Session.
         "graph is up to date with the current commit").
       - Mismatch: report plainly, e.g. "graph was built from commit `<short SHA>`; current
         commit is `<short SHA>`". Do NOT attempt to determine how many commits apart they are,
-        run a diff, or judge whether this matters — that's for the user to decide.
+        run a diff, or judge whether this matters — that's for the user to decide. Then ask (via
+        the `ask_user` tool, not free text — same pattern as Workflow 0's version-staleness gate)
+        "Run Bootstrap now to rebuild the graph, or continue as-is?"
+        - If the user chooses Bootstrap, run the Bootstrap workflow now. If Begin Session was
+          the only workflow originally requested, continue with the rest of Begin Session after
+          Bootstrap completes (don't re-run this Step 2a comparison again — the graph was just
+          rebuilt).
+        - If the user chooses to continue, proceed with the rest of Begin Session without
+          rebuilding, and do not ask again later in the same session.
     - This check is a single `get_file` read plus one `git rev-parse HEAD` call — no rebuilding,
-      no `GraphTools.Builder.exe`/wrapper invocation, and no automatically suggesting Bootstrap
-      because of what this check finds. If `docs/project-dependencies.json` was missing in Step
+      no `GraphTools.Builder.exe`/wrapper invocation, and no automatically running or suggesting
+      Bootstrap on a match or unknown/missing `CommitSha`; only a `CommitSha` mismatch prompts
+      via `ask_user` as described above. If `docs/project-dependencies.json` was missing in Step
       2, skip this step entirely (already covered by Step 2's existence report).
 
 3. Report back briefly: which of the files above were found and which were missing, the Step 2a
@@ -270,8 +286,10 @@ Bootstrap or End Session.
 
 4. Do NOT rebuild the graph, run `GraphTools.Builder.exe`, re-scan the codebase, or create any
    missing file as part of Begin Session. That work belongs to Bootstrap. If the core memory
-   files are missing entirely, say so plainly and suggest running Bootstrap. Step 2a's staleness
-   result is informational only — never let it push you toward auto-suggesting Bootstrap.
+   files are missing entirely, say so plainly and suggest running Bootstrap. Step 2a's match and
+   unknown/missing `CommitSha` results are informational only — never let those push you toward
+   auto-suggesting Bootstrap; only a `CommitSha` mismatch (handled in Step 2a itself via
+   `ask_user`) may lead to running Bootstrap, and only with the user's explicit confirmation.
 
 ## Workflow 1: Bootstrap (Project Memory Bootstrap)
 
