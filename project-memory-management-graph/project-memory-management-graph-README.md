@@ -9,6 +9,19 @@ LOC), but the user decided to use it for all .NET projects (small ones too), sin
 is Copilot being able to query it when needed, not the user consuming it directly — the extra
 build time (~1 min even at FDM scale) was judged an acceptable tradeoff.
 
+## Skill self-versioning (introduced 2026-08-04)
+Independently of any single project's code/graph, the SKILL.md file itself has a version
+(`CURRENT_SKILL_VERSION`, currently `1`). Every time any of the four workflows runs against a
+project, it first does a cheap "Workflow 0: Version Check": read a marker
+(`<!-- project-memory-management-graph: skill-version=<N> -->`) stored as the first line of
+that project's `.github/copilot-instructions.md` "Persistent Project Memory" section, and
+compare it to the skill's current version. If the project is behind (or has no marker at all —
+treated as version 0), the user is told what changed (from the in-skill changelog) and asked
+whether to re-run Bootstrap now before continuing — no manual per-project file edits needed.
+This solves the problem of the skill being updated (e.g. a workflow step added/changed) while
+many already-bootstrapped projects are still running against the old behavior with no way to
+know that without manually diffing SKILL.md against what was last run per project.
+
 ## Location
 `C:\Users\sveluswa\.copilot\skills\project-memory-management-graph\SKILL.md`
 

@@ -1,6 +1,6 @@
 ---
 name: project-memory-management-graph
-description: 'Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) plus a Roslyn-based code knowledge graph (full-graph.json, project-dependencies.json via GraphTools), wired into copilot-instructions.md. For large/complex solutions. Use for: Begin Session (optional, cheap session-start readiness check), Bootstrap (start of session or first-time setup, builds full graph), End Session (cheap snapshot, incremental graph update), Initialize (one-time setup creating local prompt files). Begin Session is not a substitute for Bootstrap or End Session. Scoped to the current project only; never creates a repo.'
+description: 'Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) plus a Roslyn-based code knowledge graph (full-graph.json, project-dependencies.json via GraphTools), wired into copilot-instructions.md. For large/complex solutions. Use for: Begin Session (optional, cheap session-start readiness check), Bootstrap (start of session or first-time setup, builds full graph), End Session (cheap snapshot, incremental graph update), Initialize (one-time setup creating local prompt files). Every invocation first runs a cheap version check against a per-project marker and offers to re-run Bootstrap if the skill has been updated since that project was last synced. Begin Session is not a substitute for Bootstrap or End Session. Scoped to the current project only; never creates a repo.'
 ---
 # Project Memory Management (Graph-Enabled)
 
@@ -17,6 +17,86 @@ a substitute for Bootstrap or End Session.
 This is the graph-enabled variant, intended for large/complex solutions. It does everything
 the plain `project-memory-management` skill does, plus building and maintaining a Roslyn-based
 code knowledge graph via the standalone `GraphTools` executables.
+
+## Skill Version
+
+This skill is versioned independently of any project it's used in, so that when the skill
+itself gains/changes a workflow step (not just when GraphTools or project code changes), every
+previously-set-up project can detect it's running against stale instructions and offer to
+re-sync — without the user having to remember or manually redo anything per project.
+
+- `CURRENT_SKILL_VERSION = 2`. Bump this integer whenever an edit to this SKILL.md file changes
+  what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
+  project set up under the old version would benefit from or require re-running one of them to
+  pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
+  content changes, the `copilot-instructions.md` template content materially changes, a new
+  output file is introduced, a workflow's trigger conditions change). Do NOT bump for
+  wording-only clarifications, typo fixes, or comment changes that don't alter behavior.
+- Each project this skill has been run against stores the version it was last synced at, as an
+  HTML comment marker on the first line of the "Persistent Project Memory" section of that
+  project's own `.github/copilot-instructions.md`:
+  `<!-- project-memory-management-graph: skill-version=<N> -->`
+  This is the only per-project storage this mechanism needs — no other file or location is used
+  to track this. Never hand-edit this marker; only Bootstrap writes/refreshes it (see Bootstrap
+  Step 6, which now also owns writing this marker as the first line of that section).
+- Changelog (append one entry per version bump; never delete prior entries):
+  - v1 — introduced this versioning/staleness-check mechanism (this entry itself). Projects
+    with no marker at all (set up before v1 existed) are treated as version 0 — always stale.
+  - v2 — GraphTools invocation now goes through `tools\Invoke-GraphTools.ps1` (a wrapper script
+    inside the GraphTools repo) instead of calling `GraphTools.Builder.exe`/
+    `GraphTools.Query.exe` directly. Rationale: a shell launched from Visual Studio can inherit
+    a `DOTNET_ROOT` override pinned to VS's own bundled runtime, which hides the machine-wide
+    net8.0 runtime GraphTools targets and makes the raw exe fail to launch even though nothing
+    is actually broken. The wrapper clears that override before delegating to the real exe.
+    Every command template in "GraphTools invocation", Bootstrap Step 9, and End Session Step 6
+    changed to call the wrapper. Projects bootstrapped under v1 have stale
+    `copilot-instructions.md` text pointing at the raw `.exe` paths and should re-run Bootstrap.
+
+**Before finishing any edit to this file that changes what a workflow does: did you bump
+`CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
+before finishing.**
+
+## Workflow 0: Version Check (runs automatically, first, for every workflow invocation)
+
+Before running Begin Session, Bootstrap, End Session, or Initialize, always do this cheap check
+first — it applies uniformly to all four, including Initialize itself (e.g. a first-time setup
+should never be "stale," but should still record the current version).
+
+### Steps
+
+1. Resolve the repo root (see "Path resolution" above) and check whether
+   `.github/copilot-instructions.md` exists.
+   - If it does not exist (true first-time use), there is nothing to check yet — skip silently
+     and proceed with whatever workflow was requested (this is normal for a first Initialize or
+     first Bootstrap run).
+
+2. If it exists, read it and look for the marker
+   `<!-- project-memory-management-graph: skill-version=<N> -->` as the first line of the
+   "Persistent Project Memory" section.
+   - If the section exists but the marker is missing, treat the stored version as `0`.
+   - If the section doesn't exist at all, treat the stored version as `0`.
+
+3. Compare the stored version to `CURRENT_SKILL_VERSION` (defined above).
+   - If stored version `== CURRENT_SKILL_VERSION`, proceed silently with the originally
+     requested workflow — do not mention anything to the user.
+   - If stored version `< CURRENT_SKILL_VERSION`, the project is stale. Tell the user plainly:
+     the project was last synced at skill version `<stored>`, the skill is now at
+     `<CURRENT_SKILL_VERSION>`, and list the changelog entries strictly after `<stored>` up to
+     current so they know what changed and why it matters. Then ask (via the `ask_user` tool,
+     not free text) whether to run Bootstrap now to re-sync before continuing. Recommended
+     choice: re-run Bootstrap (it fully regenerates the "Persistent Project Memory" section,
+     including the version marker, and is idempotent/merge-safe for the four memory docs per
+     its own rules) — only suggest also re-running Initialize if a changelog entry between
+     `<stored>` and current explicitly says the prompt-file templates changed.
+   - If the user confirms, run Bootstrap (and Initialize too, only if indicated) now, then
+     continue with whatever workflow was originally requested (unless the originally requested
+     workflow *was* Bootstrap, in which case it has now already run — don't run it twice).
+   - If the user declines, proceed with the originally requested workflow as-is without
+     upgrading — do not force the upgrade, and do not ask again later in the same session for
+     the same project.
+
+4. This check must stay cheap: a single file read plus a string/regex comparison — no codebase
+   scanning, no GraphTools invocation, regardless of outcome.
 
 ## Scope restriction (applies to all workflows)
 
@@ -50,39 +130,48 @@ code knowledge graph via the standalone `GraphTools` executables.
 
 ## GraphTools invocation (applies to Bootstrap and End Session)
 
-- GraphTools executables are located at:
-  - `C:\MyFiles\Git\GraphTools\GraphTools.Builder\bin\Debug\net8.0\GraphTools.Builder.exe`
-  - `C:\MyFiles\Git\GraphTools\GraphTools.Query\bin\Debug\net8.0\GraphTools.Query.exe`
+- GraphTools must be invoked through its wrapper script, not the raw executables directly:
+  - `C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Builder -- <args>`
+  - `C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- <args>`
+  - The wrapper clears any inherited `DOTNET_ROOT` environment variable before invoking the
+    real exe underneath (`GraphTools.Builder\bin\Debug\net8.0\GraphTools.Builder.exe` /
+    `GraphTools.Query\bin\Debug\net8.0\GraphTools.Query.exe`). This works around a real failure
+    mode where a shell launched from Visual Studio (Insiders) inherits a `DOTNET_ROOT` override
+    pinned to VS's own bundled runtime, which hides the machine-wide net8.0 runtime GraphTools
+    targets and makes the raw `.exe` fail to launch even though nothing is actually wrong with
+    it. Always use the wrapper — never call `GraphTools.Builder.exe`/`GraphTools.Query.exe`
+    directly, even if it seems to work in a given session.
 - The graph output files (`full-graph.json`, `project-dependencies.json`) live inside `docs/`,
   alongside the four memory markdown files — this keeps all Copilot inputs in one place.
-- Before running `GraphTools.Builder.exe`, confirm the executable exists at the path above; if
-  it doesn't, stop and tell the user rather than attempting to build or locate it yourself.
+- Before running the wrapper, confirm both it and the underlying exe it targets exist at the
+  paths above; if either is missing, stop and tell the user rather than attempting to build or
+  locate it yourself.
 - Print the exact command being run (with resolved absolute paths) before executing it, and
   report the wall-clock time taken and the resulting node/edge counts afterward.
-- If `GraphTools.Builder.exe` exits with a non-zero exit code or prints an error, stop and
-  report the full error to the user — do not treat a partial/failed graph as success, and do
-  not retry automatically.
+- If the wrapper/exe exits with a non-zero exit code or prints an error, stop and report the
+  full error to the user — do not treat a partial/failed graph as success, and do not retry
+  automatically.
 - To check whether `docs/full-graph.json` exists before querying it, do NOT use `file_search`
   or any filename-index/workspace search tool as the existence check — an empty result from
   those tools is not reliable evidence of absence (the file can be excluded from search
   indexing, or the query string may not match how the tool tokenizes paths). Instead, confirm
   existence with a direct file read (`get_file`) or a terminal existence check (e.g.
-  `Test-Path`), or simply invoke `GraphTools.Query.exe` directly and treat a file-not-found
-  error from the tool itself as the existence signal. If any document already read this session
+  `Test-Path`), or simply invoke the Query wrapper directly and treat a file-not-found error
+  from the tool itself as the existence signal. If any document already read this session
   (e.g. `docs/PROJECT_STATE.md`) states the graph was recently built or rebuilt, that is
   stronger evidence than an ambiguous or empty search result — do not fall back to search/grep
   tools without first reconciling that contradiction.
 
-### GraphTools.Query.exe usage (for on-demand graph lookups, not just Bootstrap/End Session)
+### GraphTools Query usage (for on-demand graph lookups, not just Bootstrap/End Session)
 
 Use these whenever the Persistent Project Memory rule above says to prefer the graph over a
 general search tool:
 
 ```
-GraphTools.Query.exe --graph "<repo root>\docs\full-graph.json" --symbol "<fully-qualified-id>"
-GraphTools.Query.exe --graph "<path>" --symbol "<id>" --direction callers
-GraphTools.Query.exe --graph "<path>" --symbol "<id>" --direction callees
-GraphTools.Query.exe --graph "<path>" --list-symbols --project "<project name>"
+C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<repo root>\docs\full-graph.json" --symbol "<fully-qualified-id>"
+C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --symbol "<id>" --direction callers
+C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --symbol "<id>" --direction callees
+C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --list-symbols --project "<project name>"
 ```
 
 - Use `--list-symbols --project` first if the exact symbol ID isn't already known, to discover
@@ -130,6 +219,8 @@ Bootstrap or End Session.
 
 ### Steps
 
+0. Run "Workflow 0: Version Check" above first, before anything else in this workflow.
+
 1. Explicitly read `.github/copilot-instructions.md` via a direct file read tool (`get_file`).
    Do this regardless of whether it appears to already be in context. Do not assume auto-load
    succeeded, and do not use `file_search` or any filename-index/workspace search tool first.
@@ -171,6 +262,10 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 
 ### Steps
 
+0. Run "Workflow 0: Version Check" above first, before anything else in this workflow (if the
+   version check itself already ran Bootstrap as part of resolving staleness, skip re-running
+   steps 1-12 below — that Bootstrap run already satisfies this invocation).
+
 1. Discover structure: use `get_projects_in_solution` and `get_files_in_project` (or
    equivalent workspace exploration) to enumerate projects, key classes/services, and
    dependencies between components. Do not read every file — focus on structural/entry-point
@@ -201,10 +296,11 @@ fully regenerated every run) nor override the merge-safe handling separately spe
    deliberately when priorities change, not automatically overwritten each session.
 
 6. Before writing the "Persistent Project Memory" section below, confirm via `Test-Path` (or
-   equivalent) the actual current absolute path of `GraphTools.Query.exe` on this machine (see
-   "GraphTools invocation" above). Use that confirmed path inline in the template text — do not
-   write the section referencing the tool by name alone, since a future session reading only
-   `copilot-instructions.md` (not this skill file) has no other way to find it.
+   equivalent) that the GraphTools wrapper script (`tools\Invoke-GraphTools.ps1`) exists at the
+   path given under "GraphTools invocation" above. Use that confirmed wrapper path inline in the
+   template text — do not write the section referencing the tool by name alone, since a future
+   session reading only `copilot-instructions.md` (not this skill file) has no other way to
+   find it.
 
    Update (or create) the repo-scoped `.github/copilot-instructions.md` to add or refresh a
    "Persistent Project Memory" section stating: this section must be fully regenerated
@@ -212,6 +308,13 @@ fully regenerated every run) nor override the merge-safe handling separately spe
    section already exists — unlike "Project Guidelines" (Step 7) and "Response Guidelines"
    (Step 8), which ARE merge-safe/additive-only, this section is NOT merge-safe and should not
    be skipped just because the file already exists.
+
+   As the very first line of this section (before the `## Persistent Project Memory` heading
+   itself), always write/refresh the skill version marker:
+   `<!-- project-memory-management-graph: skill-version=<CURRENT_SKILL_VERSION> -->`
+   (see "Skill Version" above). This is the only place this marker is written — every Bootstrap
+   run stamps the version current at the time it ran, which is how "Workflow 0: Version Check"
+   detects staleness in later sessions.
    - If it exists, read `docs/CODE_SUMMARY.md` and `docs/DESIGN_DECISIONS.md` before exploring
 	 the codebase with search tools for a new task. If these files do not exist, fall back to
 	 normal exploration — their absence is not an error.
@@ -221,13 +324,14 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	 conventions, naming schemes, or business logic that the graph doesn't represent — check it
 	 before falling back to manual exploration or a fresh graph query.
    - If it exists, mention `docs/full-graph.json`/`docs/project-dependencies.json` are
-	 available and should be queried via `GraphTools.Query.exe` (located at `<confirmed absolute
-	 path>`) (never read wholesale). This is a default, not a judgment call: before using a
+	 available and should be queried via the GraphTools wrapper script (located at
+	 `<confirmed absolute wrapper path>`, invoked as `<wrapper> -Tool Query -- <args>`) (never
+	 read wholesale). This is a default, not a judgment call: before using a
 	 general-purpose search tool (text search, symbol search, grep, or similar) to locate a
 	 class/interface/enum, find a method's definition, find its callers, find its callees, check
 	 how two types relate, or otherwise answer "where is X" / "what uses X" for anything that is
 	 a C# symbol, first check whether `docs/full-graph.json` exists in this project, and if so,
-	 query it via `GraphTools.Query.exe` (located at `<confirmed absolute path>`) instead of a
+	 query it via the wrapper (located at `<confirmed absolute wrapper path>`) instead of a
 	 general search tool. This applies even to a simple "find this file/class" request, not only
 	 explicit call-graph or architecture questions. This preference applies regardless of how the
 	 question is phrased: conceptual/explanatory framings ("explain X", "walk me through X",
@@ -292,7 +396,7 @@ fully regenerated every run) nor override the merge-safe handling separately spe
    without removing or rewriting existing content.
 
 9. Build the knowledge graph: run
-   `GraphTools.Builder.exe --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode full`.
+   `<GraphTools wrapper path> -Tool Builder -- --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode full`.
    This also produces `project-dependencies.json` in the same `docs/` folder. If
    `full-graph.json` already exists from a prior Bootstrap run, this step still does a fresh
    full rebuild (Bootstrap always rebuilds fully; only End Session uses incremental mode).
@@ -330,6 +434,12 @@ re-scan the whole codebase structure (no `get_projects_in_solution`/`get_files_i
 sweep). This keeps the closing update low-token.
 
 ### Steps
+
+0. Run "Workflow 0: Version Check" above first, before anything else in this workflow (note:
+   if the version check itself triggers a Bootstrap run to resolve staleness, that Bootstrap
+   run already overwrites `docs/PROJECT_STATE.md` etc. — still proceed with steps 1-7 below
+   afterward, since End Session's own updates reflect this session's work, which is a different
+   concern from the version sync).
 
 1. Overwrite `docs/PROJECT_STATE.md` (not append) with, based only on this session's context:
    - Current Focus: what was worked on in this session.
@@ -375,7 +485,7 @@ sweep). This keeps the closing update low-token.
    pattern exists.
 
 6. If `full-graph.json` exists in `docs/`, update the knowledge graph incrementally: run
-   `GraphTools.Builder.exe --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode incremental --graph "<repo root>\docs\full-graph.json"`.
+   `<GraphTools wrapper path> -Tool Builder -- --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode incremental --graph "<repo root>\docs\full-graph.json"`.
    If `full-graph.json` does not exist, skip this step silently (do not build it fresh here —
    that is Bootstrap's job).
 
@@ -389,6 +499,11 @@ One-time setup that wires this skill into a project via its own prompt files, so
 invoke Begin Session/Bootstrap/End Session through short project-local prompts.
 
 ### Steps
+
+0. Run "Workflow 0: Version Check" above first, before anything else in this workflow. Note:
+   for a genuinely new project (no `.github/copilot-instructions.md` yet), this is a no-op —
+   Initialize itself doesn't write the version marker (only Bootstrap does, in its Step 6), so
+   there's nothing to detect as stale on a first-ever run.
 
 1. Determine the target content for `.github/prompts/begin-session.prompt.md`: an instruction to
    invoke the project-memory-management-graph skill and run its Begin Session workflow exactly
