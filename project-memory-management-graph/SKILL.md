@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 4`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 5`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -65,6 +65,18 @@ re-sync — without the user having to remember or manually redo anything per pr
     requested); choosing to continue proceeds without rebuilding and does not ask again later in
     the same session. The match and unknown/missing `CommitSha` cases are unchanged — still
     report-only, no gate.
+  - v5 — The "Key Flows" section is split out of `docs/CODE_SUMMARY.md` into its own dedicated
+    file, `docs/KEY_FLOWS.md`. `docs/CODE_SUMMARY.md` now carries only a single pointer line to
+    it. Bootstrap Step 2a creates `docs/KEY_FLOWS.md` (minimal header, empty entries are fine)
+    when it doesn't yet exist, and migrates any existing "Key Flows" entries out of
+    `docs/CODE_SUMMARY.md` on the next Bootstrap run for projects that predate this split. The
+    migration is guarded to run only while `docs/CODE_SUMMARY.md` still contains a "Key Flows"
+    section, so it is idempotent — once migrated and the section removed, re-running Bootstrap
+    will not re-migrate or duplicate entries. Bootstrap's update-trigger bullet (Step 6) and End
+    Session Step 3a now update `docs/KEY_FLOWS.md` directly instead of a section inside
+    `docs/CODE_SUMMARY.md`. Begin Session's Step 2 existence checklist now also checks for
+    `docs/KEY_FLOWS.md`. Projects bootstrapped before v5 should re-run Bootstrap to get their
+    existing Key Flows entries migrated into the new file.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -243,6 +255,7 @@ Bootstrap or End Session.
    `file_search` or another filename-index/workspace search tool) whether each of these files
    exists:
    - `docs/CODE_SUMMARY.md`
+   - `docs/KEY_FLOWS.md`
    - `docs/DESIGN_DECISIONS.md`
    - `docs/PROJECT_STATE.md`
    - `docs/ROADMAP.md`
@@ -297,13 +310,14 @@ Bootstrap persistent project memory for this codebase so future chat sessions ca
 resumed cheaply (low token usage) instead of re-exploring the codebase or re-summarizing
 conversation history every time.
 
-This workflow is project-agnostic and idempotent for the four memory files
-(`docs/CODE_SUMMARY.md`, `DESIGN_DECISIONS.md`, `PROJECT_STATE.md`, `ROADMAP.md`): if they
-already exist, review and update them incrementally instead of overwriting/duplicating content.
-This incremental/merge-safe rule applies ONLY to those four files — it does not apply to the
-"Persistent Project Memory" section of `.github/copilot-instructions.md` (see Step 6, which is
-fully regenerated every run) nor override the merge-safe handling separately specified for
-"Project Guidelines"/"Response Guidelines" in Steps 7-8.
+This workflow is project-agnostic and idempotent for the five memory files
+(`docs/CODE_SUMMARY.md`, `KEY_FLOWS.md`, `DESIGN_DECISIONS.md`, `PROJECT_STATE.md`,
+`ROADMAP.md`): if they already exist, review and update them incrementally instead of
+overwriting/duplicating content. This incremental/merge-safe rule applies ONLY to those five
+files — it does not apply to the "Persistent Project Memory" section of
+`.github/copilot-instructions.md` (see Step 6, which is fully regenerated every run) nor
+override the merge-safe handling separately specified for "Project Guidelines"/"Response
+Guidelines" in Steps 7-8.
 
 ### Steps
 
@@ -322,9 +336,28 @@ fully regenerated every run) nor override the merge-safe handling separately spe
    - A Mermaid `graph LR` dependency graph of projects/components.
    - A symbol index table (`Symbol | File | Responsibility`) per project, limited to
 	 structural/entry-point classes and services — not every file.
-   - A "Key Flows" section describing 2-5 important end-to-end flows as short arrow chains
-	 (e.g., `A -> B -> C`).
+   - A single pointer line to the dedicated flows file, e.g. "See `docs/KEY_FLOWS.md` for traced
+	 end-to-end call flows." Do not put a "Key Flows" section or arrow-chain entries directly in
+	 this file — those live in `docs/KEY_FLOWS.md` (see Step 2a).
    - Keep this file concise: prefer tables/graphs over prose.
+
+2a. Create or update `docs/KEY_FLOWS.md`, a dedicated file containing only traced end-to-end
+	call flows as short symbol arrow-chains (e.g., `A -> B -> C`), with an optional one-line
+	pointer to `docs/domain-lookup-patterns.md` when a flow involves an already-documented
+	domain convention (same pointer format as described under Step 6's update rules).
+	- If it does not exist yet, create it with a minimal header (e.g. `# Key Flows`) and no
+	  entries. Unlike `docs/domain-lookup-patterns.md`, an empty `docs/KEY_FLOWS.md` is fine —
+	  entries are added incrementally as flows are traced, not gated on a "real pattern
+	  confirmed" rule.
+	- Migration (idempotent — check the guard below before doing this): if `docs/CODE_SUMMARY.md`
+	  still contains a "Key Flows" section with entries from before this file existed, move those
+	  entries into `docs/KEY_FLOWS.md` now and remove the "Key Flows" section (and its entries)
+	  from `docs/CODE_SUMMARY.md` entirely, replacing it with the pointer line described in
+	  Step 2. The presence of a "Key Flows" section in `docs/CODE_SUMMARY.md` IS the guard: if
+	  that section is not present (already migrated on a prior run, or a fresh project that never
+	  had one), do not migrate anything and do not touch `docs/KEY_FLOWS.md`'s existing content —
+	  this is what makes the migration safe to run every Bootstrap invocation without ever
+	  duplicating entries or re-migrating twice.
 
 3. Create or update `docs/DESIGN_DECISIONS.md` (append-only, dated log) seeded with any
    non-obvious architectural/design choices you can infer from the existing code or recent
@@ -396,20 +429,23 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	 graph/domain-lookup work.
    - Update `docs/CODE_SUMMARY.md` when: a new project is added, a new structural class/service
 	 is added, a component's responsibility changes, or a project/component dependency changes.
-	 Do not update for routine bug fixes or small edits that don't affect structure. Also update
-	 its "Key Flows" section when a new end-to-end flow spanning multiple C# symbols is fully
-	 traced and confirmed during the session (e.g., via a graph query and/or a domain lookup
-	 pattern investigation): add it as a short arrow-chain (e.g., `A -> B -> C -> D`), consistent
-	 with the existing entries. Skip if no such flow was traced. Key Flows entries remain short
-	 symbol arrow-chains only — no domain-specific details (e.g. specific config/XML file names
-	 or device-specific values), which belong in `docs/domain-lookup-patterns.md` instead. If a
-	 relevant `docs/domain-lookup-patterns.md` entry already exists for that specific flow (the
-	 flow involves a domain convention already documented there), append a short one-line
-	 pointer to the Key Flows entry referencing it, e.g. `ImageTransferInitiate ->
-	 ImageBlockTransfer -> ImageVerify -> ImageActivate (see domain-lookup-patterns.md for OBIS
-	 code mapping)` — this is a pointer only, never pull domain-specific details themselves into
-	 CODE_SUMMARY.md. Only add the pointer if a relevant entry genuinely already exists; skip
-	 silently (no pointer) if none exists — do not invent, infer, or speculatively cross-reference.
+	 Do not update for routine bug fixes or small edits that don't affect structure. Ensure the
+	 pointer line to `docs/KEY_FLOWS.md` (see Step 2) stays present; do not add Key Flows entries
+	 directly to `docs/CODE_SUMMARY.md`.
+   - Update `docs/KEY_FLOWS.md` directly (not `docs/CODE_SUMMARY.md`) when a new end-to-end flow
+	 spanning multiple C# symbols is fully traced and confirmed during the session (e.g., via a
+	 graph query and/or a domain lookup pattern investigation): add it as a short arrow-chain
+	 (e.g., `A -> B -> C -> D`), consistent with the existing entries. Skip if no such flow was
+	 traced. Key Flows entries remain short symbol arrow-chains only — no domain-specific details
+	 (e.g. specific config/XML file names or device-specific values), which belong in
+	 `docs/domain-lookup-patterns.md` instead. If a relevant `docs/domain-lookup-patterns.md`
+	 entry already exists for that specific flow (the flow involves a domain convention already
+	 documented there), append a short one-line pointer to the Key Flows entry referencing it,
+	 e.g. `ImageTransferInitiate -> ImageBlockTransfer -> ImageVerify -> ImageActivate (see
+	 domain-lookup-patterns.md for OBIS code mapping)` — this is a pointer only, never pull
+	 domain-specific details themselves into `docs/KEY_FLOWS.md`. Only add the pointer if a
+	 relevant entry genuinely already exists; skip silently (no pointer) if none exists — do not
+	 invent, infer, or speculatively cross-reference.
    - Update `docs/DESIGN_DECISIONS.md` (append-only, dated entries) when: a non-obvious
 	 architectural/design choice is made, an alternative approach is rejected with a reason, or
 	 a past decision is reversed. Never delete prior entries.
@@ -459,14 +495,14 @@ fully regenerated every run) nor override the merge-safe handling separately spe
 	  is fully owned by this skill, unlike the docs/*.md files, so overwriting it is always safe
 	  and does not need a confirmation prompt.
 
-11. If any of the four `docs/*.md` memory files already exist from a prior bootstrap, do not
+11. If any of the five `docs/*.md` memory files already exist from a prior bootstrap, do not
 	overwrite blindly: read them first, then merge/update only what's missing or outdated. This
-	rule applies ONLY to those four files. It does NOT apply to `.github/copilot-instructions.md`:
-	its "Persistent Project Memory" section (Step 6) must always be force-checked and fully
-	regenerated/overwritten this run even if `copilot-instructions.md` already exists — never
-	skip Step 6 on the grounds that the file already exists. Its "Project Guidelines" (Step 7)
-	and "Response Guidelines" (Step 8) sections remain separately merge-safe/additive-only, as
-	specified in those steps.
+	rule applies ONLY to those five files (now including `docs/KEY_FLOWS.md`). It does NOT apply
+	to `.github/copilot-instructions.md`: its "Persistent Project Memory" section (Step 6) must
+	always be force-checked and fully regenerated/overwritten this run even if
+	`copilot-instructions.md` already exists — never skip Step 6 on the grounds that the file
+	already exists. Its "Project Guidelines" (Step 7) and "Response Guidelines" (Step 8) sections
+	remain separately merge-safe/additive-only, as specified in those steps.
 
 12. Report back a short summary of what was created/updated, the graph's node/edge counts and
 	build time, and confirm the build still succeeds.
@@ -502,21 +538,24 @@ sweep). This keeps the closing update low-token.
    class/service, changed responsibility, changed project dependency) and is not already
    reflected, update the relevant section of `docs/CODE_SUMMARY.md` inline. Do not re-derive the
    whole file or re-scan unrelated parts of the codebase. Skip if the file does not exist or if
-   no structural change occurred.
+   no structural change occurred. Ensure the pointer line to `docs/KEY_FLOWS.md` stays present;
+   do not add Key Flows entries directly to `docs/CODE_SUMMARY.md`.
 
-   Also update the "Key Flows" section if a new end-to-end flow spanning multiple C# symbols
-   was fully traced and confirmed during this session (e.g., via a graph query and/or a domain
-   lookup pattern investigation): add it as a short arrow-chain (e.g., `A -> B -> C -> D`),
-   consistent with the existing entries. Skip if no such flow was traced. Keep entries as short
-   symbol arrow-chains only — no domain-specific details (e.g. specific config/XML file names or
-   device-specific values), which belong in `docs/domain-lookup-patterns.md` instead. If a
-   relevant `docs/domain-lookup-patterns.md` entry already exists for that specific flow (the
-   flow involves a domain convention already documented there), append a short one-line pointer
-   to the Key Flows entry referencing it, e.g. `ImageTransferInitiate -> ImageBlockTransfer ->
-   ImageVerify -> ImageActivate (see domain-lookup-patterns.md for OBIS code mapping)` — this is
-   a pointer only, never pull domain-specific details themselves into CODE_SUMMARY.md. Only add
-   the pointer if a relevant entry genuinely already exists; skip silently (no pointer) if none
-   exists — do not invent, infer, or speculatively cross-reference.
+3a. Update `docs/KEY_FLOWS.md` directly (not `docs/CODE_SUMMARY.md`) if a new end-to-end flow
+    spanning multiple C# symbols was fully traced and confirmed during this session (e.g., via a
+    graph query and/or a domain lookup pattern investigation): add it as a short arrow-chain
+    (e.g., `A -> B -> C -> D`), consistent with the existing entries. Skip if no such flow was
+    traced, or if `docs/KEY_FLOWS.md` does not exist (End Session does not create it — that's
+    Bootstrap's job). Keep entries as short symbol arrow-chains only — no domain-specific
+    details (e.g. specific config/XML file names or device-specific values), which belong in
+    `docs/domain-lookup-patterns.md` instead. If a relevant `docs/domain-lookup-patterns.md`
+    entry already exists for that specific flow (the flow involves a domain convention already
+    documented there), append a short one-line pointer to the Key Flows entry referencing it,
+    e.g. `ImageTransferInitiate -> ImageBlockTransfer -> ImageVerify -> ImageActivate (see
+    domain-lookup-patterns.md for OBIS code mapping)` — this is a pointer only, never pull
+    domain-specific details themselves into `docs/KEY_FLOWS.md`. Only add the pointer if a
+    relevant entry genuinely already exists; skip silently (no pointer) if none exists — do not
+    invent, infer, or speculatively cross-reference.
 
 4. Do not modify `docs/ROADMAP.md` unless the user explicitly discussed a priority/plan change in
    this session.
