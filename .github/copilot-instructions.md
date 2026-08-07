@@ -64,6 +64,10 @@ if this repo ever gains a real C# solution and Bootstrap is re-run.
 - Manual commit review before any commit.
 - Build/test verification after every change.
 - Do not commit or push automatically — wait for explicit user confirmation first.
+- Any commit made in this repo must use the git identity email `citsuresh@rediffmail.com` (set
+  via local `git config user.email`, not the global default). Verify `git config user.email`
+  resolves to this before committing; if it doesn't, set it locally first rather than committing
+  under the wrong identity.
 - Skill update workflow: when asked to change a skill's `SKILL.md` (or other skill file) in this
   repo, follow this sequence and do not skip or reorder steps:
   1. Make the change in a temporary copy of the file (not the real `SKILL.md`), and show a
