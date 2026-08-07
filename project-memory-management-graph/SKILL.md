@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 6`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 8`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -90,6 +90,35 @@ re-sync — without the user having to remember or manually redo anything per pr
     without explicit user direction. Like `docs/domain-lookup-patterns.md`, this file is never
     created as an empty placeholder during Bootstrap — it only comes into existence the first
     time the user explicitly asks to add something.
+  - v7 — "Adding an entry" for `docs/KNOWN_OPEN_FINDINGS.md` now requires a similarity check
+    before adding: if the file already exists, Copilot reads it and checks whether the new item
+    resembles an existing entry, then asks the user directly rather than deciding on its own
+    whether it's the same issue recurring or something new. Confirmed recurrences update the
+    existing entry's last-seen date and occurrence count in place instead of creating a
+    duplicate; anything else (or no confirmation) is added as a new entry. The "Core rule" bullet
+    is clarified to call out this similarity check as the one exception to "never decide on your
+    own" — Copilot may surface a possible match, but the same-issue-vs-new-issue classification
+    is always the user's call.
+  - v8 — Added "docs-only mode" to Bootstrap for repos with no C# solution to build a graph from
+    (e.g., a repo containing only documentation/markdown, no `.sln`/`.slnx` anywhere). A new
+    Step 0a detects this early (as part of repo-root/path resolution) by finding all `.sln`/`.slnx`
+    files anywhere in the repo. If none are found, the rest of that Bootstrap run skips Step 9
+    (graph build) and any GraphTools invocation entirely, `docs/CODE_SUMMARY.md` replaces its
+    Mermaid dependency graph/symbol index/Key Flows pointer with a short note that no C# solution
+    was detected, and `docs/KEY_FLOWS.md` is not created (even as an empty placeholder) since
+    there's no code to trace flows through. If solutions are found, Step 0a also guards against a
+    stray sample/reference solution (e.g., `examples\SampleApp.sln`) being mistaken for the repo's
+    real code or, conversely, causing a docs-only repo to be misclassified: if every found
+    solution's path contains a suspicious keyword (`sample`, `example`, `test`, `fixture`, `demo`,
+    `playground`), Copilot asks the user whether to use that solution or treat the repo as
+    docs-only, instead of silently guessing either way; if at least one found solution's path has
+    no such keyword, it's used normally without asking. The other four memory files
+    (`docs/PROJECT_STATE.md`, `DESIGN_DECISIONS.md`, `ROADMAP.md`, `domain-lookup-patterns.md`)
+    and `docs/KNOWN_OPEN_FINDINGS.md` are unaffected. Step 12's final report now states explicitly
+    when docs-only mode was detected and the graph build was skipped, so it reads as expected
+    behavior rather than an incomplete or failed run. Begin Session, End Session, and Workflow 0
+    needed no changes — their existing conditional handling of missing graph files already
+    behaves correctly here, since the graph simply never exists in this mode.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -258,12 +287,28 @@ C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<p
 - Core rule: Copilot NEVER adds, edits, or removes entries in this file without the user
   explicitly asking to. This is not a mechanism Copilot works on independently — do not scan for
   candidate findings, do not maintain or refresh it proactively, and do not infer entries from
-  session content on your own.
+  session content on your own. The one exception is the similarity check described below: Copilot
+  may check for and surface a possible match against an existing entry, but the classification
+  (same issue recurring vs. a genuinely new issue) is always the user's call, never Copilot's.
 - Adding an entry: only when the user explicitly says to add something (e.g., "add this to known
-  open findings," "track this"). Capture: date, a short description of the finding (the
-  issue/exception and context), and any analysis or suggested fix already discussed in the
-  session. Reply simply confirming it was added — nothing more (no restating the full entry back,
-  no unsolicited summary).
+  open findings," "track this"). Before adding, if `docs/KNOWN_OPEN_FINDINGS.md` already exists,
+  read it first and check whether the new item resembles an existing entry (similar
+  error/exception, same area of code, same underlying symptom). This is a check, not a decision:
+  - If no existing entry looks similar, add a new entry as before.
+  - If one or more existing entries look similar, do NOT decide on your own whether it's the same
+    issue recurring or a genuinely different one — ask the user directly (e.g., "this looks
+    similar to the entry from `<date>` about `<short description>` — is this the same issue
+    recurring, or something new?"). Only proceed once the user answers.
+  - If the user confirms it's the same issue recurring: update the existing entry in place —
+    update its "last seen" date and increment its occurrence count (see entry format below) —
+    rather than creating a new entry.
+  - If the user says it's different (or doesn't confirm a match), add it as a new, separate entry.
+
+  Each entry captures: first-seen date, last-seen date, occurrence count (starts at 1), a short
+  description of the finding (the issue/exception and context), and any analysis or suggested fix
+  already discussed in the session. When adding a new entry, reply simply confirming it was
+  added. When updating an existing entry's count/date, reply simply confirming the update —
+  nothing more (no restating the full entry back, no unsolicited summary).
 - Do NOT create this file upfront or as an empty placeholder during Bootstrap or on any project
   regardless of size — same rule as `docs/domain-lookup-patterns.md`: it only comes into
   existence the first time the user explicitly asks to add something.
@@ -366,11 +411,38 @@ files — it does not apply to the "Persistent Project Memory" section of
 override the merge-safe handling separately specified for "Project Guidelines"/"Response
 Guidelines" in Steps 7-8.
 
+Some repos have no C# solution to build a graph from at all (e.g., a repo containing only
+documentation/markdown, no `.sln`/`.slnx` anywhere) — see Step 0a's "docs-only mode" detection,
+which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaffected.
+
 ### Steps
 
 0. Run "Workflow 0: Version Check" above first, before anything else in this workflow (if the
    version check itself already ran Bootstrap as part of resolving staleness, skip re-running
    steps 1-12 below — that Bootstrap run already satisfies this invocation).
+
+0a. Detect docs-only mode: after resolving the repo root (see "Path resolution" above), find all
+    `.sln`/`.slnx` files anywhere in the repo (e.g.
+    `Get-ChildItem -Recurse -Include *.sln,*.slnx` from the repo root — recursive, not top-level
+    only, since real, intentionally-nested solutions (e.g., under a `Solutions\` subfolder) must
+    still be found).
+    - If none are found: treat this as **docs-only mode** for the remainder of this Bootstrap
+      run — a repo with no C# solution to build a code knowledge graph from. Docs-only mode
+      changes only Steps 2, 2a, 9, and 12 (each notes its docs-only-mode behavior inline below);
+      every other step proceeds exactly as normal, since none of them depend on a C# solution.
+      No ambiguity here — proceed without asking.
+    - If at least one found solution's path does NOT contain a suspicious keyword (case-insensitive
+      check against: `sample`, `example`, `test`, `fixture`, `demo`, `playground`), proceed
+      normally using that solution (or those solutions) — this is a clear enough signal that a
+      real solution exists, no need to ask.
+    - If solutions were found but every single one has a suspicious keyword in its path (i.e. the
+      only candidates found look like samples/examples — e.g. a stray reference solution someone
+      dropped into an otherwise docs-only repo, such as `examples\SampleApp.sln`), do NOT silently
+      conclude either "docs-only" or "use this solution." Ask the user directly, e.g.: "Found a
+      solution at `<path>`, but its location suggests it may be a sample/example rather than the
+      repo's real code. Should this be used to build the graph, or should this repo be treated as
+      docs-only?" Proceed based on the user's answer (use the solution normally, or apply
+      docs-only mode as described above) — do not guess.
 
 1. Discover structure: use `get_projects_in_solution` and `get_files_in_project` (or
    equivalent workspace exploration) to enumerate projects, key classes/services, and
@@ -387,11 +459,21 @@ Guidelines" in Steps 7-8.
 	 end-to-end call flows." Do not put a "Key Flows" section or arrow-chain entries directly in
 	 this file — those live in `docs/KEY_FLOWS.md` (see Step 2a).
    - Keep this file concise: prefer tables/graphs over prose.
+   - Docs-only mode (see Step 0a): omit the Mermaid dependency graph, the symbol index table,
+	 and the pointer line to `docs/KEY_FLOWS.md` (that file is not created in this mode — see
+	 Step 2a) entirely. Replace all three with a single short note: "No C# solution detected in
+	 this repo; tracked in docs-only mode (no code graph)." The project overview line still
+	 applies — adapt it to describe what the repo's docs/content cover instead of an app/library's
+	 tech stack.
 
 2a. Create or update `docs/KEY_FLOWS.md`, a dedicated file containing only traced end-to-end
 	call flows as short symbol arrow-chains (e.g., `A -> B -> C`), with an optional one-line
 	pointer to `docs/domain-lookup-patterns.md` when a flow involves an already-documented
 	domain convention (same pointer format as described under Step 6's update rules).
+	- Docs-only mode (see Step 0a): skip this entire step — do NOT create `docs/KEY_FLOWS.md`,
+	  not even as an empty placeholder, since there's no code to trace flows through. It can
+	  still be created later, manually, if the user ever explicitly asks to track something
+	  flow-like, but Bootstrap itself does not create it while in docs-only mode.
 	- If it does not exist yet, create it with a minimal header (e.g. `# Key Flows`) and no
 	  entries. Unlike `docs/domain-lookup-patterns.md`, an empty `docs/KEY_FLOWS.md` is fine —
 	  entries are added incrementally as flows are traced, not gated on a "real pattern
@@ -523,7 +605,9 @@ Guidelines" in Steps 7-8.
    This step is also merge-safe: if the section already exists, only add what's missing
    without removing or rewriting existing content.
 
-9. Build the knowledge graph: run
+9. Docs-only mode (see Step 0a): skip this step entirely — do not attempt to run the GraphTools
+   wrapper or `GraphTools.Builder.exe` against a nonexistent solution. Otherwise, build the
+   knowledge graph: run
    `<GraphTools wrapper path> -Tool Builder -- --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode full`.
    This also produces `project-dependencies.json` in the same `docs/` folder. If
    `full-graph.json` already exists from a prior Bootstrap run, this step still does a fresh
@@ -552,7 +636,10 @@ Guidelines" in Steps 7-8.
 	remain separately merge-safe/additive-only, as specified in those steps.
 
 12. Report back a short summary of what was created/updated, the graph's node/edge counts and
-	build time, and confirm the build still succeeds.
+	build time, and confirm the build still succeeds. Docs-only mode (see Step 0a): report this
+	explicitly and plainly (e.g., "Docs-only mode detected — no `.sln`/`.slnx` found in this repo;
+	graph build skipped.") instead of node/edge counts or build confirmation, so it reads as
+	expected behavior for this repo, not an incomplete or failed run.
 
 ## Workflow 2: End Session
 
