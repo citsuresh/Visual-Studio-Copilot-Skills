@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 8`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 9`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -119,6 +119,19 @@ re-sync — without the user having to remember or manually redo anything per pr
     behavior rather than an incomplete or failed run. Begin Session, End Session, and Workflow 0
     needed no changes — their existing conditional handling of missing graph files already
     behaves correctly here, since the graph simply never exists in this mode.
+  - v9 — Added the "Regression Auditor Protocol" section: a continuous code-review discipline
+    (Pre-Build Decomposition, Regression Audit via an independent subagent, Recurrence
+    Escalation, Quality Bar Anchoring, a no-confidence-language reporting rule, and a
+    session-scoped opt-out that by default suspends both the audit and pre-build decomposition
+    together for POC/throwaway work) that applies whenever Copilot makes code changes in a
+    project using this skill. Ported from a parallel Android Studio/Gemini setup, where this
+    pattern was validated across three real parts of a real feature (with two follow-up fixes
+    already applied there) before being ported here. This protocol lives in this skill (rather
+    than as a separate mechanism) for the same reason `docs/KNOWN_OPEN_FINDINGS.md` does: it
+    benefits from this skill's existing versioning/Bootstrap propagation. It is intentionally
+    NOT wired into Begin Session, Bootstrap, or End Session's steps — it applies continuously
+    during active code-change work within a session, not at session-start/end checkpoints, and
+    needs no file-existence checks or new files of its own.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -324,6 +337,84 @@ C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<p
 - Unlike `docs/CODE_SUMMARY.md` and `docs/DESIGN_DECISIONS.md`, this file is NOT merge-safe or
   auto-refreshed during Bootstrap/End Session — it is entirely user-curated; only touch it in
   direct response to the user explicitly asking to add, edit, or remove something.
+
+## Regression Auditor Protocol
+
+A continuous code-review discipline that applies whenever Copilot makes code changes in a
+project using this skill — distinct from project-memory management, but living in the same
+skill for the same reason `docs/KNOWN_OPEN_FINDINGS.md` does: it benefits from this skill's
+existing versioning/Bootstrap propagation rather than needing a separate mechanism. This protocol
+is NOT wired into Begin Session, Bootstrap, or End Session's steps — it applies continuously
+during active code-change work within a session, not at session-start/end checkpoints. It needs
+no file-existence checks and creates no new files of its own.
+
+1. **Regression Audit Protocol.** Before considering any code change complete: after each
+   meaningful part of a multi-part change, and once more after the full change is complete,
+   invoke a subagent (via the `runSubagent` tool) with this brief: "Act as a Regression Auditor.
+   Review this change specifically for: (1) any existing behavior, caller, or shared state this
+   diff could have altered without being asked to — check imports, method signatures, callers of
+   anything touched, and any config/state other code relies on; (2) whether the change
+   contradicts or duplicates anything already established elsewhere in the codebase; (3) if a
+   build/test can be run, run it and report actual results, not just a read-through — skip this
+   check only if the repo has no buildable code (e.g. docs-only mode, see above) or no test
+   infrastructure exists; (4) for every finding, explicitly classify it as one of: (a) unrelated
+   to the agreed breakdown — treat as out-of-scope, or (b) within the scope of an already-planned
+   future part of the breakdown — name which part, flagged as 'expected to be addressed in Part
+   N.' If you find an issue outside the current scope, report it only — do not investigate
+   further, do not touch it, do not suggest fixing it now, even if it looks trivial; note it as a
+   candidate for `docs/KNOWN_OPEN_FINDINGS.md` instead (see that section above — same
+   explicit-confirmation rule applies; the auditor never adds to that file itself). For issues
+   within scope, propose a fix as a suggested diff only — never apply it yourself."
+
+2. **Pre-Build Decomposition Protocol.** Before implementing any non-trivial multi-part change,
+   propose a breakdown into the smallest independently-reviewable pieces and present it to the
+   user for confirmation before writing any code. Do not decide pieces ad hoc as implementation
+   proceeds. If a piece turns out too tightly coupled to review separately, say so and propose
+   combining, rather than silently reviewing together without flagging it.
+
+3. **Independent Review Requirement.** The Regression Auditor subagent must review the diff
+   independently, without relying on or referencing any prior explanation of why the change is
+   correct that may exist in context. Do not pass the builder's own rationale into the
+   subagent's brief; it forms its assessment from the code itself.
+
+4. **Recurrence Escalation.** If the Regression Auditor reports the same underlying issue two or
+   more times across attempted fixes for the same change, stop attempting further incremental
+   fixes. Tell the user directly and recommend starting a fresh, focused context to address the
+   issue specifically, rather than continuing to iterate in an increasingly crowded one.
+
+5. **Quality Bar Anchoring.** When judging whether new code is "good" or "correct" beyond
+   functional regressions, anchor to something concrete: prefer existing conventions already
+   established elsewhere in the codebase (naming, structure, error-handling patterns), explicit
+   written acceptance criteria for genuinely new functionality, or passing tests — in that order.
+   Avoid open-ended quality judgments with no concrete reference point.
+
+6. **No confidence language.** The subagent's report must state only what was checked and what
+   was found — never characterize the overall result with confidence language ("robust,"
+   "certified," "solid," "production-ready," etc.). Findings and verification steps are facts;
+   whether the result is good enough is the user's judgment, never the auditor's or builder's to
+   declare.
+
+7. **Reporting and approval rules** (apply across all six rules above): Always surface the full
+   Review Report to the user before proceeding. Never summarize it away. Never apply any
+   proposed fix without explicit user approval. Never act on out-of-scope findings. Protocol 2's
+   proposed breakdown requires explicit user confirmation before implementation begins. Protocol
+   4's recommendation to start a fresh context requires the user's decision — never start a new
+   context unilaterally.
+
+8. **Session-scoped opt-out.** The user may explicitly ask to suspend the Regression Auditor
+   Protocol for the current session only (e.g., "skip regression review for this session," "this
+   is just a POC, don't run the auditor"). By default, such a request suspends BOTH Protocol 1
+   (Regression Audit) and Protocol 2 (Pre-Build Decomposition) together — the user is opting into
+   faster, less-deliberate work for the session (e.g. a POC or throwaway spike), not just skipping
+   one specific check. If the user's request seems to target only one of the two (e.g., explicitly
+   says "skip the audit but still confirm the breakdown with me first"), ask to confirm rather than
+   assuming; otherwise suspend both by default. If asked, confirm the scope explicitly back to the
+   user (e.g., "Understood — Regression Auditor and Pre-Build Decomposition both suspended for this
+   session only; they'll be back in effect next session") and do not invoke the subagent or
+   propose a breakdown for confirmation for the remainder of that session. This suspension is
+   never written to any file and never persists beyond the current session — it must be
+   re-requested each time. If the user's request is ambiguous about scope (e.g., just "stop
+   reviewing" with no session/permanent distinction), ask which they mean rather than assuming.
 
 ## Workflow: Begin Session
 
