@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 5`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 6`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -77,6 +77,19 @@ re-sync — without the user having to remember or manually redo anything per pr
     `docs/CODE_SUMMARY.md`. Begin Session's Step 2 existence checklist now also checks for
     `docs/KEY_FLOWS.md`. Projects bootstrapped before v5 should re-run Bootstrap to get their
     existing Key Flows entries migrated into the new file.
+  - v6 — Added a new passive, user-controlled reference file, `docs/KNOWN_OPEN_FINDINGS.md`, for
+    open/unresolved findings the user explicitly chooses not to act on immediately (see "Known
+    open findings capture" below). Copilot never adds, edits, or removes entries without the
+    user explicitly asking to — this is not a Copilot-driven mechanism, unlike the other
+    docs/*.md files. Begin Session's Step 2 existence checklist now also checks for this file,
+    and Step 3 mentions the open-finding count briefly if the file exists and has entries. End
+    Session gains a new step asking the user directly whether anything from the session should
+    be added to it; entries are only added on explicit confirmation. The one proactive behavior
+    allowed is recurrence flagging: if a session issue resembles an existing entry, Copilot may
+    suggest addressing it now, but must never update, resolve, or otherwise act on the entry
+    without explicit user direction. Like `docs/domain-lookup-patterns.md`, this file is never
+    created as an empty placeholder during Bootstrap — it only comes into existence the first
+    time the user explicitly asks to add something.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -236,6 +249,37 @@ C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<p
   a graph query alone wasn't enough to resolve it (so future sessions know when to expect this
   gap and reference the pattern instead of re-discovering it).
 
+## Known open findings capture (purely user-controlled; not a Copilot-driven mechanism)
+
+- Purpose: `docs/KNOWN_OPEN_FINDINGS.md` is a passive, user-controlled reference list for open,
+  unresolved findings the user has explicitly chosen not to act on immediately (e.g., an unusual
+  exception surfaced during debugging that the user wants to keep as a reference, not fix right
+  now) — a way to record and recall them later, not a task/bug tracker Copilot maintains.
+- Core rule: Copilot NEVER adds, edits, or removes entries in this file without the user
+  explicitly asking to. This is not a mechanism Copilot works on independently — do not scan for
+  candidate findings, do not maintain or refresh it proactively, and do not infer entries from
+  session content on your own.
+- Adding an entry: only when the user explicitly says to add something (e.g., "add this to known
+  open findings," "track this"). Capture: date, a short description of the finding (the
+  issue/exception and context), and any analysis or suggested fix already discussed in the
+  session. Reply simply confirming it was added — nothing more (no restating the full entry back,
+  no unsolicited summary).
+- Do NOT create this file upfront or as an empty placeholder during Bootstrap or on any project
+  regardless of size — same rule as `docs/domain-lookup-patterns.md`: it only comes into
+  existence the first time the user explicitly asks to add something.
+- Recurrence flagging (the one proactive behavior allowed): if, during a session, an issue comes
+  up that resembles an existing entry in `docs/KNOWN_OPEN_FINDINGS.md`, Copilot may point this
+  out and suggest it might be worth addressing now (e.g., "this looks like the same issue noted
+  on `<date>` — it's come up again, want to look into fixing it?") — but this is a suggestion
+  only. Never update the entry, mark it resolved, or take any action on it without the user
+  explicitly directing it to.
+- When investigating an exception, error, or unexpected issue during a session, if
+  `docs/KNOWN_OPEN_FINDINGS.md` exists, check it for a possible match before treating the issue as
+  entirely new — this is what enables recurrence flagging.
+- Unlike `docs/CODE_SUMMARY.md` and `docs/DESIGN_DECISIONS.md`, this file is NOT merge-safe or
+  auto-refreshed during Bootstrap/End Session — it is entirely user-curated; only touch it in
+  direct response to the user explicitly asking to add, edit, or remove something.
+
 ## Workflow: Begin Session
 
 Optional, lightweight session-start readiness check. This is a cheap way to deterministically
@@ -260,6 +304,7 @@ Bootstrap or End Session.
    - `docs/PROJECT_STATE.md`
    - `docs/ROADMAP.md`
    - `docs/domain-lookup-patterns.md` (optional; absence is normal, not an error)
+   - `docs/KNOWN_OPEN_FINDINGS.md` (optional; absence is normal, not an error)
    - `docs/full-graph.json`
    - `docs/project-dependencies.json`
 
@@ -293,9 +338,11 @@ Bootstrap or End Session.
 
 3. Report back briefly: which of the files above were found and which were missing, the Step 2a
    graph-staleness result (if applicable), plus a one-line readiness summary (for example, the
-   current focus line from `docs/PROJECT_STATE.md` if present). Keep this short: this is a
-   readiness check only, not a full project-state summary and not a re-derivation of
-   `CODE_SUMMARY.md` or End Session output.
+   current focus line from `docs/PROJECT_STATE.md` if present). If `docs/KNOWN_OPEN_FINDINGS.md`
+   exists and contains entries, mention the count briefly (e.g. "3 open findings on record") —
+   just a mention, not a listing or summary of each entry. Keep this short: this is a readiness
+   check only, not a full project-state summary and not a re-derivation of `CODE_SUMMARY.md` or
+   End Session output.
 
 4. Do NOT rebuild the graph, run `GraphTools.Builder.exe`, re-scan the codebase, or create any
    missing file as part of Begin Session. That work belongs to Bootstrap. If the core memory
@@ -573,7 +620,15 @@ sweep). This keeps the closing update low-token.
    If `full-graph.json` does not exist, skip this step silently (do not build it fresh here —
    that is Bootstrap's job).
 
-7. Report back a short (2-5 line) summary of what was updated (or confirm nothing needed
+7. Ask the user directly (via `ask_user`, not an inference): "Anything from this session you'd
+   like to add to Known Open Findings?" This is the only place End Session prompts for this — do
+   not scan the session for candidates or add anything on your own. Only if the user identifies
+   something to add, capture it in `docs/KNOWN_OPEN_FINDINGS.md` per the "Known open findings
+   capture" rule above (date, short description, any analysis/fix already discussed), creating
+   the file if it doesn't exist yet. If the user says no or there's nothing to add, skip silently
+   — do not create the file and do not add anything.
+
+8. Report back a short (2-5 line) summary of what was updated (or confirm nothing needed
    updating), including the graph's changed-file count and updated node/edge counts if step 6
    ran.
 
