@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 9`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 10`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -132,6 +132,22 @@ re-sync — without the user having to remember or manually redo anything per pr
     NOT wired into Begin Session, Bootstrap, or End Session's steps — it applies continuously
     during active code-change work within a session, not at session-start/end checkpoints, and
     needs no file-existence checks or new files of its own.
+  - v10 — Initialize gains a new step that writes a "session-start auto-invocation hook" bullet
+    into the target project's `.github/copilot-instructions.md` "Project Guidelines" section:
+    an instruction telling Copilot to automatically invoke this skill's Begin Session step on the
+    very first user message of a new chat session (skippable only for clearly self-contained,
+    codebase-unrelated first prompts), without asking for confirmation each time. Previously this
+    block was hand-added per project outside of any workflow; it is now part of what Initialize
+    does automatically so every project gets it consistently and it's covered by this skill's own
+    versioning/staleness-check mechanism going forward. The step is idempotent (it searches for an
+    existing block containing the phrase "Begin Session step" first and leaves the file alone if
+    found) and gates the actual write behind an explicit `ask_user` confirmation, since it changes
+    Copilot's autonomous behavior for every future session in the project, not just docs content.
+    Workflow 0's Step 3 guidance is also broadened: a changelog entry that says Initialize itself
+    gained/changed a step (not only "prompt-file templates changed") is now also a valid reason to
+    suggest re-running Initialize on an already-bootstrapped, stale project — safe to do because
+    Initialize's own steps (including this one) only add what's missing rather than overwriting.
+    Bootstrap's other steps, Begin Session, and End Session are otherwise unchanged.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -168,7 +184,10 @@ should never be "stale," but should still record the current version).
      choice: re-run Bootstrap (it fully regenerates the "Persistent Project Memory" section,
      including the version marker, and is idempotent/merge-safe for the four memory docs per
      its own rules) — only suggest also re-running Initialize if a changelog entry between
-     `<stored>` and current explicitly says the prompt-file templates changed.
+     `<stored>` and current explicitly says the prompt-file templates changed, or that Initialize
+     itself gained/changed a step (e.g. v10's session-start hook block). Re-running Initialize in
+     that case is safe even on an already-initialized project: Initialize's own steps only add
+     what's missing (searching for existing content first) rather than overwriting.
    - If the user confirms, run Bootstrap (and Initialize too, only if indicated) now, then
      continue with whatever workflow was originally requested (unless the originally requested
      workflow *was* Bootstrap, in which case it has now already run — don't run it twice).
@@ -846,7 +865,34 @@ invoke Begin Session/Bootstrap/End Session through short project-local prompts.
    `.github/prompts/end-session.prompt.md`, and confirm all three were created (or left
    unchanged, per user's choice).
 
-6. Ask the user: "Do you want to run Bootstrap and Begin Session now?"
+6. Session-start auto-invocation hook: search the target project's
+   `.github/copilot-instructions.md` (if it exists) for an existing block containing the phrase
+   "Begin Session step" (case-insensitive).
+   - If found, treat this step as already satisfied — leave the file unchanged and tell the user
+     it's already present. Do not duplicate it.
+   - If not found (including when the file doesn't exist yet), show the user the exact block
+     below and ask (via the `ask_user` tool, not free text) for confirmation before writing it —
+     do not write it silently, since it changes Copilot's autonomous behavior for every future
+     session in this project, not just docs content:
+
+     ```
+     - At the very first user message in a new chat session (not on subsequent prompts within the
+       same session), automatically invoke the `project-memory-management-graph` skill's Begin
+       Session step before addressing the user's request — without asking for confirmation. Skip
+       this only if the first prompt is clearly self-contained and unrelated to this codebase
+       (e.g. general syntax/language questions, IDE/tool questions, or generic advice not
+       requiring project context). If in doubt, run it — it is a cheap check.
+     ```
+
+   - On confirmation, append this bullet to the "Project Guidelines" section of
+     `.github/copilot-instructions.md` — create the file if it doesn't exist yet, and/or create
+     the "Project Guidelines" section (with just this one bullet) if it doesn't exist yet either,
+     consistent with how Bootstrap Step 7 owns and merge-safely maintains that same section
+     (additive only; never touch other content already in it).
+   - On decline, skip and tell the user the project will not get automatic Begin Session
+     invocation until this is added later (e.g. by re-running Initialize).
+
+7. Ask the user: "Do you want to run Bootstrap and Begin Session now?"
    - If yes, run the Bootstrap workflow first (since it creates the files Begin Session checks
      for), then run Begin Session immediately after, in this same session.
    - If no, stop and wait for further instructions — do not run either automatically.
