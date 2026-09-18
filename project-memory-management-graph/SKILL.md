@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 10`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 11`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -148,6 +148,28 @@ re-sync — without the user having to remember or manually redo anything per pr
     suggest re-running Initialize on an already-bootstrapped, stale project — safe to do because
     Initialize's own steps (including this one) only add what's missing rather than overwriting.
     Bootstrap's other steps, Begin Session, and End Session are otherwise unchanged.
+  - v11 — Added "Reduced Cadence Mode" as a third cadence option for the Regression Auditor
+    Protocol (new Protocol 9), alongside the existing full protocol and the full session-scoped
+    opt-out (Protocol 8). Under Reduced Cadence Mode, Protocol 2 (Pre-Build Decomposition) stays
+    fully in effect — phases/parts are still proposed and confirmed before code is written — but
+    Protocol 1 (Regression Audit) runs once at the end of each phase/increment instead of after
+    every part within it; the audit itself is unchanged in rigor when it runs. Checkpoints are the
+    phase boundaries already agreed during Protocol 2's decomposition, not redefined ad hoc; if
+    phases weren't explicitly decomposed up front, this mode doesn't apply and full per-part
+    cadence is used instead. It includes a de-escalation trigger: if a phase-end audit surfaces a
+    real in-scope finding, Copilot reverts to full per-part cadence for the rest of the session and
+    states this reversion explicitly in the report. Recurrence Escalation (Protocol 4) still
+    applies, evaluated across phase-level audits when in this mode. Like the full opt-out, this
+    mode is session-scoped by default (re-requested each session) unless the user explicitly asks
+    to make it a persistent per-project default; it is distinct from the full opt-out and never
+    suspends Protocol 1 or Protocol 2 entirely — only Protocol 1's checkpoint frequency changes,
+    and Protocol 7's reporting/approval rules still apply in full. This mode arose from real
+    friction on a live project (a user wanted decomposition discipline kept but found per-part
+    audits too frequent/expensive for a long multi-part change) and has been used successfully at
+    least once in practice there; the de-escalation trigger specifically has not yet been
+    exercised/confirmed live, so treat it the same as v4's mismatch gate or v9's overall
+    live-Copilot-VS test — used-but-not-fully-proven, tracked honestly rather than presented as
+    fully validated.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -434,6 +456,35 @@ no file-existence checks and creates no new files of its own.
    never written to any file and never persists beyond the current session — it must be
    re-requested each time. If the user's request is ambiguous about scope (e.g., just "stop
    reviewing" with no session/permanent distinction), ask which they mean rather than assuming.
+
+9. **Reduced Cadence Mode.** A middle ground between the full protocol and the full opt-out
+   (Protocol 8), for long multi-part changes where per-part audits are too frequent/expensive but
+   decomposition discipline should still be kept. The user may explicitly request this (e.g.,
+   "audit once per phase instead of every part," "keep the breakdown but only audit at phase
+   boundaries"). Under this mode:
+   - Protocol 2 (Pre-Build Decomposition) stays fully in effect — phases/parts are still proposed
+     and confirmed with the user before any code is written.
+   - Protocol 1 (Regression Audit) runs once at the end of each phase/increment instead of after
+     every part within it. The audit itself is unchanged when it runs — still an independent
+     subagent, still a full diff-based review, still classifies findings out-of-scope vs in-scope
+     per Protocol 1's rules. Only the frequency changes, never the rigor.
+   - The audit checkpoints are the phase boundaries already agreed during Protocol 2's
+     decomposition — never redefined ad hoc as work proceeds. If phases weren't explicitly
+     decomposed up front (e.g., the user skipped Protocol 2's confirmation step), this mode does
+     not apply; fall back to full per-part cadence.
+   - De-escalation trigger: if a phase-end audit under this mode surfaces a real (non-trivial,
+     in-scope) finding, revert to full per-part cadence for the remainder of the session — do not
+     continue auditing at reduced frequency after it has demonstrated it missed something a
+     per-part audit would have caught sooner. State this reversion explicitly in the Review Report
+     when it happens, and tell the user directly.
+   - Recurrence Escalation (Protocol 4) still applies, evaluated across phase-level audits while
+     in this mode.
+   - Like Protocol 8's opt-out, this mode is session-scoped by default and must be re-requested
+     each session, unless the user explicitly asks to make it a persistent per-project default.
+   - Distinct from Protocol 8: this mode never suspends Protocol 1 or Protocol 2 entirely — it
+     only changes Protocol 1's checkpoint frequency. Do not conflate the two modes. Protocol 7's
+     reporting/approval rules (full Review Report surfaced, no auto-applied fixes) apply in full
+     under this mode exactly as they do under the full protocol.
 
 ## Workflow: Begin Session
 
