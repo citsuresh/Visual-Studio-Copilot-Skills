@@ -150,8 +150,8 @@ that need separate permission each time:
   `remove-breakpoint --file <path> --line <n>` / `--all`, `list-breakpoints`, and
   `wait-for-break --timeoutMs <n> [--pollMs <n>]`. Breakpoint placement/waiting is now fully
   automatable — no manual VS UI step is required for the core click-to-breakpoint-hit loop.
-- Full verb contracts: `AgentDebugToolkit/docs/CLI_CONTRACT.md` (UIA CLI, Phase 1-9 + 13; debugger
-  bridge Phase 6 + 20, including the "Attaching to Visual Studio" / "Verbs" sections).
+- Full verb contracts: `AgentDebugToolkit/docs/CLI_CONTRACT.md` (UIA CLI, Phase 1-9 + 13 + 22;
+  debugger bridge Phase 6 + 20, including the "Attaching to Visual Studio" / "Verbs" sections).
 - **Screenshot cleanup is the caller's responsibility.** `inspect --screenshot true` (and any other
   verb that writes a screenshot file, e.g. `screenshot`) saves to
   `%LOCALAPPDATA%\AgentDebugToolkit\screenshots\` and returns the path in `screenshotPath` — the
@@ -232,3 +232,18 @@ Use when the user asks to "navigate to X" / "debug X" and an entry already exist
   landed. If working against an AgentDebugToolkit build older than `c5db97a`, this enumeration gap
   still applies — verify existence of the dialog via a raw Win32 `EnumWindows` check before assuming
   the underlying app is broken.
+- **Virtualized WPF DataGrid controls** — use `set-grid-cell` instead of saved row coordinates when
+  a grid exposes UIA `GridPattern`/`ScrollPattern`. Locate the grid with `--gridStrategy`/
+  `--gridValue`, locate a stable descendant in the desired row with `--rowStrategy`/`--rowValue`,
+  and pass the value-cell's `GridItemPattern` column as `--columnIndex`. The verb scrolls and
+  re-queries realized rows, then resolves the in-cell editor (default `Edit`) before writing.
+  Include `--applyStrategy`/`--applyValue` only for grids that require an explicit action inside
+  the edited cell to commit (for example, an Apply/OK button); omit them when the grid commits on
+  focus loss, Enter, or its own editor behavior. For the WindowWorks Property Inspector:
+  `set-grid-cell --hwnd <inspector-hwnd> --gridStrategy AutomationId --gridValue PropertyDataGrid
+  --rowStrategy Name --rowValue style.display --columnIndex 1 --text block --applyStrategy Name
+  --applyValue Apply`. Do not use an `inspect` bounding rectangle captured from an earlier call to
+  target a virtualized grid row.
+- **Hover-driven pickers** — some application pickers discover the target only after the OS cursor
+  physically enters their window. Before inspecting or clicking one, activate the target window and
+  move the cursor into it with the toolkit; this is application behavior, not a selector failure.
