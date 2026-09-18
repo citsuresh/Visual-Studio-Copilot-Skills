@@ -1,5 +1,12 @@
 # project-memory-management — README
 
+> **⚠️ DEPRECATED.** Superseded by `project-memory-management-graph`'s docs-only mode (v8+),
+> which handles non-.NET/docs-only repos itself and additionally provides
+> versioning/staleness-checking and the Regression Auditor Protocol that this skill never had.
+> Do not use this skill for new projects — use `project-memory-management-graph` instead, even
+> for repos with no `.sln`/`.slnx`. Kept here for reference only; the design-decision lessons
+> below remain valid history, but this skill is not actively maintained going forward.
+
 ## What this is
 A GitHub Copilot Agent Skill (personal/global, applies across all projects) that manages
 persistent, low-token project memory for any .NET repo. Replaces the older manual copy-paste

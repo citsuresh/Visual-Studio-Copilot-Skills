@@ -71,18 +71,25 @@ Use the project-memory-management skill, run End Session.
 
 ## Which skill to use
 
-Both apply automatically to every project once installed — pick per project based on whether
-you want the knowledge graph:
+**`project-memory-management-graph` is the recommended default for every project**, regardless
+of whether it has a `.sln`/`.slnx`. Since v8 it includes a "docs-only mode" that handles
+non-.NET/docs-only repos itself (skipping the graph build, no GraphTools dependency needed in
+that case), and it also has versioning/staleness-checking and the Regression Auditor Protocol
+that the plain `project-memory-management` skill never had.
 
-- **`project-memory-management`** — any project, including non-.NET (it never touches code
-  itself, only docs/instructions). No GraphTools dependency.
-- **`project-memory-management-graph`** — .NET projects with a `.sln`/`.slnx` where a call
-  graph adds value, or where you simply want Copilot to have queryable structural context
-  without re-exploring the codebase each session. Requires GraphTools to be built locally.
+`project-memory-management` (no graph) is **deprecated in favor of the graph skill's docs-only
+mode** — see the deprecation notice at the top of its own README and SKILL.md. It's kept in this
+repo for reference only, not actively maintained, and should not be used for new projects.
 
-Switching a project from one to the other: re-run Initialize with the skill you're switching
-to — it detects the existing trigger files and asks before overwriting, so both files always
-stay pointed at the same skill rather than drifting apart.
+As of this writing, no project under this machine's usual repo root (`C:\MyFiles\Git`) has
+been verified to still use the plain skill — the two repos its own README lists as "tested on"
+(GitContextSwitcher, VoiceType) have both since moved to the graph skill's marker convention.
+This is not an absolute guarantee: repos outside that path, or any repo using the plain skill
+without leaving a graph-skill trace, can't be ruled out from here.
+
+Switching a project from the plain skill to the graph skill: re-run Initialize with
+`project-memory-management-graph` — it detects the existing trigger files and asks before
+overwriting, so both files always stay pointed at the same skill rather than drifting apart.
 
 ## Design notes
 

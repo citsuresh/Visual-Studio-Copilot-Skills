@@ -1,8 +1,16 @@
 ---
 name: project-memory-management
-description: 'Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) for any repo, wired into copilot-instructions.md. Use for: Bootstrap (start of session or first-time setup), End Session (cheap end-of-session snapshot), Initialize (one-time setup creating local bootstrap/end-session prompt files). Scoped to the current project only; never creates a repo.'
+description: 'DEPRECATED — superseded by project-memory-management-graph''s docs-only mode (v8+). Do not use for new projects; kept for reference only, not actively maintained. Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) for any repo, wired into copilot-instructions.md. Use for: Bootstrap (start of session or first-time setup), End Session (cheap end-of-session snapshot), Initialize (one-time setup creating local bootstrap/end-session prompt files). Scoped to the current project only; never creates a repo.'
 ---
 # Project Memory Management
+
+> **⚠️ DEPRECATED.** This skill is superseded by `project-memory-management-graph`'s docs-only
+> mode (added in that skill's v8), which handles non-.NET/docs-only repos itself and additionally
+> provides versioning/staleness-checking and the Regression Auditor Protocol that this skill never
+> had. Do not use this skill for new projects — use `project-memory-management-graph` instead,
+> even for repos with no `.sln`/`.slnx`. This skill is kept in the repo for reference only (the
+> design-decision lessons below remain valid history) and is not actively maintained going
+> forward.
 
 This skill has three workflows: **Bootstrap** (start of session / first-time setup),
 **End Session** (end of session, cheap snapshot), and **Initialize** (one-time project setup
