@@ -3,6 +3,21 @@ name: ui-debug-map
 description: 'Interactively debug a WinForms/WPF application via UIA (AgentDebugToolkit''s agentdebug-ui.exe) and the Visual Studio debugger bridge (agentdebug-vs.exe), building a persistent UI-element-to-source-code map in the TARGET application''s own repo as you navigate. Use for: "navigate to feature X", "debug this screen", or building/updating a navigation map so future navigation to a known feature can jump straight there instead of re-exploring. The map is stored per-target-repo (e.g. docs/ui-debug-map.json in that app''s repo), never in this skill''s own folder or a global location, since each project has its own distinct UI.'
 ---
 
+## Skill Version
+
+- `CURRENT_SKILL_VERSION = 1`. This is this file's own version, used to detect when the globally
+  installed copy at `C:\Users\sveluswa\.copilot\skills\ui-debug-map\SKILL.md` is behind the
+  source-of-truth copy in this repo at
+  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-debug-map\SKILL.md`. Unlike
+  `project-memory-management-graph` (which bootstraps many independent target projects and needs
+  a per-project marker), this skill has only one installed copy and one source of truth, so no
+  per-project marker file is needed — just a direct comparison between the running copy's version
+  and the repo copy's version. Bump this integer whenever an edit to this file changes what a
+  workflow step actually does. Started fresh at v1; no changelog was reconstructed for changes
+  made before this versioning system existed.
+- Changelog (append one entry per version bump; never delete prior entries):
+  - v1 — versioning introduced (this entry itself).
+
 # UI Debug Map
 
 Build and use a persistent map from **UI elements/features of a target application** to the
@@ -159,6 +174,28 @@ that need separate permission each time:
   viewing a screenshot (or a batch of them) and finishing the verification step it was needed for,
   delete the file(s) you created this session (e.g. `Remove-Item <screenshotPath>` or a glob over
   the session's timestamp range) — don't leave them for a future session to clean up.
+
+## Step 0: Version Check
+
+Run this **once**, at the very start of a new Workflow A or Workflow B run — do not repeat it on
+every individual verb call (click, inspect, poll, `wait-for-break`, etc.) within that run; it must
+not get re-triggered inside either workflow's step loop. This is a cheap check (one line read from
+one local file, no UIA/debugger calls involved), so do it every time a new workflow run starts
+rather than skipping it to save time.
+
+1. Read `CURRENT_SKILL_VERSION` from the repo copy of this file at
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-debug-map\SKILL.md`. Use the same "ask, don't
+   guess" fallback already used for the `AgentDebugToolkit` path above if this path doesn't exist
+   on the current machine (e.g. a different machine, a fresh environment, or the repo was
+   moved/removed) — stop and ask the user where to find it rather than silently skipping the check
+   or assuming a different location.
+2. Compare that repo version to this file's own `CURRENT_SKILL_VERSION` (the version of whatever
+   copy is currently loaded/running).
+3. If the repo's version is higher: tell the user plainly what changed (the changelog entries
+   between the running version and the repo's version) and that the installed copy is stale.
+   Recommend running `Install-Skills.ps1` before continuing, but let the user decide whether to
+   pause and update now or proceed anyway with the current run.
+4. If versions match: proceed silently — no need to announce anything.
 
 ## Workflow A — Explore/build the map (given a known code area)
 

@@ -3,6 +3,21 @@ name: agent-orchestrator
 description: 'Drive and supervise a Copilot chat agent running in a *different* Visual Studio (or VS Insiders) window via AgentDebugToolkit''s UIA CLI (agentdebug-ui.exe). Use for: attaching to a target VS window, assigning it a task, polling its state cheaply, detecting and answering ChoicePrompt cards vs. plain chat replies, and running the Pre-Build Decomposition -> implement -> Regression Audit -> review -> approve -> commit loop end-to-end as the human-in-the-loop responder. User-level global skill; originated in the OpenWayToolsAndTest-Main / FDM repo but not scoped to it.'
 ---
 
+## Skill Version
+
+- `CURRENT_SKILL_VERSION = 1`. This is this file's own version, used to detect when the globally
+  installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
+  source-of-truth copy in this repo at
+  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
+  `project-memory-management-graph` (which bootstraps many independent target projects and needs
+  a per-project marker), this skill has only one installed copy and one source of truth, so no
+  per-project marker file is needed — just a direct comparison between the running copy's version
+  and the repo copy's version. Bump this integer whenever an edit to this file changes what a step
+  actually does. Started fresh at v1; no changelog was reconstructed for changes made before this
+  versioning system existed.
+- Changelog (append one entry per version bump; never delete prior entries):
+  - v1 — versioning introduced (this entry itself).
+
 # Agent Orchestrator
 
 Supervise a Copilot chat agent that is running inside a *separate* Visual Studio / VS Insiders
@@ -48,6 +63,27 @@ user needing to manually click anything.
   `%LOCALAPPDATA%\AgentDebugToolkit\screenshots\` and returns the path in `screenshotPath` — the
   CLI does not delete these automatically. Delete the screenshot files you generate during a
   polling/verification session once you're done with them, rather than leaving them to accumulate.
+
+## Step 0: Version Check
+
+Run this **once**, at the very start of a new orchestration session — do not repeat it on every
+individual verb call (click, inspect, poll, etc.) within that session; it must not get pulled into
+Step 3's polling loop. This is a cheap check (one line read from one local file, no UIA calls
+involved), so do it every time a new session starts rather than skipping it to save time.
+
+1. Read `CURRENT_SKILL_VERSION` from the repo copy of this file at
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Use the same "ask,
+   don't guess" fallback already used for the `AgentDebugToolkit` path above if this path doesn't
+   exist on the current machine (e.g. a different machine, a fresh environment, or the repo was
+   moved/removed) — stop and ask the user where to find it rather than silently skipping the check
+   or assuming a different location.
+2. Compare that repo version to this file's own `CURRENT_SKILL_VERSION` (the version of whatever
+   copy is currently loaded/running).
+3. If the repo's version is higher: tell the user plainly what changed (the changelog entries
+   between the running version and the repo's version) and that the installed copy is stale.
+   Recommend running `Install-Skills.ps1` before continuing, but let the user decide whether to
+   pause and update now or proceed anyway with the current session.
+4. If versions match: proceed silently — no need to announce anything.
 
 ## Step 1 — Find and verify the target window
 
