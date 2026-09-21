@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 11`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 12`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -170,6 +170,21 @@ re-sync — without the user having to remember or manually redo anything per pr
     exercised/confirmed live, so treat it the same as v4's mismatch gate or v9's overall
     live-Copilot-VS test — used-but-not-fully-proven, tracked honestly rather than presented as
     fully validated.
+  - v12 — Bootstrap gains a new Step 7a: when the target repo looks like a WinForms/WPF
+    desktop application (any `.sln`/`.slnx` in the repo references a project with
+    `<UseWindowsForms>true</UseWindowsForms>`, `<UseWPF>true</UseWPF>`, or an equivalent
+    legacy WinForms/WPF project type/reference), add a bullet to the "Project Guidelines"
+    section pointing at the separate `vs-debug` and `ui-navigation-orchestrator` skills for
+    debugging and UI-navigation tasks in that project. Skipped entirely for non-UI targets —
+    most Bootstrap targets are libraries/services, and the note would be noise for them.
+    Idempotent: searches `.github/copilot-instructions.md` for an existing note mentioning
+    `vs-debug` or `ui-navigation-orchestrator` (case-insensitive) first and leaves it alone
+    if found, never duplicating it. No `ask_user` confirmation needed, unlike Initialize's
+    v10 session-start hook step — this is a passive informational cross-reference, not a
+    change to Copilot's autonomous behavior, consistent with how other doc cross-references
+    (e.g. the `docs/KEY_FLOWS.md` pointer in `docs/CODE_SUMMARY.md`) are added without a
+    per-add confirmation. Step 11's Project Guidelines merge-safety note now also covers this
+    bullet.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -570,7 +585,7 @@ overwriting/duplicating content. This incremental/merge-safe rule applies ONLY t
 files — it does not apply to the "Persistent Project Memory" section of
 `.github/copilot-instructions.md` (see Step 6, which is fully regenerated every run) nor
 override the merge-safe handling separately specified for "Project Guidelines"/"Response
-Guidelines" in Steps 7-8.
+Guidelines" in Steps 7, 7a, and 8.
 
 Some repos have no C# solution to build a graph from at all (e.g., a repo containing only
 documentation/markdown, no `.sln`/`.slnx` anywhere) — see Step 0a's "docs-only mode" detection,
@@ -755,6 +770,27 @@ which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaf
    - Build/test verification after every change.
    - Do not commit or push automatically — wait for explicit user confirmation first.
 
+7a. Check whether the target repo looks like a WinForms/WPF desktop application: does any
+    `.sln`/`.slnx` in the repo reference a project with `<UseWindowsForms>true</UseWindowsForms>`,
+    `<UseWPF>true</UseWPF>`, or an equivalent legacy WinForms/WPF project type/reference. If
+    not, skip this step entirely — do not add the note to non-UI projects (most Bootstrap
+    targets are libraries/services, not UI apps, and the note would be wrong/noise for them).
+    - If it does look like a UI app, search `.github/copilot-instructions.md` for an existing
+      note mentioning `vs-debug` or `ui-navigation-orchestrator` (case-insensitive). If found,
+      leave it unchanged (idempotent) — don't duplicate.
+    - If not found, add this bullet to the "Project Guidelines" section (create the section
+      if it doesn't exist yet, consistent with how Step 7's bullets are added there):
+      - This project has a WinForms/WPF UI. If you need to debug it in Visual Studio, use the
+        `vs-debug` skill (also independently useful for debugging tasks not reached via UI
+        navigation). If you need to navigate through the running application to reach a
+        specific screen or feature — including as part of debugging it — use the
+        `ui-navigation-orchestrator` skill, which composes `vs-debug` and `ui-interaction`
+        for you.
+      No `ask_user` confirmation needed for this one (unlike v10's session-start hook) — this
+      is a passive informational pointer, not a change to Copilot's autonomous behavior,
+      consistent with how other doc cross-references (e.g. the `docs/KEY_FLOWS.md` pointer in
+      `docs/CODE_SUMMARY.md`) are added without a per-add confirmation.
+
 8. Ensure a "Response Guidelines" section exists in `.github/copilot-instructions.md`
    instructing concise, minimal replies by default (no filler, no restating the question, no
    unnecessary preamble), EXCEPT in these cases where full detail is required:
@@ -793,8 +829,9 @@ which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaf
 	to `.github/copilot-instructions.md`: its "Persistent Project Memory" section (Step 6) must
 	always be force-checked and fully regenerated/overwritten this run even if
 	`copilot-instructions.md` already exists — never skip Step 6 on the grounds that the file
-	already exists. Its "Project Guidelines" (Step 7) and "Response Guidelines" (Step 8) sections
-	remain separately merge-safe/additive-only, as specified in those steps.
+	already exists. Its "Project Guidelines" (Step 7, plus the Step 7a UI-app pointer bullet) and
+	"Response Guidelines" (Step 8) sections remain separately merge-safe/additive-only, as
+	specified in those steps.
 
 12. Report back a short summary of what was created/updated, the graph's node/edge counts and
 	build time, and confirm the build still succeeds. Docs-only mode (see Step 0a): report this

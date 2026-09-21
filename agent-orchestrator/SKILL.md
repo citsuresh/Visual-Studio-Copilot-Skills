@@ -1,11 +1,11 @@
 ---
 name: agent-orchestrator
-description: 'Drive and supervise a Copilot chat agent running in a *different* Visual Studio (or VS Insiders) window via AgentDebugToolkit''s UIA CLI (agentdebug-ui.exe). Use for: attaching to a target VS window, assigning it a task, polling its state cheaply, detecting and answering ChoicePrompt cards vs. plain chat replies, and running the Pre-Build Decomposition -> implement -> Regression Audit -> review -> approve -> commit loop end-to-end as the human-in-the-loop responder. User-level global skill; originated in the OpenWayToolsAndTest-Main / FDM repo but not scoped to it.'
+description: 'Drive and supervise a Copilot chat agent running in a *different* Visual Studio (or VS Insiders) window, via the ui-interaction skill''s AgentDebugToolkit UIA primitives. Use for: attaching to a target VS window, assigning it a task, polling its state cheaply, detecting and answering ChoicePrompt cards vs. plain chat replies, and running the Pre-Build Decomposition -> implement -> Regression Audit -> review -> approve -> commit loop end-to-end as the human-in-the-loop responder. User-level global skill; originated in the OpenWayToolsAndTest-Main / FDM repo but not scoped to it.'
 ---
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 1`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 2`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -13,56 +13,50 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
   a per-project marker), this skill has only one installed copy and one source of truth, so no
   per-project marker file is needed — just a direct comparison between the running copy's version
   and the repo copy's version. Bump this integer whenever an edit to this file changes what a step
-  actually does. Started fresh at v1; no changelog was reconstructed for changes made before this
-  versioning system existed.
+  actually does.
 - Changelog (append one entry per version bump; never delete prior entries):
-  - v1 — versioning introduced (this entry itself).
+  - v1 — versioning introduced.
+  - v2 — extracted the generic UIA mechanics (AgentDebugToolkit path-fallback, `DOTNET_ROOT`
+    gotcha, screenshot cleanup, CLI_CONTRACT reference) into the new **ui-interaction** skill,
+    and the debugger-bridge setup notes into the new **vs-debug** skill, since both were
+    duplicated near-verbatim with what the (now-retired) `ui-debug-map` skill also documented.
+    This skill now composes those two rather than restating their setup; nothing about *how this
+    skill orchestrates a Copilot chat session* changed — Steps 1-6 and the anti-patterns below
+    are unchanged from v1.
 
 # Agent Orchestrator
 
 Supervise a Copilot chat agent that is running inside a *separate* Visual Studio / VS Insiders
-window, by driving its chat UI through UIA (via `agentdebug-ui.exe` from
-`C:\MyFiles\Git\AgentDebugToolkit`). This lets you act as the human-in-the-loop responder for
-that agent's confirmation prompts, task assignments, and commit approvals — without the actual
-user needing to manually click anything.
+window, by driving its chat UI through UIA. This lets you act as the human-in-the-loop responder
+for that agent's confirmation prompts, task assignments, and commit approvals — without the
+actual user needing to manually click anything.
+
+## Relationship to other skills
+
+This skill composes two lower-level mechanism skills rather than reimplementing them:
+
+- **ui-interaction** — for all UIA mechanics: finding/attaching to windows, clicking, typing/
+  pasting text, reading back element state, and the shared `AgentDebugToolkit` setup (portability
+  path-fallback, the `DOTNET_ROOT` gotcha, `CLI_CONTRACT.md`, screenshot cleanup). Read that
+  skill's `SKILL.md` for anything related to those primitives or the general toolkit setup — it
+  is not restated here.
+- **vs-debug** — only if a task delegated to the other agent involves debugger automation (e.g.
+  breakpoint/wait-for-break verbs). Most orchestration sessions never need this.
+
+What stays here, because it's specific to orchestrating a Copilot chat session and nothing else
+covers it: which selectors actually work against the real Copilot Chat control (Step 2),
+recognizing and correctly answering a `ChoicePrompt` card versus a plain chat reply (Step 4),
+classifying chat state (`Watch-CopilotChat.ps1`, Step 3) and its known unreliability, the
+standard decompose -> implement -> audit -> review -> approve -> commit loop (Step 5), and the
+independent-verification discipline before approving any commit.
 
 ## Prerequisites / environment
 
-- **Portability note:** this skill assumes `C:\MyFiles\Git\AgentDebugToolkit` is a specific,
-  hardcoded local clone of the AgentDebugToolkit repo on this machine — it is not a portable
-  path. If that folder doesn't exist at all (e.g. a different machine, a fresh environment, or
-  the clone was moved/removed), stop and ask the user where they'd like to check it out (do not
-  guess a path or silently fall back to a different one). The repo's remote is
-  `https://github.com/citsuresh/AgentDebugToolkit.git` — if the user confirms they don't have a
-  local clone yet, offer to `git clone` it to a location of their choosing, then proceed using
-  that path for the remainder of the session (the skill's hardcoded paths above are just the
-  default/most-recently-known location, not a requirement).
-- Tool: `agentdebug-ui.exe`, built from `C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli`.
-  Default build output path:
-  `C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe`
-  If it doesn't exist, build it first: `dotnet build` in that project folder (after clearing
-  `DOTNET_ROOT`, see below).
-- **CRITICAL environment gotcha:** always run
-  `Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue`
-  before invoking `agentdebug-ui.exe` or `dotnet build`/`dotnet restore` in a fresh PowerShell
-  process. VS's inherited `DOTNET_ROOT` env var breaks both.
-- Tool (only if the delegated task involves debugger automation, e.g. Phase 20's breakpoint/
-  wait-for-break verbs): `agentdebug-vs.exe`, built from
-  `C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.Debugger.VisualStudio`. Default build
-  output path:
-  `C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.Debugger.VisualStudio\bin\Debug\net8.0-windows\agentdebug-vs.exe`
-  If it doesn't exist, build it first the same way as `agentdebug-ui.exe` (clear `DOTNET_ROOT`
-  first, then `dotnet build` in that project folder, or `dotnet build AgentDebugToolkit.slnx` for
-  the whole solution). This is a separate CLI/process from `agentdebug-ui.exe` — it drives Visual
-  Studio's debugger via EnvDTE COM, not the chat UI via UIA; you won't need it unless you're
-  independently verifying or exercising debugger-automation verbs yourself.
-- Full verb contract: `C:\MyFiles\Git\AgentDebugToolkit\docs\CLI_CONTRACT.md`. Read this if a verb
-  behaves unexpectedly — do not guess at flags.
+- Set up `AgentDebugToolkit`, `agentdebug-ui.exe`, and the `DOTNET_ROOT` workaround per the
+  **ui-interaction** skill — this skill assumes that's already in place and doesn't restate it.
+- Only if the delegated task involves debugger automation: also set up `agentdebug-vs.exe` per
+  the **vs-debug** skill.
 - Known limitations doc: `C:\MyFiles\Git\AgentDebugToolkit\docs\KNOWN_OPEN_FINDINGS.md`.
-- **Screenshot cleanup is the caller's responsibility.** `inspect --screenshot true` saves to
-  `%LOCALAPPDATA%\AgentDebugToolkit\screenshots\` and returns the path in `screenshotPath` — the
-  CLI does not delete these automatically. Delete the screenshot files you generate during a
-  polling/verification session once you're done with them, rather than leaving them to accumulate.
 
 ## Step 0: Version Check
 
@@ -73,10 +67,9 @@ involved), so do it every time a new session starts rather than skipping it to s
 
 1. Read `CURRENT_SKILL_VERSION` from the repo copy of this file at
    `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Use the same "ask,
-   don't guess" fallback already used for the `AgentDebugToolkit` path above if this path doesn't
-   exist on the current machine (e.g. a different machine, a fresh environment, or the repo was
-   moved/removed) — stop and ask the user where to find it rather than silently skipping the check
-   or assuming a different location.
+   don't guess" fallback documented in `ui-interaction` for the `AgentDebugToolkit` path if this
+   repo path doesn't exist on the current machine — stop and ask the user where to find it rather
+   than silently skipping the check or assuming a different location.
 2. Compare that repo version to this file's own `CURRENT_SKILL_VERSION` (the version of whatever
    copy is currently loaded/running).
 3. If the repo's version is higher: tell the user plainly what changed (the changelog entries
@@ -87,6 +80,7 @@ involved), so do it every time a new session starts rather than skipping it to s
 
 ## Step 1 — Find and verify the target window
 
+Using ui-interaction's `list-windows`/`attach` primitive:
 ```powershell
 Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
 & $exe list-windows --pid <pid>
@@ -96,7 +90,8 @@ instance was restarted — never assume a previously-known hwnd is still valid; 
 start of a new session or after any long gap.
 
 If you don't have a pid, ask the user, or use `list-windows` without `--pid` and match by title
-(e.g. `"* - Microsoft Visual Studio*"`).
+(e.g. `"* - Microsoft Visual Studio*"`) — be aware this can resolve to the wrong instance if
+multiple windows share a matching title; prefer `--pid` when it's available.
 
 ## Step 2 — Send a task to the agent
 
@@ -111,7 +106,8 @@ preference, confirmed this session):
   only when the chat box is empty). This is currently the only reliable selector for the real
   Copilot Chat input/Send button, because they expose no `AutomationId` — `AutomationId=WpfTextView`
   is ambiguous (resolves to either the chat input or the code editor pane depending on UIA
-  traversal/focus state).
+  traversal/focus state). This is a fact about this specific control, not a generic
+  ui-interaction gotcha, so it's recorded here rather than there.
 - `--paste` avoids issues with special characters/newlines that synthetic typing can mangle.
 - `--verify` confirms the text landed (skipped automatically for synthetic-keyboard-only controls
   — this is expected, not a bug).
@@ -207,7 +203,9 @@ landing while a card is still pending, `element-not-found`/`stale-context` error
    it can end up selecting a *different* radio option than the one requested (observed twice in a
    single session: once selecting a neighboring option, once toggling the wrong choice entirely).
    A successful-looking JSON response (`"success":true`) is **not sufficient proof the intended
-   option was selected**. Always re-verify after the two-click submit:
+   option was selected** — this is the same "don't trust success:true" discipline ui-interaction
+   states generically, applied here to the specific case of confirming the *right* option landed,
+   not just that *some* click succeeded. Always re-verify after the two-click submit:
    ```powershell
    & $exe inspect --hwnd <h> --maxDepth 20
    ```

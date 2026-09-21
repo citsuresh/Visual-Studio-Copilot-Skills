@@ -9,7 +9,11 @@ across sessions, with an optional Roslyn-based code knowledge graph for larger s
 |---|---|
 | `project-memory-management/` | Core skill: maintains `docs/CODE_SUMMARY.md`, `DESIGN_DECISIONS.md`, `PROJECT_STATE.md`, `ROADMAP.md`, and wires them into `.github/copilot-instructions.md`. |
 | `project-memory-management-graph/` | Everything the core skill does, plus builds/updates a code knowledge graph via [GraphTools](https://github.com/citsuresh/GraphTools) and copies a visual graph viewer into the project. |
-| `Install-Skills.ps1` | Copies both skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
+| `ui-interaction/` | Generic Windows UI automation primitives (click, inspect/read, wait/poll, selector fallback) via [AgentDebugToolkit](https://github.com/citsuresh/AgentDebugToolkit)'s `agentdebug-ui.exe`. A pure mechanism skill — never decides whether an action succeeded; that judgment belongs to whichever skill calls it. |
+| `vs-debug/` | Drives the Visual Studio debugger (attach, breakpoints, step, read call stack) via AgentDebugToolkit's debugger bridge. Independently useful; can call `ui-interaction` to trigger UI actions while attached. |
+| `ui-navigation-orchestrator/` | Experimental, still-maturing orchestration layer that composes `ui-interaction` + `vs-debug` to navigate a target app's UI, maintaining a lightweight per-target-app navigation-tree cache. Replaces the retired `ui-debug-map` skill. |
+| `agent-orchestrator/` | Drives and supervises a Copilot chat agent running in a *different* Visual Studio window via AgentDebugToolkit's UIA CLI — attach, assign tasks, poll state, detect/answer prompts, run the Decomposition → implement → Audit → review → approve → commit loop. |
+| `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
 
 Each skill has three workflows: **Bootstrap** (start of session / first-time setup),
 **End Session** (cheap end-of-session snapshot), and **Initialize** (one-time setup that wires
@@ -27,6 +31,12 @@ the skill into a project's own short trigger prompts).
   the "GraphTools invocation" section of that `SKILL.md` to point at wherever you cloned/built
   GraphTools on your own machine.** If the paths are wrong or GraphTools hasn't been built, the
   skill will stop and tell you rather than silently failing or attempting to locate/build it itself.
+- For `ui-interaction`, `vs-debug`, `ui-navigation-orchestrator`, and `agent-orchestrator`:
+  [AgentDebugToolkit](https://github.com/citsuresh/AgentDebugToolkit) cloned and built separately
+  (`agentdebug-ui.exe` and, for `vs-debug`, the debugger-bridge CLI). These skills hardcode
+  `C:\MyFiles\Git\AgentDebugToolkit\...` paths and use an "ask, don't guess" fallback if that path
+  doesn't exist on your machine — edit the relevant SKILL.md path(s) to match your own clone
+  location before installing.
 
 ## Installing
 
@@ -90,6 +100,14 @@ without leaving a graph-skill trace, can't be ruled out from here.
 Switching a project from the plain skill to the graph skill: re-run Initialize with
 `project-memory-management-graph` — it detects the existing trigger files and asks before
 overwriting, so both files always stay pointed at the same skill rather than drifting apart.
+
+**UI automation skills** (`ui-interaction`, `vs-debug`, `ui-navigation-orchestrator`,
+`agent-orchestrator`) are a separate family unrelated to project memory. `ui-interaction` and
+`vs-debug` are stable, independent mechanism skills; `ui-navigation-orchestrator` composes them
+for UI navigation/mapping tasks and replaces the retired `ui-debug-map` skill; `agent-orchestrator`
+composes them to drive a Copilot chat session in another VS window. Each has its own
+`CURRENT_SKILL_VERSION` and changelog (see each `SKILL.md`), checked once per session via a
+Step 0 version check rather than the per-project marker system used by the memory skills.
 
 ## Design notes
 
