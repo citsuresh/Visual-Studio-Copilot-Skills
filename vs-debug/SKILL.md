@@ -5,7 +5,7 @@ description: 'Attach the Visual Studio debugger to a running application via Age
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 4`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 5`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-debug\SKILL.md` once at the start of a session.
 - Changelog:
   - v1 — initial version. Extracted from `ui-debug-map`, which mixed this debugger-bridge
@@ -36,6 +36,11 @@ description: 'Attach the Visual Studio debugger to a running application via Age
     read-back instead of only checking for null. No existing verb's previously-documented behavior
     changed; this only adds coverage for failure modes that previously surfaced as the same raw
     `0x80070490` HRESULT or a silently-wrong frame.
+  - v5 — documented post-failure recovery for `select-frame`: after a `frame-selection-failed` or
+    `frame-selection-mismatch`, `CurrentStackFrame` may be left bound to an unrelated frame
+    (live-observed: the outermost managed frame). Added guidance to re-select a known-good frame
+    and re-check with `get-callstack` before trusting any `get-locals`/`evaluate` call. No verb
+    behavior changed — documentation only.
 
 # VS Debug
 
@@ -126,6 +131,10 @@ attach/breakpoint/step/read-call-stack call.
   `CurrentStackFrame` to a different frame than requested (`frame-selection-mismatch`, which names
   the frame actually bound). There is no workaround — select a different frame index instead of
   retrying; `evaluate`/`get-locals` remain reliable on frames outside this region.
+  After either failure, `CurrentStackFrame` may be left bound to an unrelated frame (live-observed:
+  the outermost managed frame, e.g. `Program.Main`). Never trust a `get-locals`/`evaluate` call made
+  right after a failed `select-frame` — re-select a known-good frame first (index 0 if managed, or
+  the last index that succeeded) and re-check with `get-callstack` before inspecting anything.
 - **step** — into / over / out.
 - **read-call-stack** — returns the current call stack once broken.
 - **read-locals** (`get-locals`) — local variables for the current (innermost, or selected-frame)
