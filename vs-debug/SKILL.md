@@ -5,7 +5,7 @@ description: 'Attach the Visual Studio debugger to a running application via Age
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 3`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 4`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-debug\SKILL.md` once at the start of a session.
 - Changelog:
   - v1 — initial version. Extracted from `ui-debug-map`, which mixed this debugger-bridge
@@ -23,6 +23,19 @@ description: 'Attach the Visual Studio debugger to a running application via Age
     reference workflow, and narrowed Prerequisites/Limitations to reflect that UI automation is
     now a fallback for what these verbs don't cover, not a default path. No existing verb's
     documented behavior changed.
+  - v4 — documented two additional `select-frame` failure modes confirmed live against a real
+    21-frame WPF stack trace (2026-10-02): `frame-selection-failed` can now also occur as a
+    permanent, per-stack-shape EnvDTE limitation (not only the v3 mid-call resume race) for frame
+    positions inside a native/managed transition region (e.g. a WinForms/WPF message loop,
+    collapsed `"[External Code]"` frames, or the outermost managed frame beyond that region such as
+    `Program.Main`) — reproduced with the debugger staying in break mode the entire time, ruling out
+    the race. A new error code, `frame-selection-mismatch`, was added and documented: EnvDTE can
+    report a `select-frame` success while silently rebinding `CurrentStackFrame` to a different
+    frame than requested (live-observed: a shallow `"[External Code]"` index silently bound to
+    `Program.Main` instead), which `select-frame` now detects by comparing `FunctionName` on
+    read-back instead of only checking for null. No existing verb's previously-documented behavior
+    changed; this only adds coverage for failure modes that previously surfaced as the same raw
+    `0x80070490` HRESULT or a silently-wrong frame.
 
 # VS Debug
 
@@ -104,6 +117,15 @@ attach/breakpoint/step/read-call-stack call.
   breakpoint is removed/disabled. Retry with `break-all` then `select-frame` again when you see it
   — but if an enabled breakpoint is actively firing in background code, disable or remove it first
   (or select the frame immediately after `break-all`), otherwise the retry will fail the same way.
+  Separately, `frame-selection-failed` (same underlying HRESULT, `0x80070490`) and
+  `frame-selection-mismatch` can occur even while the debugger stays in break mode the whole time —
+  live-confirmed as a known EnvDTE limitation (not a race) for stack positions inside a
+  native/managed transition region (e.g. a WinForms/WPF message loop, collapsed `"[External Code]"`
+  frames, or the outermost managed frame beyond that region such as `Program.Main`): EnvDTE either
+  can't make that position current at all (`frame-selection-failed`) or silently rebinds
+  `CurrentStackFrame` to a different frame than requested (`frame-selection-mismatch`, which names
+  the frame actually bound). There is no workaround — select a different frame index instead of
+  retrying; `evaluate`/`get-locals` remain reliable on frames outside this region.
 - **step** — into / over / out.
 - **read-call-stack** — returns the current call stack once broken.
 - **read-locals** (`get-locals`) — local variables for the current (innermost, or selected-frame)
