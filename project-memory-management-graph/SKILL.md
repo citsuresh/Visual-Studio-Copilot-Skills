@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 13`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 14`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -200,6 +200,22 @@ re-sync — without the user having to remember or manually redo anything per pr
     or drag-and-drop. The rename workaround and multi-solution flow have not been exercised
     live, and current-solution detection depends on what Copilot can see; neither is presented
     as validated.
+  - v14 — Ported from a parallel Android project's AGENTS.md; like v9, these changes have not
+    been validated live in Copilot/Visual Studio. (1) New optional, user-curated
+    `docs/FEATURE_CHECKLIST.md` (every place a new feature must be wired through), with a new
+    "Feature checklist capture" section modeled on the other capture sections: Bootstrap and End
+    Session never create or modify it, it exists only after the user explicitly asks, Begin
+    Session Step 2 lists it as optional, and the Bootstrap Step 6 template gains one bullet to read
+    it when planning or adding a feature. When it exists, Protocol 2's breakdown must include its
+    items and Protocol 1's audit must check parity against it. (2) Protocols 1 and 7: every in-scope
+    audit finding carries an effort/risk estimate; out-of-scope findings stay report-only. (3) Protocol 1 now states two audit scopes — per-part
+    audits use baseline checks; the final audit re-checks those plus end-of-change-only checks
+    (full build/test run, docs-sync verification, cross-cutting consistency) — and how that
+    interacts with Protocols 8 and 9 (under Protocol 9 the last phase-end audit doubles as the
+    final audit). (4) Protocol 7: approving the Protocol 2 plan is not approval
+    of any audit fix; fixes are approved individually and the builder stops after the auditor
+    reports. Because this changes the Persistent Project Memory template, Workflow 0 will flag
+    already-bootstrapped projects as stale; they pick up the new template bullet on re-bootstrap.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -385,6 +401,22 @@ C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<p
   a graph query alone wasn't enough to resolve it (so future sessions know when to expect this
   gap and reference the pattern instead of re-discovering it).
 
+## Feature checklist capture (purely user-controlled; not a Copilot-driven mechanism)
+
+- Purpose: `docs/FEATURE_CHECKLIST.md` is an optional, user-curated list of every place a new
+  feature must be wired through in this project (e.g. data model, UI, settings, background/sync
+  paths, docs) — a reference to plan and verify against, not something Copilot maintains.
+- Core rule: Bootstrap and End Session never create or modify this file, and Copilot never adds,
+  edits, or removes entries unless the user explicitly asks. Do not scan the codebase or session
+  to infer entries. It exists only after the user explicitly asks for it to be created.
+- Do NOT create this file upfront or as an empty placeholder during Bootstrap or on any project
+  regardless of size — same rule as `docs/domain-lookup-patterns.md`.
+- When the file exists: read it when planning or adding a new feature; Regression Auditor
+  Protocol 2 requires the proposed breakdown to include its items, and Protocol 1 requires the
+  audit to check parity against it.
+- Like `docs/domain-lookup-patterns.md`, this file is NOT merge-safe or auto-refreshed during
+  Bootstrap/End Session — it is entirely user-curated.
+
 ## Known open findings capture (purely user-controlled; not a Copilot-driven mechanism)
 
 - Purpose: `docs/KNOWN_OPEN_FINDINGS.md` is a passive, user-controlled reference list for open,
@@ -458,13 +490,26 @@ no file-existence checks and creates no new files of its own.
    further, do not touch it, do not suggest fixing it now, even if it looks trivial; note it as a
    candidate for `docs/KNOWN_OPEN_FINDINGS.md` instead (see that section above — same
    explicit-confirmation rule applies; the auditor never adds to that file itself). For issues
-   within scope, propose a fix as a suggested diff only — never apply it yourself."
+   within scope, state the root cause, an effort/risk estimate (e.g. '5 mins, Low Risk'), and
+   propose a fix as a suggested diff only — never apply it yourself. Out-of-scope findings get
+   no estimate and no fix suggestion — report only."
+   - Audit scopes. Per-part audits use the baseline checks in the brief above. The final audit
+     (after the full change is complete) re-checks everything the per-part audits did, plus
+     checks that only make sense at the end of a change: a full build/test run with real
+     results; docs-sync verification (`docs/PROJECT_STATE.md`, `docs/CODE_SUMMARY.md`,
+     `docs/DESIGN_DECISIONS.md`, and `docs/ROADMAP.md` reflect the session's work, where those
+     files exist); and cross-cutting consistency across the whole change. These end-of-change-only
+     checks are added to the subagent's brief for the final audit. The final audit is always a
+     superset of the per-part scope.
+   - If `docs/FEATURE_CHECKLIST.md` exists, add to the brief that the audit must check parity
+     against its items.
 
 2. **Pre-Build Decomposition Protocol.** Before implementing any non-trivial multi-part change,
    propose a breakdown into the smallest independently-reviewable pieces and present it to the
    user for confirmation before writing any code. Do not decide pieces ad hoc as implementation
    proceeds. If a piece turns out too tightly coupled to review separately, say so and propose
-   combining, rather than silently reviewing together without flagging it.
+   combining, rather than silently reviewing together without flagging it. If
+   `docs/FEATURE_CHECKLIST.md` exists, the proposed breakdown must include its items.
 
 3. **Independent Review Requirement.** The Regression Auditor subagent must review the diff
    independently, without relying on or referencing any prior explanation of why the change is
@@ -488,12 +533,18 @@ no file-existence checks and creates no new files of its own.
    whether the result is good enough is the user's judgment, never the auditor's or builder's to
    declare.
 
-7. **Reporting and approval rules** (apply across all six rules above): Always surface the full
+7. **Reporting and approval rules** (apply across all the other protocols): Always surface the full
    Review Report to the user before proceeding. Never summarize it away. Never apply any
    proposed fix without explicit user approval. Never act on out-of-scope findings. Protocol 2's
    proposed breakdown requires explicit user confirmation before implementation begins. Protocol
    4's recommendation to start a fresh context requires the user's decision — never start a new
-   context unilaterally.
+   context unilaterally. Every in-scope audit finding in the Review Report must carry its root cause,
+   an effort/risk estimate (e.g. "5 mins, Low Risk"), and the proposed diff; out-of-scope findings
+   are reported per Protocol 1. Two explicit
+   safeguards: approving the Protocol 2 decomposition plan is NOT approval of any audit fix, and
+   fixes are approved individually (e.g. "apply fix 1 and 2"), never by a blanket "yes". After the
+   auditor reports, the builder stops completely and applies only what the user has explicitly
+   approved.
 
 8. **Session-scoped opt-out.** The user may explicitly ask to suspend the Regression Auditor
    Protocol for the current session only (e.g., "skip regression review for this session," "this
@@ -509,6 +560,7 @@ no file-existence checks and creates no new files of its own.
    never written to any file and never persists beyond the current session — it must be
    re-requested each time. If the user's request is ambiguous about scope (e.g., just "stop
    reviewing" with no session/permanent distinction), ask which they mean rather than assuming.
+   Suspending Protocol 1 also suspends the final audit (and its end-of-change-only checks).
 
 9. **Reduced Cadence Mode.** A middle ground between the full protocol and the full opt-out
    (Protocol 8), for long multi-part changes where per-part audits are too frequent/expensive but
@@ -530,6 +582,9 @@ no file-existence checks and creates no new files of its own.
      continue auditing at reduced frequency after it has demonstrated it missed something a
      per-part audit would have caught sooner. State this reversion explicitly in the Review Report
      when it happens, and tell the user directly.
+   - Earlier phase-end audits use Protocol 1's per-part scope. The last phase-end audit doubles
+     as the final audit and uses the final (superset) scope (baseline plus end-of-change-only
+     checks); no separate additional audit is run after it.
    - Recurrence Escalation (Protocol 4) still applies, evaluated across phase-level audits while
      in this mode.
    - Like Protocol 8's opt-out, this mode is session-scoped by default and must be re-requested
@@ -564,6 +619,7 @@ Bootstrap or End Session.
    - `docs/ROADMAP.md`
    - `docs/domain-lookup-patterns.md` (optional; absence is normal, not an error)
    - `docs/KNOWN_OPEN_FINDINGS.md` (optional; absence is normal, not an error)
+   - `docs/FEATURE_CHECKLIST.md` (optional; absence is normal, not an error)
    - The graph and dependencies files listed in the Persistent Project Memory registry in
      `.github/copilot-instructions.md` (already read in Step 1). If that registry is absent
      because the project has not been re-bootstrapped under v13, fall back to the legacy names
@@ -748,6 +804,7 @@ other steps are unaffected.
    - If it exists, read `docs/domain-lookup-patterns.md` when a task requires domain
 	 conventions, naming schemes, or business logic that the graph doesn't represent — check it
 	 before falling back to manual exploration or a fresh graph query.
+   - If it exists, read `docs/FEATURE_CHECKLIST.md` when planning or adding a new feature.
    - For tracked solutions, include a registry table of tracked solutions and their slug-named
 	 graph/dependencies files (one row per tracked solution; no rows in docs-only mode), and state
 	 that the registered graphs are queried via the GraphTools wrapper script (located at
