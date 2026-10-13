@@ -1,6 +1,6 @@
 ---
 name: project-memory-management-graph
-description: 'Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) plus a Roslyn-based code knowledge graph (full-graph.json, project-dependencies.json via GraphTools), wired into copilot-instructions.md. For large/complex solutions. Use for: Begin Session (optional, cheap session-start readiness check), Bootstrap (start of session or first-time setup, builds full graph), End Session (cheap snapshot, incremental graph update), Initialize (one-time setup creating local prompt files). Every invocation first runs a cheap version check against a per-project marker and offers to re-run Bootstrap if the skill has been updated since that project was last synced. Begin Session is not a substitute for Bootstrap or End Session. Scoped to the current project only; never creates a repo.'
+description: 'Manage persistent, low-token project memory (docs/CODE_SUMMARY.md, DESIGN_DECISIONS.md, PROJECT_STATE.md, ROADMAP.md) plus per-solution Roslyn-based code knowledge graphs, wired into copilot-instructions.md. For large/complex solutions. Use for: Begin Session (optional, cheap session-start readiness check), Bootstrap (start of session or first-time setup, builds full graphs), End Session (cheap snapshot, incremental graph update), Initialize (one-time setup creating local prompt files). Every invocation first runs a cheap version check against a per-project marker and offers to re-run Bootstrap if the skill has been updated since that project was last synced. Begin Session is not a substitute for Bootstrap or End Session. Scoped to the current project only; never creates a repo.'
 ---
 # Project Memory Management (Graph-Enabled)
 
@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 12`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 13`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -185,6 +185,21 @@ re-sync — without the user having to remember or manually redo anything per pr
     (e.g. the `docs/KEY_FLOWS.md` pointer in `docs/CODE_SUMMARY.md`) are added without a
     per-add confirmation. Step 11's Project Guidelines merge-safety note now also covers this
     bullet.
+  - v13 — Replaces the one-graph-per-repo convention with one slug-named graph and dependencies
+    file per tracked solution, registers those files in the generated Persistent Project Memory
+    instructions, and makes Bootstrap build/rename each solution's outputs sequentially. It
+    documents Builder's fixed `project-dependencies.json` output-name gotcha and requires an
+    immediate post-build rename in Bootstrap and End Session. Begin Session checks each
+    registered dependencies file for `CommitSha`; graph queries search the current IDE solution
+    first when that solution can be determined, then other registered graphs, labeling results
+    and explicitly announcing before any search fallback when graph coverage is absent. The first
+    v13 Bootstrap reports legacy/ad-hoc graph files as superseded and asks before deleting them.
+    End Session updates only the current solution's graph (skipped, with an explicit message, if
+    there is no registry yet). `docs/graph-viewer.html` is unchanged: its automatic load still
+    looks for the legacy unqualified filenames, so slug-named pairs load only via its file picker
+    or drag-and-drop. The rename workaround and multi-solution flow have not been exercised
+    live, and current-solution detection depends on what Copilot can see; neither is presented
+    as validated.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -249,7 +264,7 @@ should never be "stale," but should still record the current version).
 ## Path resolution (applies to all workflows)
 
 - All paths referenced in this skill (`docs/`, `.github/copilot-instructions.md`,
-  `.github/prompts/`, `full-graph.json`, `project-dependencies.json`) are relative to the
+  `.github/prompts/`, `full-graph.<slug>.json`, `project-dependencies.<slug>.json`) are relative to the
   **repository root** — the folder containing the `.git` directory, or, if `.git` isn't
   visible/accessible, the folder containing the top-level `.sln`/`.slnx` file.
 - Do NOT resolve these paths relative to the currently active/focused project's own subfolder.
@@ -277,9 +292,28 @@ should never be "stale," but should still record the current version).
     pinned to VS's own bundled runtime, which hides the machine-wide net8.0 runtime GraphTools
     targets and makes the raw `.exe` fail to launch even though nothing is actually wrong with
     it. Always use the wrapper — never call `GraphTools.Builder.exe`/`GraphTools.Query.exe`
-    directly, even if it seems to work in a given session.
-- The graph output files (`full-graph.json`, `project-dependencies.json`) live inside `docs/`,
-  alongside the four memory markdown files — this keeps all Copilot inputs in one place.
+  directly, even if it seems to work in a given session.
+
+### Per-solution file naming and collision handling
+
+- Every tracked solution gets `docs/full-graph.<slug>.json` and
+  `docs/project-dependencies.<slug>.json`, regardless of how many solutions the repo contains.
+  The slug is the solution filename without its extension, lowercased, with every character
+  outside `[a-z0-9]` replaced by `-`, repeated hyphens collapsed, and leading/trailing hyphens
+  trimmed. For example, `Itron.Metering.FirmwareTesterWithTFSImport.sln` becomes
+  `itron-metering-firmwaretesterwithtfsimport`.
+- Before building, calculate slugs for all tracked solutions. If two tracked solutions produce
+  the same slug, ask the user how to distinguish them; never guess or build either under a
+  colliding filename until resolved.
+- **Known Builder gotcha:** Builder writes `project-dependencies.json` next to the `--output`
+  graph file using that fixed name, regardless of the `--output` filename. Only after Builder
+  exits successfully, rename that generated file to `project-dependencies.<slug>.json`. If the
+  expected `project-dependencies.json` is missing, report that and do not guess at or rename any
+  other file. This is unconditional, including a single-solution repo, and applies after every
+  Bootstrap and End Session invocation before any next build.
+
+- The per-solution graph/dependencies files live inside `docs/`, alongside the memory markdown
+  files — this keeps all Copilot inputs in one place.
 - Before running the wrapper, confirm both it and the underlying exe it targets exist at the
   paths above; if either is missing, stop and tell the user rather than attempting to build or
   locate it yourself.
@@ -288,7 +322,7 @@ should never be "stale," but should still record the current version).
 - If the wrapper/exe exits with a non-zero exit code or prints an error, stop and report the
   full error to the user — do not treat a partial/failed graph as success, and do not retry
   automatically.
-- To check whether `docs/full-graph.json` exists before querying it, do NOT use `file_search`
+- To check whether a registered `docs/full-graph.<slug>.json` exists before querying it, do NOT use `file_search`
   or any filename-index/workspace search tool as the existence check — an empty result from
   those tools is not reliable evidence of absence (the file can be excluded from search
   indexing, or the query string may not match how the tool tokenizes paths). Instead, confirm
@@ -305,7 +339,7 @@ Use these whenever the Persistent Project Memory rule above says to prefer the g
 general search tool:
 
 ```
-C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<repo root>\docs\full-graph.json" --symbol "<fully-qualified-id>"
+C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<repo root>\docs\full-graph.<slug>.json" --symbol "<fully-qualified-id>"
 C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --symbol "<id>" --direction callers
 C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --symbol "<id>" --direction callees
 C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --list-symbols --project "<project name>"
@@ -324,6 +358,10 @@ C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<p
 - If the query returns a "symbol not found" error, do not assume the symbol doesn't exist in
   the codebase — the graph may be stale (e.g. a recent Bootstrap/End Session hasn't run yet).
   Mention this possibility before falling back to a general search tool.
+- Resolution order: current IDE solution graph first only when determinable from context (do
+  not invent detection capability; otherwise unknown), then other registry graphs if not found;
+  label every result by solution, state if found in multiple, and explicitly say no graph
+  covers the question before falling back to grep/general search. Never fall back silently.
 
 ## Domain lookup patterns capture (applies whenever graph-first lookups happen, not just Bootstrap)
 
@@ -526,36 +564,38 @@ Bootstrap or End Session.
    - `docs/ROADMAP.md`
    - `docs/domain-lookup-patterns.md` (optional; absence is normal, not an error)
    - `docs/KNOWN_OPEN_FINDINGS.md` (optional; absence is normal, not an error)
-   - `docs/full-graph.json`
-   - `docs/project-dependencies.json`
+   - The graph and dependencies files listed in the Persistent Project Memory registry in
+     `.github/copilot-instructions.md` (already read in Step 1). If that registry is absent
+     because the project has not been re-bootstrapped under v13, fall back to the legacy names
+     `docs/full-graph.json` and `docs/project-dependencies.json`.
 
-2a. If `docs/project-dependencies.json` was found in Step 2, do a cheap, read-only graph-staleness
-    check:
-    - Read the file (`get_file`) and extract its `CommitSha` field.
-    - If `CommitSha` is missing or null (e.g. the graph was built before this field existed, or
-      git resolution failed at build time), treat this as "unknown" — not an error, and do not
-      attempt to fix or rebuild anything. Report it plainly, e.g. "graph predates
-      commit-tracking".
-    - If `CommitSha` is present, run `git rev-parse HEAD` in the repo root to get the current
+2a. For each registered dependencies file found in Step 2 (or the legacy dependencies file when
+    there is no v13 registry), do a cheap, read-only graph-staleness check:
+    - Read each file (`get_file`) and extract its `CommitSha` field.
+    - If a `CommitSha` is missing or null (e.g. the graph was built before this field existed, or
+      git resolution failed at build time), treat that solution's status as "unknown" — not an
+      error, and do not attempt to fix or rebuild anything. Report it plainly, e.g. "graph for
+      `<solution>` predates commit-tracking".
+    - For each present `CommitSha`, run `git rev-parse HEAD` in the repo root to get the current
       live commit SHA and compare:
-      - Match: the graph is current relative to the last commit — mention this briefly (e.g.
-        "graph is up to date with the current commit").
-      - Mismatch: report plainly, e.g. "graph was built from commit `<short SHA>`; current
-        commit is `<short SHA>`". Do NOT attempt to determine how many commits apart they are,
-        run a diff, or judge whether this matters — that's for the user to decide. Then ask (via
-        the `ask_user` tool, not free text — same pattern as Workflow 0's version-staleness gate)
-        "Run Bootstrap now to rebuild the graph, or continue as-is?"
+      - Match: that solution's graph is current relative to the last commit — mention this
+        briefly (e.g. "graph for `<solution>` is up to date with the current commit").
+      - Mismatch: report the stale solution and its SHAs plainly, e.g. "graph for `<solution>`
+        was built from commit `<short SHA>`; current commit is `<short SHA>`". Do NOT attempt to
+        determine how many commits apart they are, run a diff, or judge whether this matters —
+        that's for the user to decide. If any registered solution mismatches, ask once (via the
+        `ask_user` tool, not free text — same pattern as Workflow 0's version-staleness gate):
+        "Run Bootstrap now to rebuild the stale solution graph(s), or continue as-is?"
         - If the user chooses Bootstrap, run the Bootstrap workflow now. If Begin Session was
           the only workflow originally requested, continue with the rest of Begin Session after
-          Bootstrap completes (don't re-run this Step 2a comparison again — the graph was just
+          Bootstrap completes (don't re-run this Step 2a comparison again — the graphs were just
           rebuilt).
         - If the user chooses to continue, proceed with the rest of Begin Session without
           rebuilding, and do not ask again later in the same session.
-    - This check is a single `get_file` read plus one `git rev-parse HEAD` call — no rebuilding,
-      no `GraphTools.Builder.exe`/wrapper invocation, and no automatically running or suggesting
-      Bootstrap on a match or unknown/missing `CommitSha`; only a `CommitSha` mismatch prompts
-      via `ask_user` as described above. If `docs/project-dependencies.json` was missing in Step
-      2, skip this step entirely (already covered by Step 2's existence report).
+    - This is a read-only check only — no rebuilding, no GraphTools invocation, and no automatic
+      Bootstrap on a match or unknown/missing `CommitSha`; only a mismatch on any solution prompts
+      via `ask_user` as described above. If no applicable dependencies file was found, skip this
+      step entirely (already covered by Step 2's existence report).
 
 3. Report back briefly: which of the files above were found and which were missing, the Step 2a
    graph-staleness result (if applicable), plus a one-line readiness summary (for example, the
@@ -589,7 +629,8 @@ Guidelines" in Steps 7, 7a, and 8.
 
 Some repos have no C# solution to build a graph from at all (e.g., a repo containing only
 documentation/markdown, no `.sln`/`.slnx` anywhere) — see Step 0a's "docs-only mode" detection,
-which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaffected.
+which adjusts the graph-dependent behavior in Steps 2, 2a, 9, 9a, and 12 below accordingly. The
+other steps are unaffected.
 
 ### Steps
 
@@ -604,13 +645,14 @@ which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaf
     still be found).
     - If none are found: treat this as **docs-only mode** for the remainder of this Bootstrap
       run — a repo with no C# solution to build a code knowledge graph from. Docs-only mode
-      changes only Steps 2, 2a, 9, and 12 (each notes its docs-only-mode behavior inline below);
+      changes only the graph-dependent behavior in Steps 2, 2a, 9, 9a, and 12 (each notes its
+      docs-only-mode behavior inline below);
       every other step proceeds exactly as normal, since none of them depend on a C# solution.
       No ambiguity here — proceed without asking.
     - If at least one found solution's path does NOT contain a suspicious keyword (case-insensitive
       check against: `sample`, `example`, `test`, `fixture`, `demo`, `playground`), proceed
-      normally using that solution (or those solutions) — this is a clear enough signal that a
-      real solution exists, no need to ask.
+      normally using every non-suspicious solution found; track each separately with one graph
+      per solution — this is a clear enough signal that real solutions exist, no need to ask.
     - If solutions were found but every single one has a suspicious keyword in its path (i.e. the
       only candidates found look like samples/examples — e.g. a stray reference solution someone
       dropped into an otherwise docs-only repo, such as `examples\SampleApp.sln`), do NOT silently
@@ -620,10 +662,10 @@ which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaf
       docs-only?" Proceed based on the user's answer (use the solution normally, or apply
       docs-only mode as described above) — do not guess.
 
-1. Discover structure: use `get_projects_in_solution` and `get_files_in_project` (or
-   equivalent workspace exploration) to enumerate projects, key classes/services, and
-   dependencies between components. Do not read every file — focus on structural/entry-point
-   types (interfaces, services, view models, main windows/controllers).
+1. Discover structure for every tracked solution: use `get_projects_in_solution` and
+   `get_files_in_project` (or equivalent workspace exploration) to enumerate projects, key
+   classes/services, and dependencies between components. Do not read every file — focus on
+   structural/entry-point types (interfaces, services, view models, main windows/controllers).
 
 2. Create or update `docs/CODE_SUMMARY.md` containing:
    - A short project overview (1-3 sentences: what the app/library does, tech stack, target
@@ -706,60 +748,73 @@ which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaf
    - If it exists, read `docs/domain-lookup-patterns.md` when a task requires domain
 	 conventions, naming schemes, or business logic that the graph doesn't represent — check it
 	 before falling back to manual exploration or a fresh graph query.
-   - If it exists, mention `docs/full-graph.json`/`docs/project-dependencies.json` are
-	 available and should be queried via the GraphTools wrapper script (located at
+   - For tracked solutions, include a registry table of tracked solutions and their slug-named
+	 graph/dependencies files (one row per tracked solution; no rows in docs-only mode), and state
+	 that the registered graphs are queried via the GraphTools wrapper script (located at
 	 `<confirmed absolute wrapper path>`, invoked as `<wrapper> -Tool Query -- <args>`) (never
-	 read wholesale). This is a default, not a judgment call: before using a
+	 read wholesale):
+
+	 | Solution path relative to repo root | Slug | Graph file | Dependencies file |
+	 | --- | --- | --- | --- |
+
+   - Graph-first rule: this is a default, not a judgment call: before using a
 	 general-purpose search tool (text search, symbol search, grep, or similar) to locate a
 	 class/interface/enum, find a method's definition, find its callers, find its callees, check
 	 how two types relate, or otherwise answer "where is X" / "what uses X" for anything that is
-	 a C# symbol, first check whether `docs/full-graph.json` exists in this project, and if so,
-	 query it via the wrapper (located at `<confirmed absolute wrapper path>`) instead of a
-	 general search tool. This applies even to a simple "find this file/class" request, not only
-	 explicit call-graph or architecture questions. This preference applies regardless of how the
-	 question is phrased: conceptual/explanatory framings ("explain X", "walk me through X",
-	 "how does X work", "describe the Y flow") are NOT exempt just because they aren't literally
-	 worded as a find/locate request. The test is whether answering the question requires
-	 locating, identifying, or relating specific named C# classes/interfaces/methods — not
-	 whether the question is phrased as a lookup. If it does, query the graph first.
-   - Fallback: if `docs/full-graph.json` does not exist, if `GraphTools.Query.exe` errors or
-	 exits non-zero, or if the graph doesn't contain an answer to the specific question (e.g.
-	 the question is about non-code content, file layout, or something the graph doesn't track),
-	 fall back to normal search tools and proceed — do not treat a missing/failed graph query as
-	 a blocking error.
+	 a C# symbol, first check the registry for the registered per-solution graphs, and query them
+	 via the wrapper (located at `<confirmed absolute wrapper path>`) instead of a general search
+	 tool. This applies even to a simple "find this file/class" request, not only explicit
+	 call-graph or architecture questions. This preference applies regardless of how the question
+	 is phrased: conceptual/explanatory framings ("explain X", "walk me through X", "how does X
+	 work", "describe the Y flow") are NOT exempt just because they aren't literally worded as a
+	 find/locate request. The test is whether answering the question requires locating,
+	 identifying, or relating specific named C# classes/interfaces/methods — not whether the
+	 question is phrased as a lookup. If it does, query the graph first.
+   - Resolution order: query the graph of the solution currently open in the IDE first, only if
+	 that solution can be determined from context (do not invent a detection capability; if it
+	 cannot be determined, treat it as unknown). If the symbol is not found there, check the other
+	 registered graphs. Label every result with the solution it came from, and say so if the symbol
+	 is found in more than one solution.
+   - Fallback: if no registered graph exists, if a registered graph file is missing, if
+	 `GraphTools.Query.exe` errors or exits non-zero, or if no registered graph contains an answer
+	 to the specific question (e.g. the question is about non-code content, file layout, or
+	 something the graph doesn't track), say so explicitly (report the full error for failures; a
+	 "symbol not found" result may only mean the graph is stale), and only then fall back to normal
+	 search tools and proceed — this is never a blocking error, and the fallback is never silent.
+
    - If, during graph-first or domain-lookup work, you notice a recurring friction point (e.g.
-	 a manual step done more than once that a structural tool could answer instead), mention it
-	 briefly at the end of your response — don't act on it, just note it. Skip this if nothing
-	 recurring was noticed; don't proactively search for optimization opportunities outside of
-	 graph/domain-lookup work.
+     a manual step done more than once that a structural tool could answer instead), mention it
+     briefly at the end of your response — don't act on it, just note it. Skip this if nothing
+     recurring was noticed; don't proactively search for optimization opportunities outside of
+     graph/domain-lookup work.
    - Update `docs/CODE_SUMMARY.md` when: a new project is added, a new structural class/service
-	 is added, a component's responsibility changes, or a project/component dependency changes.
-	 Do not update for routine bug fixes or small edits that don't affect structure. Ensure the
-	 pointer line to `docs/KEY_FLOWS.md` (see Step 2) stays present; do not add Key Flows entries
-	 directly to `docs/CODE_SUMMARY.md`.
+     is added, a component's responsibility changes, or a project/component dependency changes.
+     Do not update for routine bug fixes or small edits that don't affect structure. Ensure the
+     pointer line to `docs/KEY_FLOWS.md` (see Step 2) stays present; do not add Key Flows entries
+     directly to `docs/CODE_SUMMARY.md`.
    - Update `docs/KEY_FLOWS.md` directly (not `docs/CODE_SUMMARY.md`) when a new end-to-end flow
-	 spanning multiple C# symbols is fully traced and confirmed during the session (e.g., via a
-	 graph query and/or a domain lookup pattern investigation): add it as a short arrow-chain
-	 (e.g., `A -> B -> C -> D`), consistent with the existing entries. Skip if no such flow was
-	 traced. Key Flows entries remain short symbol arrow-chains only — no domain-specific details
-	 (e.g. specific config/XML file names or device-specific values), which belong in
-	 `docs/domain-lookup-patterns.md` instead. If a relevant `docs/domain-lookup-patterns.md`
-	 entry already exists for that specific flow (the flow involves a domain convention already
-	 documented there), append a short one-line pointer to the Key Flows entry referencing it,
-	 e.g. `ImageTransferInitiate -> ImageBlockTransfer -> ImageVerify -> ImageActivate (see
-	 domain-lookup-patterns.md for OBIS code mapping)` — this is a pointer only, never pull
-	 domain-specific details themselves into `docs/KEY_FLOWS.md`. Only add the pointer if a
-	 relevant entry genuinely already exists; skip silently (no pointer) if none exists — do not
-	 invent, infer, or speculatively cross-reference.
+     spanning multiple C# symbols is fully traced and confirmed during the session (e.g., via a
+     graph query and/or a domain lookup pattern investigation): add it as a short arrow-chain
+     (e.g., `A -> B -> C -> D`), consistent with the existing entries. Skip if no such flow was
+     traced. Key Flows entries remain short symbol arrow-chains only — no domain-specific details
+     (e.g. specific config/XML file names or device-specific values), which belong in
+     `docs/domain-lookup-patterns.md` instead. If a relevant `docs/domain-lookup-patterns.md`
+     entry already exists for that specific flow (the flow involves a domain convention already
+     documented there), append a short one-line pointer to the Key Flows entry referencing it,
+     e.g. `ImageTransferInitiate -> ImageBlockTransfer -> ImageVerify -> ImageActivate (see
+     domain-lookup-patterns.md for OBIS code mapping)` — this is a pointer only, never pull
+     domain-specific details themselves into `docs/KEY_FLOWS.md`. Only add the pointer if a
+     relevant entry genuinely already exists; skip silently (no pointer) if none exists — do not
+     invent, infer, or speculatively cross-reference.
    - Update `docs/DESIGN_DECISIONS.md` (append-only, dated entries) when: a non-obvious
-	 architectural/design choice is made, an alternative approach is rejected with a reason, or
-	 a past decision is reversed. Never delete prior entries.
+     architectural/design choice is made, an alternative approach is rejected with a reason, or
+     a past decision is reversed. Never delete prior entries.
    - Update `docs/PROJECT_STATE.md` at the end of a working session to reflect current focus,
-	 open tasks, and recently changed files (overwrite, not append).
+     open tasks, and recently changed files (overwrite, not append).
    - Update `docs/ROADMAP.md` only when priorities/plans deliberately change, not automatically
-	 each session.
+     each session.
    - Keep all four files concise — they exist to reduce token usage on future re-reads, not to
-	 serve as exhaustive documentation.
+     serve as exhaustive documentation.
 
 7. Ensure a "Project Guidelines" section exists in `.github/copilot-instructions.md`. This
    step is merge-safe: if the section already exists, only add the following 3 bullets if
@@ -803,18 +858,32 @@ which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaf
    without removing or rewriting existing content.
 
 9. Docs-only mode (see Step 0a): skip this step entirely — do not attempt to run the GraphTools
-   wrapper or `GraphTools.Builder.exe` against a nonexistent solution. Otherwise, build the
-   knowledge graph: run
-   `<GraphTools wrapper path> -Tool Builder -- --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode full`.
-   This also produces `project-dependencies.json` in the same `docs/` folder. If
-   `full-graph.json` already exists from a prior Bootstrap run, this step still does a fresh
-   full rebuild (Bootstrap always rebuilds fully; only End Session uses incremental mode).
+   wrapper or `GraphTools.Builder.exe` against a nonexistent solution. Otherwise, for each
+   tracked solution, one at a time, run a fresh full build:
+   `<GraphTools wrapper path> -Tool Builder -- --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.<slug>.json" --mode full`.
+   Only after Builder exits successfully, rename the generated
+   `<repo root>\docs\project-dependencies.json` to
+   `<repo root>\docs\project-dependencies.<slug>.json` before building the next solution. If
+   Builder fails, stop per "GraphTools invocation" and do not rename. If the expected
+   `project-dependencies.json` is missing after a successful build, report that and do not guess
+   at or rename any other file. The rename is unconditional, including a single-solution repo.
+   Bootstrap always rebuilds each tracked graph fully; only End Session uses incremental mode.
 
-10. Ensure `docs/graph-viewer.html` exists: this is a static, self-contained HTML file
-	(reads whichever `full-graph.json`/`project-dependencies.json` sit next to it at open time
-	— nothing is embedded per-project) that lets a developer open the graph in a browser and
-	explore it visually (project-level dependency view, drill into a project's types, click a
-	type to see its members). It never needs regenerating from the codebase, only copying.
+9a. On the first v13 Bootstrap of a project already bootstrapped under an older naming scheme,
+    build all slug-named files as in Step 9. Builder overwrites any pre-existing unqualified
+    `docs/project-dependencies.json` during the first build, before the required rename. After
+    the builds, report any remaining superseded unqualified `docs/full-graph.json` and any ad-hoc
+    per-solution graph/dependencies files that do not match the slug convention (for example,
+    `docs/full-graph.firmwaretester.json`). Ask via `ask_user` before deleting any of them; never
+    auto-delete. Docs-only mode skips this step.
+
+10. Ensure `docs/graph-viewer.html` exists: this is a static, self-contained HTML file that lets
+	a developer open a graph in a browser and explore it visually (project-level dependency view,
+	drill into a project's types, click a type to see its members). Its automatic local-file load
+	still looks for the legacy unqualified `full-graph.json`/`project-dependencies.json`
+	filenames; slug-named pairs load only via its file picker or drag-and-drop controls. Nothing
+	is embedded per-project, and the viewer never needs regenerating from the codebase, only
+	copying.
 	- Source file: this skill's own folder, `graph-viewer.html`
 	  (`~/.copilot/skills/project-memory-management-graph/graph-viewer.html`).
 	- If `docs/graph-viewer.html` does not exist in the target project, copy it there as-is.
@@ -833,11 +902,11 @@ which adjusts Steps 2, 2a, 9, and 12 below accordingly. The other steps are unaf
 	"Response Guidelines" (Step 8) sections remain separately merge-safe/additive-only, as
 	specified in those steps.
 
-12. Report back a short summary of what was created/updated, the graph's node/edge counts and
-	build time, and confirm the build still succeeds. Docs-only mode (see Step 0a): report this
-	explicitly and plainly (e.g., "Docs-only mode detected — no `.sln`/`.slnx` found in this repo;
-	graph build skipped.") instead of node/edge counts or build confirmation, so it reads as
-	expected behavior for this repo, not an incomplete or failed run.
+12. Report back a short summary of what was created/updated, the node/edge counts and build time
+	for each tracked solution, and confirm each build still succeeds. Docs-only mode (see Step
+	0a): report this explicitly and plainly (e.g., "Docs-only mode detected — no `.sln`/`.slnx`
+	found in this repo; graph build skipped.") instead of node/edge counts or build confirmation,
+	so it reads as expected behavior for this repo, not an incomplete or failed run.
 
 ## Workflow 2: End Session
 
@@ -900,10 +969,22 @@ sweep). This keeps the closing update low-token.
    yet written to the file. Skip this step entirely if no such already-confirmed-but-unrecorded
    pattern exists.
 
-6. If `full-graph.json` exists in `docs/`, update the knowledge graph incrementally: run
-   `<GraphTools wrapper path> -Tool Builder -- --solution "<resolved repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.json" --mode incremental --graph "<repo root>\docs\full-graph.json"`.
-   If `full-graph.json` does not exist, skip this step silently (do not build it fresh here —
-   that is Bootstrap's job).
+6. Update only the current solution's graph incrementally (intentionally cheap — never the other
+   solutions' graphs):
+   - If there is no registry in `.github/copilot-instructions.md` (project not yet
+     re-bootstrapped under v13), skip the graph update and say explicitly: "graph not updated;
+     run Bootstrap to migrate to v13".
+   - If the current solution cannot be determined from context, skip the update and say so
+     rather than guessing. If its registered graph file does not exist, skip this step silently
+     (do not build it fresh here — that is Bootstrap's job).
+   - Otherwise run
+     `<GraphTools wrapper path> -Tool Builder -- --solution "<resolved current repo .sln/.slnx path>" --output "<repo root>\docs\full-graph.<slug>.json" --mode incremental --graph "<repo root>\docs\full-graph.<slug>.json"`.
+     Only after Builder exits successfully, rename the generated
+     `<repo root>\docs\project-dependencies.json` to
+     `<repo root>\docs\project-dependencies.<slug>.json`. If Builder fails, stop per "GraphTools
+     invocation" and do not rename. If the expected `project-dependencies.json` is missing after
+     a successful build, report that and do not guess at or rename any other file. The rename
+     is unconditional, including a single-solution repo.
 
 7. Ask the user directly (via `ask_user`, not an inference): "Anything from this session you'd
    like to add to Known Open Findings?" This is the only place End Session prompts for this — do
