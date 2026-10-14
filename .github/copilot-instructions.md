@@ -1,4 +1,4 @@
-<!-- project-memory-management-graph: skill-version=8 -->
+<!-- project-memory-management-graph: skill-version=14 -->
 ## Persistent Project Memory
 
 This section is fully regenerated (overwritten) on every Bootstrap run. It is NOT merge-safe,
@@ -7,9 +7,16 @@ unlike "Project Guidelines" and "Response Guidelines" below.
 This repo is in **docs-only mode**: no C# solution (`.sln`/`.slnx`) exists to build a code
 knowledge graph from (the only solution file found, `.vs\Visual-Studio-Copilot-Skills.slnx`, is
 Visual Studio's auto-generated, gitignored, empty open-folder scaffolding — not a real checked-in
-solution). `docs/full-graph.json` and `docs/project-dependencies.json` will never exist here, and
-`docs/KEY_FLOWS.md` was intentionally not created. The graph-related guidance below only applies
-if this repo ever gains a real C# solution and Bootstrap is re-run.
+solution). No code graphs or `docs/KEY_FLOWS.md` are generated in this mode. The graph-related
+guidance below only applies if this repo gains a real C# solution and Bootstrap is re-run.
+
+### Solution graph registry
+
+No tracked C# solutions; the registry is intentionally empty in docs-only mode. Each tracked
+solution would have `docs/full-graph.<slug>.json` and `docs/project-dependencies.<slug>.json`.
+
+| Solution path relative to repo root | Slug | Graph file | Dependencies file |
+| --- | --- | --- | --- |
 
 - If it exists, read `docs/CODE_SUMMARY.md` and `docs/DESIGN_DECISIONS.md` before exploring the
   codebase with search tools for a new task. If these files do not exist, fall back to normal
@@ -19,15 +26,15 @@ if this repo ever gains a real C# solution and Bootstrap is re-run.
 - If it exists, read `docs/domain-lookup-patterns.md` when a task requires domain conventions,
   naming schemes, or business logic that the graph doesn't represent — check it before falling
   back to manual exploration or a fresh graph query.
-- If it exists, mention `docs/full-graph.json`/`docs/project-dependencies.json` are available and
-  should be queried via the GraphTools wrapper script (located at
+- If it exists, read `docs/FEATURE_CHECKLIST.md` when planning or adding a new feature.
+- Registered graphs should be queried via the GraphTools wrapper script (located at
   `C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1`, invoked as
   `C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- <args>`) (never read
   wholesale). This is a default, not a judgment call: before using a general-purpose search tool
   (text search, symbol search, grep, or similar) to locate a class/interface/enum, find a
   method's definition, find its callers, find its callees, check how two types relate, or
   otherwise answer "where is X" / "what uses X" for anything that is a C# symbol, first check
-  whether `docs/full-graph.json` exists in this project, and if so, query it via the wrapper
+  the registry for the registered per-solution graphs, and query them via the wrapper
   instead of a general search tool. This applies even to a simple "find this file/class"
   request, not only explicit call-graph or architecture questions. This preference applies
   regardless of how the question is phrased: conceptual/explanatory framings ("explain X",
@@ -36,11 +43,14 @@ if this repo ever gains a real C# solution and Bootstrap is re-run.
   question requires locating, identifying, or relating specific named C# classes/interfaces/
   methods — not whether the question is phrased as a lookup. If it does, query the graph first.
   (Not applicable while this repo remains docs-only — no graph exists to query.)
-- Fallback: if `docs/full-graph.json` does not exist, if `GraphTools.Query.exe` errors or exits
-  non-zero, or if the graph doesn't contain an answer to the specific question (e.g. the
-  question is about non-code content, file layout, or something the graph doesn't track), fall
-  back to normal search tools and proceed — do not treat a missing/failed graph query as a
-  blocking error.
+- Resolution order: query the graph of the solution currently open in the IDE first, only if
+  that solution can be determined from context (do not invent a detection capability; otherwise
+  treat it as unknown). If the symbol is not found there, check the other registered graphs.
+  Label every result with its solution, and say so if it is found in more than one solution.
+- Fallback: if no registered graph exists, a registered graph file is missing, a query errors or
+  exits non-zero, or no registered graph answers the question, say so explicitly (report the full
+  error for failures; a "symbol not found" result may only mean the graph is stale), then fall
+  back to normal search and proceed. This is never a blocking error; fallback is never silent.
 - If, during graph-first or domain-lookup work, you notice a recurring friction point (e.g. a
   manual step done more than once that a structural tool could answer instead), mention it
   briefly at the end of your response — don't act on it, just note it. Skip this if nothing

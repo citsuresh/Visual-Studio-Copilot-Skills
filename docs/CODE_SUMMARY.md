@@ -11,5 +11,9 @@ No C# solution detected in this repo; tracked in docs-only mode (no code graph).
 
 | Skill | Purpose |
 |---|---|
-| `project-memory-management` | Manage persistent, low-token project memory (`docs/CODE_SUMMARY.md`, `DESIGN_DECISIONS.md`, `PROJECT_STATE.md`, `ROADMAP.md`) for any repo. |
-| `project-memory-management-graph` | Same as above, plus builds/maintains a Roslyn-based code knowledge graph via the standalone `GraphTools` executables. Intended for large/complex C# solutions. |
+| `project-memory-management` | Deprecated predecessor; use `project-memory-management-graph` in docs-only mode instead. |
+| `project-memory-management-graph` | Begin Session, Bootstrap, End Session and Initialize; supports docs-only repos or registered per-solution Roslyn graphs through GraphTools. Includes user-curated feature-checklist guidance and regression-audit protocols. |
+| `agent-orchestrator` | Supervise a Copilot agent in another Visual Studio window; composes UI interaction and debugger skills. Includes `scripts/Watch-CopilotChat.ps1`. |
+| `ui-interaction` | Shared UI automation primitives through AgentDebugToolkit; scoped selectors, ambiguity handling, compact inspection and explicit typed-input read-back. |
+| `ui-navigation-orchestrator` | Navigate WinForms/WPF apps with a per-target-repo navigation-tree cache; composes `ui-interaction` and `vs-debug`. |
+| `vs-debug` | Visual Studio debugger bridge through AgentDebugToolkit/EnvDTE: attach, breakpoints, stepping, call stacks, thread/frame selection and evaluation. |
