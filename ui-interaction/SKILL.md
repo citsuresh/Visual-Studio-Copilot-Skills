@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 2`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 3`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -17,6 +17,13 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     click/inspect/wait call) -- previously only the passive version metadata existed here,
     without agent-orchestrator's matching procedural caution against re-checking per call,
     which matters most for this skill since it's invoked far more often than the others.
+  - v3 — Clarifies that potentially ambiguous click selectors should be scoped, that selector
+    uniqueness and the resolved control type/class must be checked rather than inferred from
+    `success: true`, and that all typed input requires an explicit read-back before it is called
+    verified (including line-ending normalization when comparing text). Adds a known gap for
+    actions that open windows owned by a different process: callers must identify a plausible
+    process to inspect rather than guessing, since cross-process window enumeration is not yet
+    available.
 
 # UI Interaction
 
@@ -74,7 +81,15 @@ would defeat the point of it being a cheap, once-per-session check.
 - **click** — by selector. Prefer `Name`-based selectors with a documented fallback strategy over
   `AutomationId` where the caller's target app is known to expose unreliable `AutomationId`s (that
   finding belongs to the caller/target app's own notes, not generalized here, since it isn't true
-  of every app).
+  of every app). When a selector could plausibly match more than one element (e.g. shared labels,
+  or a name that also matches a system element such as a browser bookmark), scope it with
+  `--scopeHwnd` (the only scoping flag `click`/`type` accept) rather than relying on the first match
+  that `click`/`type` resolves to. If selector uniqueness is uncertain, use `find-all` first (see
+  `CLI_CONTRACT.md`) to confirm the match count before acting. Its own
+  `--scopeStrategy`/`--scopeValue` flags can narrow that pre-check, but they are not accepted by
+  `click`/`type` themselves. A selector matching a label does not prove that it
+  targets the intended control — confirm the matched element's `controlType`/`className` in the
+  response, not just that `success: true` was returned.
 - **inspect / read** — returns the current element tree, text, and state. This is the primitive
   that answers "what's on screen right now" — always fresh, never cached by this skill.
 - **type / paste** — prefer clipboard-paste over synthetic typing for reliability; avoid literal
@@ -82,6 +97,24 @@ would defeat the point of it being a cheap, once-per-session check.
 - **wait / poll** — for a UI state to settle, invoked asynchronously so a caller can relay
   progress without blocking.
 - **set-grid-cell** — for virtualized WPF DataGrid controls (see gotcha below).
+
+### Verifying typed input
+
+- After every `type` or `submit-chat-message` call, perform an explicit read-back before treating
+  text entry as confirmed. `success: true` or a passed `--verify` is not sufficient on its own:
+  per `CLI_CONTRACT.md`'s `type` verb, `--verify` is silently skipped on the synthetic-keyboard
+  path and, on the clipboard-paste path, only checks the immediate/bounded stability window
+  described by the `verify-unstable` mitigation.
+- "Action succeeded" (the verb returned `success: true`) and "content verified" (a read-back
+  confirms the actual on-screen text matches intent) are different claims. Only make the second
+  claim after an explicit read-back, even when `--verify` passed.
+- Before concluding expected and actual text genuinely differ, normalize line endings on both
+  sides (`\r\n` and lone `\r` to `\n`). Windows edit controls have been observed reading embedded
+  newlines back as `\r`, not `\n`.
+- For the read-back, use `get-text` on controls with a usable `ValuePattern`. On controls without
+  one (e.g. the Copilot chat input), `get-text` falls back to the element's accessibility `Name`,
+  which is a label rather than the typed content, so use `read-visible-text` or a narrowly scoped
+  `inspect` instead.
 
 ## Known generic UI-automation gotchas
 
@@ -97,6 +130,13 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   explicit `--applyStrategy`/`--applyValue` to commit the edit.
 - **Hover-driven pickers** — some pickers only detect a target after the OS cursor has physically
   entered the window; a raw click at a coordinate isn't sufficient on its own.
+- **New windows owned by another process** — after an action expected to open a new window, if
+  the result is not visible via `wait-for-window-change`/`list-windows` scoped to the original
+  process, the new window may belong to a different process entirely (e.g. a "Report a Problem"
+  action opening a browser instead of a dialog in the host app). `list-windows` currently requires
+  a `--pid` or context pid; there is no cross-process window-enumeration primitive yet. The caller
+  must attach to a plausibly involved process by name to check, or ask the calling skill/agent
+  which process to check. This is a known gap, not something to work around silently by guessing.
 - *(Resolved, kept for reference of the format above)* the toolkit's `send-keys` verb used to
   auto-focus an element with a click before sending keys, which broke reliable arrow-key
   navigation on custom listbox controls exposing zero UIA children. Fixed upstream in
