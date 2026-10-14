@@ -5,7 +5,7 @@ description: 'Attach the Visual Studio debugger to a running application via Age
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 5`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 6`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-debug\SKILL.md` once at the start of a session.
 - Changelog:
   - v1 — initial version. Extracted from `ui-debug-map`, which mixed this debugger-bridge
@@ -41,6 +41,11 @@ description: 'Attach the Visual Studio debugger to a running application via Age
     (live-observed: the outermost managed frame). Added guidance to re-select a known-good frame
     and re-check with `get-callstack` before trusting any `get-locals`/`evaluate` call. No verb
     behavior changed — documentation only.
+  - v6 — documented AgentDebugToolkit's 2026-10-14 strict option parsing for `agentdebug-vs.exe`:
+    only `--allowSideEffects` and `--all` may be bare; any other flag with a missing value, or
+    followed by another `--` flag, fails `invalid-argument`; empty or `--`-prefixed values need
+    `--name=value` (e.g. `--expression=--i`). Documentation only; requires a CLI built from
+    that change.
 
 # VS Debug
 
@@ -141,6 +146,11 @@ attach/breakpoint/step/read-call-stack call.
   stack frame as EnvDTE string representations, not typed/structured values.
 - **evaluate `--expression <text> [--allowSideEffects]`** — evaluate an expression against the
   currently selected frame (or EnvDTE's own current frame if none was explicitly selected).
+  - **Strict option parsing** (2026-10-14 build onward): only `--allowSideEffects` and `--all`
+    (`remove-breakpoint`) may be given bare. Any other flag with no value, or followed by another
+    `--` flag, fails `invalid-argument` before the verb runs. Pass an empty value or one starting
+    with `--` as `--name=value`: e.g. `--expression=--i`, not `--expression --i`. MCP tools
+    already send such values in this form.
   - **Safe by default**: reads the expression (`GetExpression`, no statement execution, no
     assignments) — same non-mutating path `get-locals` already uses. Returns
     `{ name, value, type }`. If the expression parses but can't actually be evaluated, this is a
