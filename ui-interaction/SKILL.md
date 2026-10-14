@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 3`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 4`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -24,6 +24,11 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     actions that open windows owned by a different process: callers must identify a plausible
     process to inspect rather than guessing, since cross-process window enumeration is not yet
     available.
+  - v4 — Documents the 2026-10-14 toolkit change that rejects ambiguous selector matches without
+    acting, returns candidate details for narrowing, and adds `--scopeHwnd` to `get-text`;
+    older builds still silently use the first match. Adds compact-first `inspect` guidance
+    using name/control-type filters and their pruned-tree output, and records scroll-to-element
+    as another known gap.
 
 # UI Interaction
 
@@ -83,8 +88,14 @@ would defeat the point of it being a cheap, once-per-session check.
   finding belongs to the caller/target app's own notes, not generalized here, since it isn't true
   of every app). When a selector could plausibly match more than one element (e.g. shared labels,
   or a name that also matches a system element such as a browser bookmark), scope it with
-  `--scopeHwnd` (the only scoping flag `click`/`type` accept) rather than relying on the first match
-  that `click`/`type` resolves to. If selector uniqueness is uncertain, use `find-all` first (see
+  `--scopeHwnd` (the only scoping flag `click`/`type` accept). `click`, `right-click`, `double-click`,
+  `drag`, selector-form `move-mouse`, `type`, `get-text`, and `send-keys` now fail with
+  `ambiguous-match` instead of acting on the first match. The response includes `count` and up to
+  10 candidates (`name`, `automationId`, `controlType`, `className`), and no action is performed.
+  On `ambiguous-match`, narrow with `--scopeHwnd`, or retry using a candidate's `AutomationId` if
+  it is unique. This behavior requires an `agentdebug-ui.exe` built from the 2026-10-14 change;
+  an older build silently uses the first match. `get-text` now also accepts `--scopeHwnd`.
+  If selector uniqueness is uncertain, use `find-all` first (see
   `CLI_CONTRACT.md`) to confirm the match count before acting. Its own
   `--scopeStrategy`/`--scopeValue` flags can narrow that pre-check, but they are not accepted by
   `click`/`type` themselves. A selector matching a label does not prove that it
@@ -92,6 +103,12 @@ would defeat the point of it being a cheap, once-per-session check.
   response, not just that `success: true` was returned.
 - **inspect / read** — returns the current element tree, text, and state. This is the primitive
   that answers "what's on screen right now" — always fresh, never cached by this skill.
+  Use compact-first inspection: try `inspect --nameContains <text>` (case-insensitive) and/or
+  `--controlType <short name>` (e.g. `Button`, `Edit`) first. Filtered output is a pruned tree:
+  matches plus their ancestor chain, with a `matchCount` field. An unknown control type returns
+  `invalid-argument`. Reserve unfiltered `inspect` and screenshots for cases the filters cannot
+  resolve. If the window's own name matches `--nameContains`, the whole tree is retained, so use
+  a more specific substring or add `--controlType`.
 - **type / paste** — prefer clipboard-paste over synthetic typing for reliability; avoid literal
   newlines in directly-typed text (rejected by design in some verbs).
 - **wait / poll** — for a UI state to settle, invoked asynchronously so a caller can relay
@@ -137,6 +154,7 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   a `--pid` or context pid; there is no cross-process window-enumeration primitive yet. The caller
   must attach to a plausibly involved process by name to check, or ask the calling skill/agent
   which process to check. This is a known gap, not something to work around silently by guessing.
+- **Scroll-to-element** is also a known gap.
 - *(Resolved, kept for reference of the format above)* the toolkit's `send-keys` verb used to
   auto-focus an element with a click before sending keys, which broke reliable arrow-key
   navigation on custom listbox controls exposing zero UIA children. Fixed upstream in
