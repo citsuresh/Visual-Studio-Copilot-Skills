@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 4`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 5`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -29,6 +29,10 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     older builds still silently use the first match. Adds compact-first `inspect` guidance
     using name/control-type filters and their pruned-tree output, and records scroll-to-element
     as another known gap.
+  - v5 — Adds `--clear` guidance for emptying controls, documents strict option parsing and
+    `--flag=value` for empty or `--`-prefixed values, and clarifies that drag success means input
+    was dispatched rather than the drop accepted. Extends explicit read-back confirmation to
+    clearing as well as typing and chat submission.
 
 # UI Interaction
 
@@ -111,14 +115,27 @@ would defeat the point of it being a cheap, once-per-session check.
   a more specific substring or add `--controlType`.
 - **type / paste** — prefer clipboard-paste over synthetic typing for reliability; avoid literal
   newlines in directly-typed text (rejected by design in some verbs).
+  To empty a control, use `type --clear` (MCP: `ui_type` with `clear=true`), not `--text ''`.
+  `--clear` is mutually exclusive with `--text` and `--paste`. It uses `ValuePattern` where
+  available (`method: "pattern-clear"`); otherwise it clicks the control and sends select-all
+  then delete (`method: "synthetic-clear"`). `--verify` checks for an empty read-back only on
+  `pattern-clear`. The `synthetic-clear` path has not been validated live, so read back to
+  confirm the control is empty after it.
+- **drag** — success means the input was dispatched, not that the application accepted the drop.
+  The response now includes source and target coordinates, useful for diagnosing a drag that had
+  no effect. Verify the expected result separately by re-reading the target state. Two attempts
+  to reorder Notepad tabs returned success with no visible reorder; the cause was not established.
+  Prefer a target with a measurable before and after state when you need to be sure. `--steps`
+  and `--durationMs` can be raised for targets that need more intermediate mouse moves.
 - **wait / poll** — for a UI state to settle, invoked asynchronously so a caller can relay
   progress without blocking.
 - **set-grid-cell** — for virtualized WPF DataGrid controls (see gotcha below).
 
 ### Verifying typed input
 
-- After every `type` or `submit-chat-message` call, perform an explicit read-back before treating
-  text entry as confirmed. `success: true` or a passed `--verify` is not sufficient on its own:
+- After every `type` (including `--clear`) or `submit-chat-message` call, perform an explicit
+  read-back before treating text entry or clearing as confirmed. `success: true` or a passed
+  `--verify` is not sufficient on its own:
   per `CLI_CONTRACT.md`'s `type` verb, `--verify` is silently skipped on the synthetic-keyboard
   path and, on the clipboard-paste path, only checks the immediate/bounded stability window
   described by the `verify-unstable` mitigation.
@@ -155,6 +172,14 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   must attach to a plausibly involved process by name to check, or ask the calling skill/agent
   which process to check. This is a known gap, not something to work around silently by guessing.
 - **Scroll-to-element** is also a known gap.
+- **Strict option parsing** — the CLI now rejects a value-taking flag with no value, or followed
+  by another `--` flag, with `invalid-argument` instead of silently using `"true"`. Windows
+  PowerShell 5.1 drops empty-string arguments to native programs, which is how `--text ''` used
+  to type "true" (confirmed live). Use `--flag=value` for an empty value (`--text=`) or a value
+  that starts with `--` (`--text=--foo`). The only flags that may be bare are `--screenshot`,
+  `--paste`, `--verify`, and `--clear`. This requires an `agentdebug-ui.exe` built from the
+  2026-10-14 parsing fix; an older build still turns a bare flag into `"true"`. MCP tools already
+  send empty and `--`-prefixed values in `--flag=value` form.
 - *(Resolved, kept for reference of the format above)* the toolkit's `send-keys` verb used to
   auto-focus an element with a click before sending keys, which broke reliable arrow-key
   navigation on custom listbox controls exposing zero UIA children. Fixed upstream in
