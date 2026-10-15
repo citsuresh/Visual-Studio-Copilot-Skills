@@ -7,12 +7,13 @@ description: 'For the subagent-planner agent only: drafts plans for delegating t
 
 ## Skill Version
 
-`CURRENT_SKILL_VERSION = 3`
+`CURRENT_SKILL_VERSION = 4`
 
 - Changelog (append-only):
   - v1 — initial version.
   - v2 — defined the task signature, the candidate/template/index formats, and the storage location (docs/subagent-planner/ in the target project); resolves open items 4, 5 and 11.
   - v3 — added scripts with companion files, versioning and run records; maintenance; skill review and suggestions; notices to the user; no-confirmation rule for templates; copy and recovery rules; data-handling rule; revised index, candidate and template formats.
+  - v4 — the planner mentions a new skill suggestion in its reply to the main agent; open item 7 records the current exemption of code review and audit tasks.
 
 ## 1. Purpose and the one rule
 
@@ -73,7 +74,7 @@ The planner agent and task sub-agents do not know about each other; the main age
 - **On a "task complete" message from the main agent:** Read the transcript if a path is given; write run records and update the index counters immediately; decide for each script used or created whether to keep v1, keep both versions, or drop one (see section 8); update candidates and check the 3-occurrence threshold; then run maintenance (section 9).
 - **On a "wrap up" message:** Run maintenance (section 9) and the skill review (section 10). Correctness must not depend on it.
 - **At spawn:** Read the index, candidates, templates, and scripts state from disk.
-- **Replies to the main agent:** Carry any notices.
+- **Replies to the main agent:** Carry any notices and mention any new skill suggestion.
 
 ## 7. Storage
 
@@ -151,7 +152,7 @@ Maintenance runs after every "task complete" message and on every "wrap up" mess
 ## 10. Skill review and suggestions
 
 - **Version check:** On every invocation, read `CURRENT_SKILL_VERSION` from the skill file on disk and compare it with the version loaded at start; if the disk version is newer, reload the instructions. The planner never modifies `SKILL.md` or any other skill file. Where the latest skill file is read from is UNRESOLVED, see open item 14.
-- **Skill review:** At wrap-up, or immediately when the planner hits a hard problem that needs an immediate fix, review the skill and write suggestions to `docs/subagent-planner/skill-suggestions.md`, immediately (section 11). Each entry records the date, the skill version it was made against, the suggestion, and the evidence. Suggest only concrete things backed by evidence, never the same suggestion twice. At spawn, read the file; if the skill version has moved on since an entry, mark the entry as possibly done.
+- **Skill review:** At wrap-up, or immediately when the planner hits a hard problem that needs an immediate fix, review the skill and write suggestions to `docs/subagent-planner/skill-suggestions.md`, immediately (section 11). When a new suggestion has been written, mention it in the reply to the main agent, so the main agent can tell the user. Each entry records the date, the skill version it was made against, the suggestion, and the evidence. Suggest only concrete things backed by evidence, never the same suggestion twice. At spawn, read the file; if the skill version has moved on since an entry, mark the entry as possibly done.
 - **Relayed questions:** The main agent may relay a user question about a suggestion, or ask the planner's opinion on a proposed skill change. Answer, and state what the answer is based on. How the main agent shows suggestions to the user is outside this skill.
 
 ## 11. Write immediately
@@ -190,7 +191,7 @@ Keep templates, scripts with their companion files, and the index until they are
 4. **RESOLVED (v2):** Exact file format of a candidate entry and of a template. See section 7.
 5. **RESOLVED (v2):** Exact format of the task signature used to match tasks across occurrences. See section 7.
 6. **UNRESOLVED:** Reported by the user: Itron does not restrict skills, sub-agents or scripts; agents must not share customer or sensitive data. Not independently confirmed.
-7. **UNRESOLVED:** Whether the existing Regression Auditor sub-agent should also go through the planner agent, or stay as a fixed exception: not decided.
+7. **UNRESOLVED:** Currently, code review and audit tasks (including the Regression Auditor) are exempt from the planner. Whether that stays, or more tasks become exempt, or the main agent decides case by case: not decided.
 8. **UNRESOLVED:** How the main agent reliably holds the planner agent's ID for the rest of the chat: not decided. Respawn on a "no agent found" response is the fallback. A name given at spawn plus a list_agents lookup is a possible lead, untested.
 9. **UNRESOLVED:** First-delegation latency: the first plan request in a chat pays for spawning the planner agent and reading disk state. The main agent could measure it by timing the first spawn against later requests; not yet measured.
 10. **UNRESOLVED:** Whether Visual Studio Copilot auto-loads this skill into the main agent based on its description: the user reports it does not, and that the main agent spawns the planner and tells it to use the skill; not independently verified. The description should say it is for the planner agent only.
