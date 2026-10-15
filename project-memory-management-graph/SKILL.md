@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 15`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 16`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -223,6 +223,11 @@ re-sync — without the user having to remember or manually redo anything per pr
     already-bootstrapped projects as stale; they pick up the new bullet on re-bootstrap. Not yet
     validated live: whether Visual Studio Copilot loads the `subagent-planner-interaction` skill
     from the pointer.
+  - v16 — The Bootstrap Step 6 template now says the sub-agent delegation bullet must be copied
+    word for word. Without that, Bootstrap reworded it and dropped that it applies to the main
+    agent only and that the interaction skill must be loaded. Because this changes the Persistent
+    Project Memory template, Workflow 0 will flag already-bootstrapped projects as stale; they
+    pick up the verbatim bullet on re-bootstrap.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -881,10 +886,12 @@ other steps are unaffected.
      each session.
    - Keep all four files concise — they exist to reduce token usage on future re-reads, not to
      serve as exhaustive documentation.
-   - Sub-agent delegation (main agent only; the planner agent and task sub-agents do NOT apply
-     this): never spawn a task sub-agent without first getting a plan from the planner agent. Load
-     the `subagent-planner-interaction` skill and follow it. Code review and audit tasks (including
-     the Regression Auditor) are currently exempt.
+   - Sub-agent delegation. Copy the following sentence into the generated section word for word,
+     as its own bullet, without rewording, shortening or merging it: "Sub-agent delegation (main
+     agent only; the planner agent and task sub-agents do NOT apply this): never spawn a task
+     sub-agent without first getting a plan from the planner agent. Load the
+     `subagent-planner-interaction` skill and follow it. Code review and audit tasks (including
+     the Regression Auditor) are currently exempt."
 
 7. Ensure a "Project Guidelines" section exists in `.github/copilot-instructions.md`. This
    step is merge-safe: if the section already exists, only add the following 3 bullets if
