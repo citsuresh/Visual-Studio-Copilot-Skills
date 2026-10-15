@@ -53,6 +53,19 @@ Breakdown of the planner flow: spawn the planner 4.5 s; planner works out the pl
 - Housekeeping does not block the answer: the main agent replies first and collects the planner's notices later.
 - The main agent never deletes or edits the planner's files, and waits for the plan before spawning.
 
+## Use cases where it could pay off (suggestions, not tested)
+
+A sub-agent plus planner only pays off when a task is long, repeated, or large enough to flood the main agent's context. A task the main agent can do in about 20 seconds never qualifies.
+
+1. Bulk, same-shape changes across many files (renaming an API across a solution, updating a logging call everywhere, migrating a config format). The first run teaches the pattern; later runs could use a script for the mechanical edits, and the sub-agent keeps hundreds of file reads out of the main chat.
+2. Repo-wide inventories and audits with big outputs (every place a setting is read, every public API without tests, every TODO with its owner). The sub-agent returns a short report instead of thousands of lines.
+3. Triage of large logs or test runs. A script that filters and counts them, written once and reused, is exactly what the skill was designed to produce.
+4. Recurring multi-step maintenance chores with a fixed procedure (refreshing documentation for several projects, a release checklist, the same set of checks before each release). The 3-occurrence rule would fire here.
+5. Parallel independent work (the same review across several projects). This needs a design change, because the planner currently plans one task at a time.
+6. A very long chat that is running out of context, where offloading heavy reading keeps the main conversation usable.
+
+Signs it is time to revive it: you wait several minutes on a single task, the same kind of task comes up three or more times in a few weeks, or the main chat regularly runs out of context. Before turning it on again, make the changes listed above (cheap first-time planning, non-blocking housekeeping, protected planner files) and make it opt-in rather than always-on. Then repeat the timing test on the real task.
+
 ## How to resurrect
 
 Merge this branch into `main`, run `Install-Skills.ps1`, and re-run Bootstrap in the target projects (the graph skill at v16 changes the template). Then re-run the timing test.
