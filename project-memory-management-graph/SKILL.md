@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 14`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 15`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -216,6 +216,13 @@ re-sync — without the user having to remember or manually redo anything per pr
     of any audit fix; fixes are approved individually and the builder stops after the auditor
     reports. Because this changes the Persistent Project Memory template, Workflow 0 will flag
     already-bootstrapped projects as stale; they pick up the new template bullet on re-bootstrap.
+  - v15 — Added the sub-agent planner wiring as a short pointer to the separate
+    `subagent-planner-interaction` skill: one bullet in the Bootstrap Step 6 template, a sentence
+    in Begin Session Step 4, and a new End Session Step 7a. The pointer details live in that skill,
+    not here. Because this changes the Persistent Project Memory template, Workflow 0 will flag
+    already-bootstrapped projects as stale; they pick up the new bullet on re-bootstrap. Not yet
+    validated live: whether Visual Studio Copilot loads the `subagent-planner-interaction` skill
+    from the pointer.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -667,6 +674,8 @@ Bootstrap or End Session.
    unknown/missing `CommitSha` results are informational only — never let those push you toward
    auto-suggesting Bootstrap; only a `CommitSha` mismatch (handled in Step 2a itself via
    `ask_user`) may lead to running Bootstrap, and only with the user's explicit confirmation.
+   Begin Session also spawns no planner agent or any other sub-agent; the planner agent is
+   spawned lazily, later, as described in the `subagent-planner-interaction` skill.
 
 ## Workflow 1: Bootstrap (Project Memory Bootstrap)
 
@@ -872,6 +881,10 @@ other steps are unaffected.
      each session.
    - Keep all four files concise — they exist to reduce token usage on future re-reads, not to
      serve as exhaustive documentation.
+   - Sub-agent delegation (main agent only; the planner agent and task sub-agents do NOT apply
+     this): never spawn a task sub-agent without first getting a plan from the planner agent. Load
+     the `subagent-planner-interaction` skill and follow it. Code review and audit tasks (including
+     the Regression Auditor) are currently exempt.
 
 7. Ensure a "Project Guidelines" section exists in `.github/copilot-instructions.md`. This
    step is merge-safe: if the section already exists, only add the following 3 bullets if
@@ -1050,6 +1063,10 @@ sweep). This keeps the closing update low-token.
    capture" rule above (date, short description, any analysis/fix already discussed), creating
    the file if it doesn't exist yet. If the user says no or there's nothing to add, skip silently
    — do not create the file and do not add anything.
+
+7a. If a planner agent exists in this chat, send it the "wrap up" message, as described in the
+    `subagent-planner-interaction` skill, and show the user any notices or suggestion mention in
+    its reply. If no planner agent exists in this chat, do nothing and do not spawn one.
 
 8. Report back a short (2-5 line) summary of what was updated (or confirm nothing needed
    updating), including the graph's changed-file count and updated node/edge counts if step 6
