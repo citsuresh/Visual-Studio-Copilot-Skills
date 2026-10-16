@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 20`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 21`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -254,6 +254,12 @@ re-sync — without the user having to remember or manually redo anything per pr
     the final full stop and changed "your reply" to "the reply" even though the bullet was marked
     word for word. The Step 6 wording changed, so projects bootstrapped at v19 are flagged stale;
     re-run Bootstrap to pick up the new version. Not yet validated live in Copilot/Visual Studio.
+  - v21 — Bootstrap verifies the "Reusable scripts" bullet with a string comparison it runs and reports,
+    not by re-reading it, because a self-check by the model still let wording drift in v19 and v20.
+    Step 5a also requires every index row to be a complete five-column table row, so a stray or
+    truncated row is reported. The Step 6 and Step 5a wording changed, so projects bootstrapped at
+    v20 are flagged stale; re-run Bootstrap to pick up the new version. Not yet validated live in
+    Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -977,9 +983,11 @@ other steps are unaffected.
      date, or do the step normally; never loop on a broken script. The user curates these files:
      never delete scripts or index lines on your own."
 
-   After writing this section, compare the "Reusable scripts" bullet with the quoted text above
-   character for character, including the final full stop. If anything differs, correct it, and say
-   in the Bootstrap report which part changed.
+   After writing this section, verify the bullet with a command, not by reading it. Run an exact
+   string comparison: the quoted text above (from "Reusable scripts: before writing" through "on
+   your own.", including the final full stop) must appear in `.github/copilot-instructions.md`
+   unchanged. Quote the command and its output in the Bootstrap report. If the comparison does not
+   match, correct the bullet and run the comparison again before reporting.
 
 7. Ensure a "Project Guidelines" section exists in `.github/copilot-instructions.md`. This
    step is merge-safe: if the section already exists, only add the following 3 bullets if
@@ -1144,14 +1152,15 @@ sweep). This keeps the closing update low-token.
     rules allow it, save the script and add its index line. If an existing script could take it as a
     parameter, do not edit that script or save a near-copy here; report the suggested parameter in
     the End Session report instead. Then, only if `docs/SCRIPTS.md` or `scripts/agent/` exists, do a
-    light consistency check: every index line must point to an existing file (use `Test-Path`, never
-    a search tool), and every file in `scripts/agent/` should have an index line. Adding a missing
-    index line for an unlisted script is a file change, so apply the same file-rule check before
-    adding it. For anything else that is missing or inconsistent, report it and change nothing.
-    Never delete or rewrite an existing script or index line here. Skip silently if nothing was
-    written this session and no scripts exist. Mention it in the End Session report only when a
-    script was saved, a mismatch was found, an extension was suggested, or a script that passed the
-    save test was not saved; in the last case, give the reason in one line.
+    light consistency check: every index line must be a complete five-column table row that points
+    to an existing file (use `Test-Path`, never a search tool), and every file in `scripts/agent/`
+    should have an index line. Adding a missing index line for an unlisted script is a file change,
+    so apply the same file-rule check before adding it. For anything else that is missing or
+    inconsistent, report it and change nothing. Never delete or rewrite an existing script or index
+    line here. Skip silently if nothing was written this session and no scripts exist. Mention it in
+    the End Session report only when a script was saved, a mismatch was found, an extension was
+    suggested, or a script that passed the save test was not saved; in the last case, give the
+    reason in one line.
 
 6. Update only the current solution's graph incrementally (intentionally cheap — never the other
    solutions' graphs):
