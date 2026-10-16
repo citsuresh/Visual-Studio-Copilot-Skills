@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 21`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 22`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -260,6 +260,13 @@ re-sync — without the user having to remember or manually redo anything per pr
     truncated row is reported. The Step 6 and Step 5a wording changed, so projects bootstrapped at
     v20 are flagged stale; re-run Bootstrap to pick up the new version. Not yet validated live in
     Copilot/Visual Studio.
+  - v22 — Keeps the scripts set small. The index date means the last time a script was run or
+    changed. A task that runs a listed script updates its date, if its file rules allow editing
+    docs/SCRIPTS.md. End Session Step 5b lists scripts whose date is more than 60 days old, skipping
+    archived rows, and asks the user to keep, archive or delete each. Copilot never deletes a script
+    or its row without the user's approval. The Step 6 bullet copied into projects changed, so
+    projects bootstrapped at v21 are flagged stale; re-run Bootstrap to pick up the new version. Not
+    yet validated live in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -541,12 +548,18 @@ C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<p
   call, read-only or modifies, date. Create the file with the table header the first time a
   script is saved; never create it, or `scripts/agent/`, as an empty placeholder during Bootstrap
   or on any project regardless of size.
-- Maintenance: if a script fails or is out of date, fix it in place and update its date, or do
-  the step normally; never loop on a broken script. End Session Step 5a is the only automatic
-  maintenance (a safety-net save and a light consistency check); there are no counters, no
-  promotion thresholds and no scheduled cleanup.
-- Bootstrap and End Session never regenerate or rewrite existing scripts or index lines, and this
-  capture involves no sub-agent or planner.
+- Keeping the set small: the index date means the last time the script was run or changed. When a
+  task runs a listed script, set its date to today if the task's file rules allow editing
+  `docs/SCRIPTS.md`; otherwise leave the date and say so in the reply. Never delete a script or its
+  row on your own; End Session Step 5b lists stale scripts for the user to decide.
+- Maintenance: if a script fails or is out of date, fix it in place and update its date, or do the
+  step normally; never loop on a broken script. End Session Steps 5a and 5b are the only automatic
+  maintenance (a safety-net save and a light consistency check, then a review of unused scripts that
+  asks the user before any change); there are no counters, no promotion thresholds and no scheduled
+  cleanup.
+- Bootstrap and End Session never regenerate or rewrite existing scripts or index lines (End Session
+  Step 5b changes a row only after the user approves it), and this capture involves no sub-agent or
+  planner.
 
 ## Regression Auditor Protocol
 
@@ -960,28 +973,30 @@ other steps are unaffected.
    - Keep all four files concise — they exist to reduce token usage on future re-reads, not to
      serve as exhaustive documentation.
    - Reusable scripts. Copy the following bullet into the generated section word for word, as its
-     own bullet, without rewording, shortening or merging it: "Reusable scripts: before writing
-     code for a repeatable mechanical step (filtering a log, applying the same edit to many files,
-     extracting data from several files), check `docs/SCRIPTS.md` if it exists and run a script
-     that fits, as its index line says; if the index line says it modifies or deletes files, ask
-     the user before each run, and check its output before relying on it. If you wrote working code
-     for such a step that is likely to be reused with different inputs, is more than a one-liner,
-     can take its inputs as parameters, and contains no credentials, tokens, customer data or
-     personal details, save it as `scripts/agent/<verb-noun>.ps1` with a header comment (purpose,
-     parameters, whether it modifies anything), add one line to `docs/SCRIPTS.md` (table: script |
-     purpose | how to call | read-only or modifies | date; create the file with the table header
-     if it is missing), and say so in your reply. Before saving, check whether an existing script
-     in `scripts/agent/` can take the new case as a parameter. If one can, extend that script with
-     a backward-compatible parameter (its default keeps the current behaviour, and existing
-     parameter names, order and output format stay unchanged), update its header comment, index
-     line and date, and say so, rather than saving a near-copy. If the task's file rules forbid
-     changing the existing script, do not save a near-copy; say in your reply which parameter the
-     existing script needs. Every part that varies between uses (paths, patterns, comment markers,
-     row counts, exclusions) must be a parameter. For C# projects, skip `obj` and `bin` folders by
-     default, with a switch to include them. Before finishing a task, check once whether you wrote
-     any script worth saving. If a script fails or is out of date, fix it in place and update its
-     date, or do the step normally; never loop on a broken script. The user curates these files:
-     never delete scripts or index lines on your own."
+     own bullet, without rewording, shortening or merging it: "Reusable scripts: before writing code
+     for a repeatable mechanical step (filtering a log, applying the same edit to many files,
+     extracting data from several files), check `docs/SCRIPTS.md` if it exists and run a script that
+     fits, as its index line says; if the index line says it modifies or deletes files, ask the user
+     before each run, and check its output before relying on it. If you wrote working code for such
+     a step that is likely to be reused with different inputs, is more than a one-liner, can take
+     its inputs as parameters, and contains no credentials, tokens, customer data or personal
+     details, save it as `scripts/agent/<verb-noun>.ps1` with a header comment (purpose, parameters,
+     whether it modifies anything), add one line to `docs/SCRIPTS.md` (table: script | purpose | how
+     to call | read-only or modifies | date; create the file with the table header if it is
+     missing), and say so in your reply. Before saving, check whether an existing script in
+     `scripts/agent/` can take the new case as a parameter. If one can, extend that script with a
+     backward-compatible parameter (its default keeps the current behaviour, and existing parameter
+     names, order and output format stay unchanged), update its header comment, index line and date,
+     and say so, rather than saving a near-copy. If the task's file rules forbid changing the
+     existing script, do not save a near-copy; say in your reply which parameter the existing script
+     needs. Every part that varies between uses (paths, patterns, comment markers, row counts,
+     exclusions) must be a parameter. For C# projects, skip `obj` and `bin` folders by default, with
+     a switch to include them. Before finishing a task, check once whether you wrote any script
+     worth saving. If a script fails or is out of date, fix it in place and update its date, or do
+     the step normally; never loop on a broken script. When a task runs a listed script, set its
+     date in `docs/SCRIPTS.md` to today if the task's file rules allow editing that file; otherwise
+     leave the date unchanged and say so in your reply. The user curates these files: never delete
+     scripts or index lines on your own."
 
    After writing this section, verify the bullet with a command, not by reading it. Run an exact
    string comparison: the quoted text above (from "Reusable scripts: before writing" through "on
@@ -1161,6 +1176,14 @@ sweep). This keeps the closing update low-token.
     the End Session report only when a script was saved, a mismatch was found, an extension was
     suggested, or a script that passed the save test was not saved; in the last case, give the
     reason in one line.
+
+5b. Unused scripts review. If `docs/SCRIPTS.md` exists, list each row whose date is more than 60
+    days before today, except rows whose path is under `scripts/agent/archive/`. Apply the same
+    file-rule check as Step 5a before any change. Ask the user one question covering the whole list:
+    for each script, keep, archive or delete. Keep a script unless the user says otherwise. Archive
+    moves the file to `scripts/agent/archive/` and changes the path in its row to match. Delete
+    removes the file and its row together. Do only what the user names, and never delete or archive
+    on your own. Mention it in the End Session report only when the list is not empty.
 
 6. Update only the current solution's graph incrementally (intentionally cheap — never the other
    solutions' graphs):
