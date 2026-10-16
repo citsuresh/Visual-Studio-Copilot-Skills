@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 14`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 16`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -216,6 +216,24 @@ re-sync — without the user having to remember or manually redo anything per pr
     of any audit fix; fixes are approved individually and the builder stops after the auditor
     reports. Because this changes the Persistent Project Memory template, Workflow 0 will flag
     already-bootstrapped projects as stale; they pick up the new template bullet on re-bootstrap.
+  - v15 — Added reusable scripts: a new "Reusable scripts capture" section; one verbatim bullet in
+    the Bootstrap Step 6 template (check `docs/SCRIPTS.md` before writing code for a repeatable
+    mechanical step, run indexed scripts, save worthwhile working code to `scripts/agent/` and
+    index it, tell the user); Begin Session reads `docs/SCRIPTS.md` when it exists and mentions the
+    script count; new End Session Step 5a, a safety net that saves a missed script and does a light
+    index-versus-folder consistency check. Unlike the other capture sections, saving a script is
+    done by Copilot without asking first (the user is told and curates afterwards). Bootstrap never
+    creates `scripts/agent/` or `docs/SCRIPTS.md`. Because this changes the Persistent Project
+    Memory template, Workflow 0 will flag already-bootstrapped projects as stale; they pick up the
+    new bullet on re-bootstrap. Not yet validated live in Copilot/Visual Studio.
+  - v16 — The save rules now require every varying part of a script to be a parameter, and tell
+    the agent to extend an existing reusable script with a backward-compatible parameter (its
+    default keeps the current behaviour; index line and date updated; reported to the user) rather
+    than save a near-copy. C# scripts skip `obj` and `bin` by default. Found in live tests of v15: a
+    FIXME count was saved as a near-copy of a TODO count script. The Step 6 bullet carries these
+    rules too, so Bootstrap must be re-run. Because this changes the Persistent Project Memory
+    template, Workflow 0 will flag already-bootstrapped projects as stale; they pick up the new
+    bullet on re-bootstrap. Not yet validated live in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -464,6 +482,46 @@ C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<p
   auto-refreshed during Bootstrap/End Session — it is entirely user-curated; only touch it in
   direct response to the user explicitly asking to add, edit, or remove something.
 
+## Reusable scripts capture (Copilot-driven, user-curated; unlike the other capture sections)
+
+- Purpose: working code that Copilot writes for a repeatable mechanical step (filtering a log,
+  applying the same edit to many files, extracting data from several files) is saved as a script
+  and indexed, so later chats in the same project reuse it instead of re-deriving it. Scripts live
+  in `scripts/agent/` (relative to the repository root, kept separate from any scripts the
+  project already has); the index is `docs/SCRIPTS.md`. Both are committed with the project, so
+  they are shared across chats, machines and people.
+- Unlike the domain lookup patterns, feature checklist and known open findings captures, Copilot
+  saves a script itself, without asking first, and tells the user in its reply. The user curates
+  afterwards: Copilot never deletes scripts or index lines on its own.
+- Consuming: before writing code for a repeatable mechanical step, check `docs/SCRIPTS.md` (if it
+  exists) and run a fitting script as its index line says. If the index line says the script
+  modifies or deletes files, ask the user before each run. Check the output before relying on it.
+- Saving (the save test): save only code that (a) is likely to be reused with different inputs,
+  (b) is more than a one-liner, (c) can take its inputs as parameters (no hardcoded paths), and
+  (d) contains no credentials, tokens, customer data or personal or sensitive details. Name it
+  `<verb-noun>.ps1` (another extension only if the language requires it), with a header comment
+  giving purpose, parameters, and whether it modifies anything; scripts are read-only unless the
+  header and index say otherwise.
+- Generalize before copying: before saving new code, check whether an existing script can take the
+  new case as a parameter. If so, extend it with a backward-compatible parameter (its default
+  keeps the current behaviour, and existing parameter names, order and output format stay
+  unchanged), update its header comment, index line and date, and say so in the reply. If the
+  task's file rules forbid changing the existing script, do not save a near-copy; say in the reply
+  which parameter the existing script needs. Do not save a near-copy of an existing script with
+  one value changed. Make every part that varies between uses a parameter, such as paths,
+  patterns, comment markers, row counts and exclusions. For C# projects, skip `obj` and `bin`
+  folders by default, with a switch to include them.
+- Index format: a markdown table in `docs/SCRIPTS.md` with the columns script, purpose, how to
+  call, read-only or modifies, date. Create the file with the table header the first time a
+  script is saved; never create it, or `scripts/agent/`, as an empty placeholder during Bootstrap
+  or on any project regardless of size.
+- Maintenance: if a script fails or is out of date, fix it in place and update its date, or do
+  the step normally; never loop on a broken script. End Session Step 5a is the only automatic
+  maintenance (a safety-net save and a light consistency check); there are no counters, no
+  promotion thresholds and no scheduled cleanup.
+- Bootstrap and End Session never regenerate or rewrite existing scripts or index lines, and this
+  capture involves no sub-agent or planner.
+
 ## Regression Auditor Protocol
 
 A continuous code-review discipline that applies whenever Copilot makes code changes in a
@@ -620,6 +678,7 @@ Bootstrap or End Session.
    - `docs/domain-lookup-patterns.md` (optional; absence is normal, not an error)
    - `docs/KNOWN_OPEN_FINDINGS.md` (optional; absence is normal, not an error)
    - `docs/FEATURE_CHECKLIST.md` (optional; absence is normal, not an error)
+   - `docs/SCRIPTS.md` (optional; absence is normal, not an error)
    - The graph and dependencies files listed in the Persistent Project Memory registry in
      `.github/copilot-instructions.md` (already read in Step 1). If that registry is absent
      because the project has not been re-bootstrapped under v13, fall back to the legacy names
@@ -657,9 +716,11 @@ Bootstrap or End Session.
    graph-staleness result (if applicable), plus a one-line readiness summary (for example, the
    current focus line from `docs/PROJECT_STATE.md` if present). If `docs/KNOWN_OPEN_FINDINGS.md`
    exists and contains entries, mention the count briefly (e.g. "3 open findings on record") —
-   just a mention, not a listing or summary of each entry. Keep this short: this is a readiness
-   check only, not a full project-state summary and not a re-derivation of `CODE_SUMMARY.md` or
-   End Session output.
+   just a mention, not a listing or summary of each entry. If `docs/SCRIPTS.md` exists, read it
+   (`get_file`) so the script index is in context for the rest of the session, and mention how
+   many scripts it lists in a few words (e.g. "3 reusable scripts indexed"). Keep this short: this
+   is a readiness check only, not a full project-state summary and not a re-derivation of
+   `CODE_SUMMARY.md` or End Session output.
 
 4. Do NOT rebuild the graph, run `GraphTools.Builder.exe`, re-scan the codebase, or create any
    missing file as part of Begin Session. That work belongs to Bootstrap. If the core memory
@@ -872,6 +933,29 @@ other steps are unaffected.
      each session.
    - Keep all four files concise — they exist to reduce token usage on future re-reads, not to
      serve as exhaustive documentation.
+   - Reusable scripts. Copy the following bullet into the generated section word for word, as its
+     own bullet, without rewording, shortening or merging it: "Reusable scripts: before writing
+     code for a repeatable mechanical step (filtering a log, applying the same edit to many files,
+     extracting data from several files), check `docs/SCRIPTS.md` if it exists and run a script
+     that fits, as its index line says; if the index line says it modifies or deletes files, ask
+     the user before each run, and check its output before relying on it. If you wrote working code
+     for such a step that is likely to be reused with different inputs, is more than a one-liner,
+     can take its inputs as parameters, and contains no credentials, tokens, customer data or
+     personal details, save it as `scripts/agent/<verb-noun>.ps1` with a header comment (purpose,
+     parameters, whether it modifies anything), add one line to `docs/SCRIPTS.md` (table: script |
+     purpose | how to call | read-only or modifies | date; create the file with the table header
+     if it is missing), and say so in your reply. Before saving, check whether an existing script
+     in `scripts/agent/` can take the new case as a parameter. If one can, extend that script with
+     a backward-compatible parameter (its default keeps the current behaviour, and existing
+     parameter names, order and output format stay unchanged), update its header comment, index
+     line and date, and say so, rather than saving a near-copy. If the task's file rules forbid
+     changing the existing script, do not save a near-copy; say in your reply which parameter the
+     existing script needs. Every part that varies between uses (paths, patterns, comment markers,
+     row counts, exclusions) must be a parameter. For C# projects, skip `obj` and `bin` folders by
+     default, with a switch to include them. Before finishing a task, check once whether you wrote
+     any script worth saving. If a script fails or is out of date, fix it in place and update its
+     date, or do the step normally; never loop on a broken script. The user curates these files:
+     never delete scripts or index lines on your own."
 
 7. Ensure a "Project Guidelines" section exists in `.github/copilot-instructions.md`. This
    step is merge-safe: if the section already exists, only add the following 3 bullets if
@@ -1025,6 +1109,20 @@ sweep). This keeps the closing update low-token.
    patterns; only cover a pattern the user already explicitly confirmed earlier but that wasn't
    yet written to the file. Skip this step entirely if no such already-confirmed-but-unrecorded
    pattern exists.
+
+5a. Reusable scripts safety net (see "Reusable scripts capture" above). Using only what is still
+    visible in this session's context (do not dig through history), check whether you wrote working
+    code for a repeatable mechanical step that was not saved as a script. If it passes the save test
+    in that section and no existing script in `scripts/agent/` could take it as a parameter, save it
+    and add its index line. If an existing script could take it as a parameter, do not edit that
+    script or save a near-copy here; report the suggested parameter in the End Session report
+    instead. Then, only if `docs/SCRIPTS.md` or `scripts/agent/` exists, do a light consistency
+    check: every index line must point to an existing file (use `Test-Path`, never a search tool),
+    and every file in `scripts/agent/` should have an index line. Add a missing index line for an
+    unlisted script; for anything else that is missing or inconsistent, report it and change
+    nothing. Never delete or rewrite an existing script or index line here. Skip silently if nothing
+    was written this session and no scripts exist. Mention it in the End Session report only when a
+    script was saved, a mismatch was found, or an extension was suggested.
 
 6. Update only the current solution's graph incrementally (intentionally cheap — never the other
    solutions' graphs):
