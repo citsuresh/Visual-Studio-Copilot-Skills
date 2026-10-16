@@ -24,6 +24,11 @@
 .PARAMETER NoSend
     Paste and verify only; do not click Send. Useful for testing.
 
+.PARAMETER IgnoreBanners
+    Send even if the chat shows a HarnessWorkspaceMismatchBanner ("The open folder is outside
+    this session's working directory") or WorkspaceTrustWarningBanner. By default the script
+    refuses and returns Sent=false, because the agent would run in the wrong folder.
+
 .PARAMETER InputName
     UIA Name of the chat input. Default "Ask Copilot".
 
@@ -50,6 +55,8 @@ param(
     [int]$Retries = 2,
 
     [switch]$NoSend,
+
+    [switch]$IgnoreBanners,
 
     [string]$InputName = 'Ask Copilot',
 
@@ -86,6 +93,15 @@ function Clear-ChatInput {
     if (-not $cleared.success) {
         # Fall back to keyboard selection when the input exposes no writable ValuePattern.
         $null = Invoke-Ui @('send-keys', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--keys', '^a{DEL}')
+    }
+}
+
+# Read-only banner check before any input, so no cursor change or click happens if it fails.
+if (-not $IgnoreBanners) {
+    $tree = (& $ExePath inspect --hwnd $Hwnd --maxDepth 25 2>&1 | Out-String)
+    $found = @([regex]::Matches($tree, '"automationId"\s*:\s*"(HarnessWorkspaceMismatchBanner|WorkspaceTrustWarningBanner)"', 'IgnoreCase') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+    if ($found.Count -gt 0) {
+        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Chat shows $($found -join ', '): the session's folder does not match the open folder (or is untrusted). Nothing was typed. Ask the user, then fix it or pass -IgnoreBanners."
     }
 }
 

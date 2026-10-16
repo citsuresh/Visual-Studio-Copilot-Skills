@@ -72,7 +72,8 @@
 
 .PARAMETER CompletionPattern
     Regex matching the completion footer ChatMessageItem. Default
-    '^The response used the .+ model'.
+    '^The response (used the .+ model|cost [\d.]+ credits?\.?$)'. Some responses show only the
+    short footer "The response cost 0.1 credits." with no model name.
 
 .PARAMETER PlaceholderPattern
     Regex for ChatMessageItem Names that are view-model placeholders, not text. Default
@@ -105,11 +106,16 @@
       Question         : radio-field label or permission question text, if State=Pending
       Options          : radio option labels, or permission button names, if State=Pending
       Recommended      : options whose label contains "Recommended", if State=Pending
+      MorePages        : true if a multi-question card has more pages ("Next question" enabled),
+                         if State=Pending; answer each page with Select-ChoicePromptOption.ps1
       LastMessage      : last non-footer ChatMessageItem text, if State=Idle
       Completed        : true if the last ChatMessageItem is a completion footer, if State=Idle
       CompletionFooter : latest completion footer text (model and cost), if State=Idle
       WorkingSeen      : true if Working or Pending was seen during this watch, if State=Idle
       Note             : set when Idle was confirmed without a completion footer
+      Banners          : chat-pane banners (any state), each with Id, Text and Buttons, e.g.
+                         HarnessWorkspaceMismatchBanner (session working directory differs
+                         from the open folder) or WorkspaceTrustWarningBanner
       MessageCount     : rendered ChatMessageItem count seen
       ElapsedSeconds   : how long the loop ran before returning
 
@@ -145,7 +151,7 @@ param(
 
     [string[]]$WaitingMarkers = @('Waiting...'),
 
-    [string]$CompletionPattern = '^The response used the .+ model',
+    [string]$CompletionPattern = '^The response (used the .+ model|cost [\d.]+ credits?\.?$)',
 
     [string]$PlaceholderPattern = '^Microsoft\.VisualStudio\.',
 
@@ -227,20 +233,46 @@ function Find-PermissionPrompt {
         $isPrompt = [bool]($buttons | Where-Object { $_.AutomationId -eq 'ExtraActionsButton' }) -or
             ([bool]($buttons | Where-Object { $_.Name -eq 'Deny' }) -and [bool]($buttons | Where-Object { $_.Name -like 'Allow*' }))
         if ($isPrompt) {
+            # The card's controls can be flat siblings of the whole chat pane (header buttons,
+            # input box), so use only the run of adjacent buttons around the anchor button.
+            $anchor = -1
+            for ($i = 0; $i -lt $children.Count; $i++) {
+                $c = $children[$i]
+                if ($c.ControlType -eq 'ControlType.Button' -and ($c.AutomationId -eq 'ExtraActionsButton' -or $c.Name -eq 'Deny')) { $anchor = $i; break }
+            }
+            $first = $anchor
+            while ($first -gt 0 -and $children[$first - 1].ControlType -eq 'ControlType.Button') { $first-- }
+            $last = $anchor
+            while ($last -lt $children.Count - 1 -and $children[$last + 1].ControlType -eq 'ControlType.Button') { $last++ }
+            $options = @($children[$first..$last] | Where-Object { $_.IsEnabled -and $_.Name -and $_.Name -notin $navigation } | ForEach-Object { $_.Name })
+
             $question = $null
-            foreach ($child in $children) {
-                if ($child.ControlType -eq 'ControlType.Button') { break }
-                $text = @(Get-AllNodes -Root $child | Where-Object {
+            for ($i = $first - 1; $i -ge 0 -and -not $question; $i--) {
+                if ($children[$i].ControlType -eq 'ControlType.Button') { break }
+                $question = @(Get-AllNodes -Root $children[$i] | Where-Object {
                         $_.ControlType -in @('ControlType.Document', 'ControlType.Text') -and $_.Name -and $_.Name.Length -gt 15
                     } | ForEach-Object { $_.Name }) | Select-Object -First 1
-                if ($text) { $question = $text }
             }
-            $options = @($buttons | Where-Object { $_.IsEnabled -and $_.Name -and $_.Name -notin $navigation } | ForEach-Object { $_.Name })
             return [pscustomobject]@{ Question = $question; Options = $options }
         }
         for ($i = $children.Count - 1; $i -ge 0; $i--) { $stack.Push($children[$i]) }
     }
     return $null
+}
+
+# Informational banners above the chat input. They don't block the chat, but a new session
+# started under a working-directory mismatch runs in the wrong folder.
+function Find-ChatBanners {
+    param($All)
+    @($All | Where-Object { $_.AutomationId -match 'Banner$' -and $_.AutomationId -ne 'CloseBanner' } | ForEach-Object {
+            $nodes = @(Get-AllNodes -Root $_)
+            $buttonNames = @($nodes | Where-Object { $_.ControlType -eq 'ControlType.Button' -and $_.Name } | ForEach-Object { $_.Name })
+            [pscustomobject]@{
+                Id      = $_.AutomationId
+                Text    = (@($nodes | Where-Object { $_.ControlType -eq 'ControlType.Text' -and $_.Name -and $_.Name -notin $buttonNames } | ForEach-Object { $_.Name } | Select-Object -Unique) -join ' ')
+                Buttons = $buttonNames
+            }
+        })
 }
 
 function Get-SleepMilliseconds {
@@ -294,10 +326,14 @@ while ((Get-Date) -lt $deadline) {
 
     # Newer experiences keep showing "Working" while a question card is open and have no
     # "Waiting..." node, so an open card (question label/field plus Submit) also means Pending.
+    # Multi-question cards show an enabled "Next question" instead of Submit until the last page.
     $hasCardField = [bool]($all | Where-Object { $_.AutomationId -in @('RadioFieldLabel', 'FormField') })
     $hasSubmit = [bool]($all | Where-Object { $_.ControlType -eq 'ControlType.Button' -and $_.Name -eq 'Submit' })
+    $hasNextQuestion = [bool]($all | Where-Object { $_.ControlType -eq 'ControlType.Button' -and $_.Name -eq 'Next question' -and $_.IsEnabled })
     $permission = Find-PermissionPrompt -Root $data.root
-    $isWaiting = [bool]($all | Where-Object { $_.Name -in $WaitingMarkers }) -or ($hasCardField -and $hasSubmit) -or [bool]$permission
+    $banners = Find-ChatBanners -All $all
+    foreach ($b in $banners) { Write-Host "[poll #$pollNum] banner $($b.Id): $($b.Text)" -ForegroundColor Yellow }
+    $isWaiting = [bool]($all | Where-Object { $_.Name -in $WaitingMarkers }) -or ($hasCardField -and ($hasSubmit -or $hasNextQuestion)) -or [bool]$permission
     $isWorking = [bool]($all | Where-Object { $_.Name -in $WorkingMarkers })
     $messages = @($all | Where-Object { $_.ClassName -eq 'ChatMessageItem' -and $_.Name -and $_.Name -notmatch $PlaceholderPattern })
     $footers = @($messages | Where-Object { $_.Name -match $CompletionPattern })
@@ -346,6 +382,8 @@ while ((Get-Date) -lt $deadline) {
             Question       = ($labels -join ' | ')
             Options        = $options
             Recommended    = $recommended
+            MorePages      = $hasNextQuestion
+            Banners        = $banners
             LastMessage    = $null
             MessageCount   = $messages.Count
             ElapsedSeconds = [int]((Get-Date) - $start).TotalSeconds
@@ -389,6 +427,7 @@ while ((Get-Date) -lt $deadline) {
                 CompletionFooter = $currentFooter
                 WorkingSeen      = $seenActivity
                 Note             = $(if (-not $endsWithFooter) { 'No completion footer: read the transcript and inspect for a prompt before trusting Idle.' } else { $null })
+                Banners          = $banners
                 MessageCount     = $messages.Count
                 ElapsedSeconds   = [int]((Get-Date) - $start).TotalSeconds
             }

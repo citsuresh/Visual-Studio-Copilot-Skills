@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 3`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 4`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -49,6 +49,23 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     `-AllowPersistent`. Idle without a completion footer now needs `-IdleWithoutFooterPolls`
     (default 3) stable polls and carries a `Note`; view-model placeholder message names are
     ignored.
+  - v4 — Three card and footer fixes from live tests. Multi-question cards show one question per
+    page with `Next question` instead of `Submit` until the last page: the watcher reported them as
+    Working; it now reports Pending with `MorePages`, and `Select-ChoicePromptOption.ps1` answers one
+    page per call (`NextQuestion` names the next page). The workspace trust card ("Do you trust this
+    folder?", `Trust once` / `Do not trust`) is reported as `PromptKind: "PermissionPrompt"` with
+    only its own buttons; the chat pane's header buttons were listed as options before, and its
+    question was empty. The short footer "The response cost <n> credits." now counts as a
+    completion footer. Validated live: a two-question card answered page by page, the trust card
+    read and answered with `-Button "Trust once"`. A tool permission prompt is still untested live,
+    because tools are auto-approved in the test setup. Chat banners: after switching folders in
+    the target window, a `HarnessWorkspaceMismatchBanner` ("The open folder is outside this
+    session's working directory", `Update working directory` / `Close message`) stayed above the
+    input and the watcher reported plain Idle, so a new task would have run in the old folder. The
+    watcher now returns `Banners` (Id, Text, Buttons) in every result, and `Send-CopilotPrompt.ps1`
+    refuses to send while that banner or `WorkspaceTrustWarningBanner` is shown, unless
+    `-IgnoreBanners`. Validated live: both detected the banner; clicking `Update working directory`
+    cleared it.
 
 # Agent Orchestrator
 
@@ -214,7 +231,9 @@ It activates the window, optionally starts a new session, clears the input, past
 back. It clicks Send **only** if the input matches the prompt exactly, and retries otherwise
 (stray keystrokes typed into the window during a paste were observed being sent along with the
 prompt). `Sent: false` means nothing was sent — read `Error` and `InputText`. Omit `-NewSession`
-to reply in the current conversation. The raw equivalent, for fallback:
+to reply in the current conversation. It also refuses, before typing anything, while the chat
+shows a working-directory mismatch or untrusted-workspace banner (see Step 4); don't pass
+`-IgnoreBanners` unless the user agreed. The raw equivalent, for fallback:
 
 Prefer **clipboard paste over synthetic typing** for reliability with longer text (user
 preference, confirmed this session):
@@ -254,15 +273,19 @@ alone false-positives as WORKING when the agent is actually PENDING on your inpu
 observed and corrected mid-session):
 
 - **Pending** — a `"Waiting..."` node, or an open card (a `RadioFieldLabel`/`FormField` element
-  plus a `Submit` button). The newer Copilot Chat experience has no `"Waiting..."` node and keeps
+  plus a `Submit` button, or an enabled `Next question` button on a multi-question card). The newer
+  Copilot Chat experience has no `"Waiting..."` node and keeps
   showing `Working` while a card is open, so the card check is what catches Pending there. A
   tool permission prompt (`"Do you allow Copilot to ...?"` with `Allow this time` / `Deny`
   buttons) is also Pending, with `PromptKind: "PermissionPrompt"`; while one is open the chat
-  shows no `Working` text at all.
+  shows no `Working` text at all. A workspace trust card (`"Do you trust this folder?"` with
+  `Trust once` / `Do not trust`, shown when the target window opens an untrusted folder) is
+  reported the same way; chat is disabled until it is answered.
 - **Working** — a `"Working on it..."` or `"Working"` node (the shorter label is the newer
   experience). Pass `-WorkingMarkers` if a Visual Studio update changes the text again.
 - **Idle** — neither. Confirmed at once when a new completion footer
-  (`"The response used the <model> model..."`) appears after the reply, after 2 stable polls
+  (`"The response used the <model> model..."`, or the short `"The response cost <n> credits."`)
+  appears after the reply, after 2 stable polls
   when the last message is a footer, or after `-IdleWithoutFooterPolls` (default 3) when it is
   not. An Idle result without a footer has a `Note`: read the transcript and inspect for an
   unrecognized prompt before trusting it.
@@ -332,6 +355,12 @@ landing while a card is still pending, `element-not-found`/`stale-context` error
    names exactly the requested option; anything else is reported in `Error`, including
    `Wrong option submitted`. It moves the mouse, so keep hands off while it runs.
 
+   **Multi-question cards** show one question per page, with `Next question` instead of `Submit`
+   until the last page; the watcher reports `MorePages: true`. Call the script once per page: on a
+   page with more to come it selects the option, clicks `Next question`, checks that the question
+   changed, and returns `CardClosed: false` with `NextQuestion` set. The last call submits, and its
+   echo lists every answer. Do not reply in the chat box while a later page is still open.
+
    **Why not the CLI or UIA select:** `SelectionItemPattern.Select()` marks the radio selected
    but the newer card still submitted its previous choice (asked for Option 2, card echoed
    Option 1). And `click --strategy Name` hits `ambiguous-match` (the RadioButton and its
@@ -379,6 +408,20 @@ landing while a card is still pending, `element-not-found`/`stale-context` error
    repo, network access, unexpected paths — stop and ask the user. Never pick a lasting
    permission (`always`, session- or solution-wide; refused unless `-AllowPersistent`) unless
    the user asked for it. Don't type into the chat box to answer it.
+
+   A **workspace trust card** (`"Do you trust this folder?"`, `Trust once` / `Do not trust`) is
+   answered the same way, with `-Button`. `Trust once` lets the agent read files and run tools in
+   that folder for the session, so always ask the user before choosing it. `Do not trust` leaves
+   chat disabled in that window.
+
+   **Chat banners** are not prompts: the agent isn't waiting, and the watcher can report Idle
+   while one is shown. Check `Banners` in the watcher result before sending a task. A
+   `HarnessWorkspaceMismatchBanner` ("The open folder is outside this session's working
+   directory", with both paths) means a new session would run in the old folder, typically after
+   the target window switched folders. If the open folder is the intended target, click
+   `Update working directory` (`click --strategy AutomationId --value HarnessWorkspaceMatch`,
+   with the red dot) and re-run the watcher to confirm `Banners` is empty; otherwise ask the user.
+   Don't just close the banner.
 
 ## Step 5 — Run the standard collaboration loop
 

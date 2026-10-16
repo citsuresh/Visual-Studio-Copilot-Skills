@@ -18,6 +18,12 @@
 
     With no -Option, it lists the available options and changes nothing.
 
+    Multi-question cards show one question per page, with "Next question" instead of Submit
+    until the last page. On such a page the script selects the option, clicks "Next question",
+    confirms the question text changed, and returns with CardClosed false and NextQuestion set
+    to the new question. Call it again for each page; the last page is submitted as usual, and
+    its echo lists every answer.
+
     With -Button, it answers a tool permission prompt ("Do you allow Copilot to ...?")
     instead: it invokes the button with that exact Name and confirms the prompt closed.
     Buttons that grant a lasting permission (names containing "always", "session",
@@ -44,7 +50,8 @@
     How long to wait for the card to close after Submit. Default 10.
 
 .OUTPUTS
-    PSCustomObject (or JSON with -AsJson): Success, Selected, Options, CardClosed, Echo, Error.
+    PSCustomObject (or JSON with -AsJson): Success, Selected, Options, CardClosed, Echo,
+    NextQuestion (set only after moving to the next page of a multi-question card), Error.
 
 .EXAMPLE
     .\Select-ChoicePromptOption.ps1 -Hwnd 0x60AAA
@@ -99,14 +106,15 @@ public static class ChoicePromptNative {
 [void][ChoicePromptNative]::SetProcessDPIAware()
 
 function Write-Result {
-    param([bool]$Success, [string]$Selected, [string[]]$Options, $CardClosed, [string]$Echo, [string]$ErrorText)
+    param([bool]$Success, [string]$Selected, [string[]]$Options, $CardClosed, [string]$Echo, [string]$ErrorText, [string]$NextQuestion)
     $result = [pscustomobject]@{
-        Success    = $Success
-        Selected   = $Selected
-        Options    = $Options
-        CardClosed = $CardClosed
-        Echo       = $Echo
-        Error      = $ErrorText
+        Success      = $Success
+        Selected     = $Selected
+        Options      = $Options
+        CardClosed   = $CardClosed
+        Echo         = $Echo
+        NextQuestion = $NextQuestion
+        Error        = $ErrorText
     }
     if ($AsJson) { $result | ConvertTo-Json -Depth 3 } else { $result }
 }
@@ -137,6 +145,23 @@ function Get-SubmitButtons {
     @($window.FindAll($scope, $condition))
 }
 
+function Get-EnabledNamedButtons {
+    param([string]$Name)
+    $condition = [System.Windows.Automation.AndCondition]::new(
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Button),
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::NameProperty, $Name))
+    @($window.FindAll($scope, $condition) | Where-Object { $_.Current.IsEnabled })
+}
+
+function Get-QuestionLabels {
+    $condition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'RadioFieldLabel')
+    @($window.FindAll($scope, $condition) | ForEach-Object { $_.Current.Name })
+}
+
 $radios = Get-RadioOptions
 $optionNames = @($radios | ForEach-Object { $_.Current.Name })
 
@@ -152,13 +177,23 @@ if ($Button) {
         [System.Windows.Automation.ControlType]::Button)
     $getPromptButtons = {
         $all = @($window.FindAll($scope, $buttonType))
-        # Only buttons that sit next to a "Deny" button or the ExtraActionsButton belong to the prompt.
+        # Only the run of adjacent sibling buttons around a "Deny" button or the ExtraActionsButton
+        # belongs to the prompt; the card can share a parent with the chat pane's own buttons.
         $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
-        $parents = @($all | Where-Object { $_.Current.Name -eq 'Deny' -or $_.Current.AutomationId -eq 'ExtraActionsButton' } | ForEach-Object { $walker.GetParent($_) })
-        @($all | Where-Object {
-                $p = $walker.GetParent($_)
-                [bool]($parents | Where-Object { [System.Windows.Automation.Automation]::Compare($_, $p) })
-            })
+        $isButton = { param($e) $e -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button }
+        $seen = @{}
+        foreach ($anchor in @($all | Where-Object { $_.Current.Name -eq 'Deny' -or $_.Current.AutomationId -eq 'ExtraActionsButton' })) {
+            $run = [System.Collections.Generic.List[object]]::new()
+            $run.Add($anchor)
+            $s = $walker.GetPreviousSibling($anchor)
+            while (& $isButton $s) { $run.Add($s); $s = $walker.GetPreviousSibling($s) }
+            $s = $walker.GetNextSibling($anchor)
+            while (& $isButton $s) { $run.Add($s); $s = $walker.GetNextSibling($s) }
+            foreach ($b in $run) {
+                $id = $b.GetRuntimeId() -join '.'
+                if (-not $seen.ContainsKey($id)) { $seen[$id] = $true; $b }
+            }
+        }
     }
     $promptButtons = & $getPromptButtons
     $buttonNames = @($promptButtons | Where-Object { $_.Current.IsEnabled } | ForEach-Object { $_.Current.Name })
@@ -223,6 +258,21 @@ if (-not $selection.Current.IsSelected) {
 }
 
 $submitButtons = Get-SubmitButtons
+$nextButtons = Get-EnabledNamedButtons -Name 'Next question'
+if ($submitButtons.Count -eq 0 -and $nextButtons.Count -eq 1) {
+    $before = (Get-QuestionLabels) -join ' | '
+    $nextButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $after = $before
+    while ((Get-Date) -lt $deadline -and $after -eq $before) {
+        Start-Sleep -Milliseconds 400
+        $after = (Get-QuestionLabels) -join ' | '
+    }
+    if ($after -eq $before) {
+        return Write-Result -Success $false -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText "Clicked 'Next question' but the question did not change within $TimeoutSeconds seconds."
+    }
+    return Write-Result -Success $true -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText $null -NextQuestion $after
+}
 if ($submitButtons.Count -ne 1) {
     return Write-Result -Success $false -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText "Expected exactly one '$SubmitName' button; found $($submitButtons.Count). Option is selected but not submitted."
 }
