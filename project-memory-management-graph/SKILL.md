@@ -218,55 +218,61 @@ re-sync — without the user having to remember or manually redo anything per pr
     already-bootstrapped projects as stale; they pick up the new template bullet on re-bootstrap.
   - v15 — Added reusable scripts: a new "Reusable scripts capture" section; one verbatim bullet in
     the Bootstrap Step 6 template (check `docs/SCRIPTS.md` before writing code for a repeatable
-    mechanical step, run indexed scripts, save worthwhile working code to `scripts/agent/` and
-    index it, tell the user); Begin Session reads `docs/SCRIPTS.md` when it exists and mentions the
-    script count; new End Session Step 5a, a safety net that saves a missed script and does a light
+    mechanical step, run indexed scripts, save worthwhile working code to `scripts/agent/` and index
+    it, tell the user); Begin Session reads `docs/SCRIPTS.md` when it exists and mentions the script
+    count; new End Session Step 5a, a safety net that saves a missed script and does a light
     index-versus-folder consistency check. Unlike the other capture sections, saving a script is
     done by Copilot without asking first (the user is told and curates afterwards). Bootstrap never
     creates `scripts/agent/` or `docs/SCRIPTS.md`. Because this changes the Persistent Project
     Memory template, Workflow 0 will flag already-bootstrapped projects as stale; they pick up the
-    new bullet on re-bootstrap. Not yet validated live in Copilot/Visual Studio.
-  - v16 — The save rules now require every varying part of a script to be a parameter, and tell
-    the agent to extend an existing reusable script with a backward-compatible parameter (its
-    default keeps the current behaviour; index line and date updated; reported to the user) rather
-    than save a near-copy. C# scripts skip `obj` and `bin` by default. Found in live tests of v15: a
-    FIXME count was saved as a near-copy of a TODO count script. The Step 6 bullet carries these
-    rules too, so Bootstrap must be re-run. Because this changes the Persistent Project Memory
-    template, Workflow 0 will flag already-bootstrapped projects as stale; they pick up the new
-    bullet on re-bootstrap. Not yet validated live in Copilot/Visual Studio.
-  - v17 — End Session Step 5a now says why a qualifying script was not saved: when code passes
-    the save test but is not saved, the End Session report gives one line with the reason. Found
-    in a live test of v16, where a docs-size snippet was skipped without any explanation. The
-    Step 5a wording changed, so projects bootstrapped at v16 are flagged stale; re-run Bootstrap
-    to pick up the new version. Not yet validated live in Copilot/Visual Studio.
+    new bullet on re-bootstrap. Partly validated in Keka: Test 1 saved a script as designed; Test 3
+    exposed the near-copy problem fixed in v16.
+  - v16 — The save rules now require every varying part of a script to be a parameter, and tell the
+    agent to extend an existing reusable script with a backward-compatible parameter (its default
+    keeps the current behaviour; index line and date updated; reported to the user) rather than save
+    a near-copy. C# scripts skip `obj` and `bin` by default. Found in live tests of v15: a FIXME
+    count was saved as a near-copy of a TODO count script. The Step 6 bullet carries these rules
+    too, so Bootstrap must be re-run. Because this changes the Persistent Project Memory template,
+    Workflow 0 will flag already-bootstrapped projects as stale; they pick up the new bullet on
+    re-bootstrap. Validated in Keka: a later run extended an existing script with new switches
+    rather than copying it. Test 4 then exposed the missing save-or-explain line fixed in v17.
+  - v17 — End Session Step 5a now says why a qualifying script was not saved: when code passes the
+    save test but is not saved, the End Session report gives one line with the reason. Found in a
+    live test of v16, where a docs-size snippet was skipped without any explanation. The Step 5a
+    wording changed, so projects bootstrapped at v16 are flagged stale; re-run Bootstrap to pick up
+    the new version. Not yet validated live: the one-line reason for a non-save has not been seen in
+    a run.
   - v18 — End Session Step 5a no longer skips a save silently when the task's file rules forbid
-    project file changes (for example "do not change any project files"). The agent asks the
-    user one question instead, and saves only if the user agrees. The Step 5a wording changed,
-    so projects bootstrapped at v17 are flagged stale; re-run Bootstrap to pick up the new
-    version. Not yet validated live in Copilot/Visual Studio.
+    project file changes (for example "do not change any project files"). The agent asks the user
+    one question instead, and saves only if the user agrees. The Step 5a wording changed, so
+    projects bootstrapped at v17 are flagged stale; re-run Bootstrap to pick up the new version. Not
+    yet validated live: the ask-before-save branch has not run.
   - v19 — End Session Step 5a checks the task's file rules before any save or index-line change, not
-    only before saving a script. The check now comes before the save instruction. A forbidden
-    change is asked about first, which also covers adding a missing index line. The Step 5a
-    wording changed, so projects bootstrapped at v18 are flagged stale; re-run Bootstrap to pick
-    up the new version. Not yet validated live in Copilot/Visual Studio.
-  - v20 — Bootstrap Step 6 now checks the copied "Reusable scripts" bullet after writing it, character
-    for character, and corrects any difference. Found in a live run of v19, where Bootstrap dropped
-    the final full stop and changed "your reply" to "the reply" even though the bullet was marked
-    word for word. The Step 6 wording changed, so projects bootstrapped at v19 are flagged stale;
-    re-run Bootstrap to pick up the new version. Not yet validated live in Copilot/Visual Studio.
-  - v21 — Bootstrap verifies the "Reusable scripts" bullet with a string comparison it runs and reports,
-    not by re-reading it, because a self-check by the model still let wording drift in v19 and v20.
-    Step 5a also requires every index row to be a complete five-column table row, so a stray or
-    truncated row is reported. The Step 6 and Step 5a wording changed, so projects bootstrapped at
-    v20 are flagged stale; re-run Bootstrap to pick up the new version. Not yet validated live in
-    Copilot/Visual Studio.
+    only before saving a script. The check now comes before the save instruction. A forbidden change
+    is asked about first, which also covers adding a missing index line. The Step 5a wording
+    changed, so projects bootstrapped at v18 are flagged stale; re-run Bootstrap to pick up the new
+    version. Not yet validated live: the file-rule check before index changes has not run.
+  - v20 — Bootstrap Step 6 now checks the copied "Reusable scripts" bullet after writing it,
+    character for character, and corrects any difference. Found in a live run of v19, where
+    Bootstrap dropped the final full stop and changed "your reply" to "the reply" even though the
+    bullet was marked word for word. The Step 6 wording changed, so projects bootstrapped at v19 are
+    flagged stale; re-run Bootstrap to pick up the new version. Tested in Keka and not sufficient:
+    the instruction-only check did not stop wording drift. Superseded by v21.
+  - v21 — Bootstrap verifies the "Reusable scripts" bullet with a string comparison it runs and
+    reports, not by re-reading it, because a self-check by the model still let wording drift in v19
+    and v20. Step 5a also requires every index row to be a complete five-column table row, so a
+    stray or truncated row is reported. The Step 6 and Step 5a wording changed, so projects
+    bootstrapped at v20 are flagged stale; re-run Bootstrap to pick up the new version. Validated in
+    Keka: the string comparison matched exactly on the v21 Bootstrap run.
   - v22 — Keeps the scripts set small. The index date means the last time a script was run or
     changed. A task that runs a listed script updates its date, if its file rules allow editing
     docs/SCRIPTS.md. End Session Step 5b lists scripts whose date is more than 60 days old, skipping
     archived rows, and asks the user to keep, archive or delete each. Copilot never deletes a script
     or its row without the user's approval. The Step 6 bullet copied into projects changed, so
-    projects bootstrapped at v21 are flagged stale; re-run Bootstrap to pick up the new version. Not
-    yet validated live in Copilot/Visual Studio.
+    projects bootstrapped at v21 are flagged stale; re-run Bootstrap to pick up the new version.
+    Validated in Keka for the date rule (updated when permitted, left alone when forbidden) and Step
+    5b (question, archive, skip). Not yet checked: that an archived script is skipped on a later End
+    Session.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
