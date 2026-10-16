@@ -5,7 +5,7 @@ description: 'Navigate a target WinForms/WPF application to a requested screen o
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 4`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 5`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-navigation-orchestrator\SKILL.md` once at the
   start of a session.
 - Changelog:
@@ -29,6 +29,10 @@ description: 'Navigate a target WinForms/WPF application to a requested screen o
     missing, unreadable, or reformatted graph output must degrade this step to a plain code
     search rather than error or guess at a stale format. Flagged as a real, live coupling to
     project-memory-management-graph's output worth watching if that skill's format changes.
+  - v5 -- added the "Hands-off cursor indicator" step: a navigate/debug/explore request that
+    takes more than one UI action shows ui-interaction's green dot for its duration, stopped
+    before every reply that waits for the user; input actions show red as ui-interaction
+    requires.
 
 # UI Navigation Orchestrator
 
@@ -61,6 +65,16 @@ individual navigation step, and it must never get pulled into the per-item loop 
    copy is stale. Recommend running `Install-Skills.ps1`, but let the user decide whether to
    update now or proceed with the current session.
 4. If versions match: proceed silently.
+
+## Hands-off cursor indicator
+
+Follow **ui-interaction**'s "Hands-off cursor indicator" section; this skill does not restate
+the mechanics. In short: when a navigate/debug/explore request will take more than one UI
+action, start the green dot (`-Session Start -Kind UiAutomation`) right after Step 0, keep it on
+through navigation, sweeps and any vs-debug wait that is part of the same run, and stop it
+(`-Session Stop -Kind UiAutomation`) when the request ends or fails and before every reply that
+waits for the user - including the confirmation required before a mutating action. Start it
+again when you resume. Every input action shows red as ui-interaction requires.
 
 ## The navigation tree
 

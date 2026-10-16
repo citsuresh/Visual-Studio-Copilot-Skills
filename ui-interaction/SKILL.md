@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 5`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 6`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -33,6 +33,12 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     `--flag=value` for empty or `--`-prefixed values, and clarifies that drag success means input
     was dispatched rather than the drop accepted. Extends explicit read-back confirmation to
     clearing as well as typing and chat submission.
+  - v6 — Adds the shared hands-off cursor indicator `scripts\AgentCursor.ps1` (moved here from
+    agent-orchestrator, which now loads it from this skill): red dot while an action moves the
+    mouse or sends keys, green dot for the whole of a multi-step UI run, nothing for ordinary
+    work. agent-orchestrator's sessions are blue; whichever session starts first owns the colour.
+    The script also provides `Set-AgentForegroundWindow` (Alt tap plus `SetForegroundWindow`,
+    verified) for when `activate` is blocked by focus-stealing prevention.
 
 # UI Interaction
 
@@ -80,6 +86,42 @@ would defeat the point of it being a cheap, once-per-session check.
    Recommend running `Install-Skills.ps1`, but let the user decide whether to update now or
    proceed with the current session.
 4. If versions match: proceed silently.
+
+## Hands-off cursor indicator (user requirement)
+
+`scripts\AgentCursor.ps1` (next to this SKILL.md; `Get-Help` it for details) marks the system
+cursor so the user can tell who is using the machine and keep their hands off. It is shared:
+agent-orchestrator loads it from here.
+
+| Dot | Meaning | Who sets it |
+| --- | --- | --- |
+| Red | Mouse or keyboard input right now | Any skill, around each input action |
+| Green | A multi-step UI run (this skill or ui-navigation-orchestrator) is in progress | `-Session Start -Kind UiAutomation` |
+| Blue | agent-orchestrator is driving or monitoring another Copilot chat | agent-orchestrator only |
+
+- **Red - input.** Wrap every action that moves the mouse or sends keys (`click`,
+  `right-click`, `double-click`, `drag`, `move-mouse`, `type`, `send-keys`, `set-grid-cell`,
+  `submit-chat-message`, `activate`) in the same PowerShell call:
+  `. <skill>\scripts\AgentCursor.ps1; Enable-AgentCursor; try { <agentdebug-ui calls> } finally { Restore-AgentCursor }`.
+  Batch consecutive input actions into one block rather than flashing red per call.
+  Read-only verbs (`inspect`, `list-windows`, `find-all`, `get-text`, `read-visible-text`,
+  waits) don't change the cursor. If `activate` fails with `stale-context` because another
+  process is in front, use `Set-AgentForegroundWindow -Handle <hwnd>` from the same script
+  inside the red block; it returns `$true` only if the window really came to the front.
+- **Green - multi-step run.** Before a run of several UI actions (navigating through several
+  screens, an explore/map sweep, a click-and-wait loop), run
+  `scripts\AgentCursor.ps1 -Session Start -Kind UiAutomation`; run
+  `scripts\AgentCursor.ps1 -Session Stop -Kind UiAutomation` when it ends or fails, and before
+  any reply that waits for the user (a question, a confirmation, a report) - start it again when
+  you resume. A single action or a read-only check gets red only (or nothing), never green.
+- **One colour at a time.** The first session started owns the colour. Inside an
+  agent-orchestrator session (blue), `-Kind UiAutomation` Start and Stop change nothing - keep
+  calling them as normal; the blue session is stopped by its owner. After a red block the cursor
+  returns to the owning session's colour, or to the user's own cursors if none is active.
+- **Never for ordinary work.** Editing files, git, builds, reading code: no dot of any colour.
+- If a dot is ever left behind, `scripts\AgentCursor.ps1 -Restore` clears every session and
+  restores the user's cursors (or the user can sign out and back in). A session flag older than
+  12 hours is ignored.
 
 ## Core primitives
 
