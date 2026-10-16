@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 19`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 20`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -249,6 +249,11 @@ re-sync — without the user having to remember or manually redo anything per pr
     change is asked about first, which also covers adding a missing index line. The Step 5a
     wording changed, so projects bootstrapped at v18 are flagged stale; re-run Bootstrap to pick
     up the new version. Not yet validated live in Copilot/Visual Studio.
+  - v20 — Bootstrap Step 6 now checks the copied "Reusable scripts" bullet after writing it, character
+    for character, and corrects any difference. Found in a live run of v19, where Bootstrap dropped
+    the final full stop and changed "your reply" to "the reply" even though the bullet was marked
+    word for word. The Step 6 wording changed, so projects bootstrapped at v19 are flagged stale;
+    re-run Bootstrap to pick up the new version. Not yet validated live in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -971,6 +976,10 @@ other steps are unaffected.
      any script worth saving. If a script fails or is out of date, fix it in place and update its
      date, or do the step normally; never loop on a broken script. The user curates these files:
      never delete scripts or index lines on your own."
+
+   After writing this section, compare the "Reusable scripts" bullet with the quoted text above
+   character for character, including the final full stop. If anything differs, correct it, and say
+   in the Bootstrap report which part changed.
 
 7. Ensure a "Project Guidelines" section exists in `.github/copilot-instructions.md`. This
    step is merge-safe: if the section already exists, only add the following 3 bullets if
