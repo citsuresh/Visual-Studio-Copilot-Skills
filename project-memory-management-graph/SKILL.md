@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 16`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 18`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -234,6 +234,16 @@ re-sync — without the user having to remember or manually redo anything per pr
     rules too, so Bootstrap must be re-run. Because this changes the Persistent Project Memory
     template, Workflow 0 will flag already-bootstrapped projects as stale; they pick up the new
     bullet on re-bootstrap. Not yet validated live in Copilot/Visual Studio.
+  - v17 — End Session Step 5a now says why a qualifying script was not saved: when code passes
+    the save test but is not saved, the End Session report gives one line with the reason. Found
+    in a live test of v16, where a docs-size snippet was skipped without any explanation. The
+    Step 5a wording changed, so projects bootstrapped at v16 are flagged stale; re-run Bootstrap
+    to pick up the new version. Not yet validated live in Copilot/Visual Studio.
+  - v18 — End Session Step 5a no longer skips a save silently when the task's file rules forbid
+    project file changes (for example "do not change any project files"). The agent asks the
+    user one question instead, and saves only if the user agrees. The Step 5a wording changed,
+    so projects bootstrapped at v17 are flagged stale; re-run Bootstrap to pick up the new
+    version. Not yet validated live in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -1120,9 +1130,13 @@ sweep). This keeps the closing update low-token.
     check: every index line must point to an existing file (use `Test-Path`, never a search tool),
     and every file in `scripts/agent/` should have an index line. Add a missing index line for an
     unlisted script; for anything else that is missing or inconsistent, report it and change
-    nothing. Never delete or rewrite an existing script or index line here. Skip silently if nothing
-    was written this session and no scripts exist. Mention it in the End Session report only when a
-    script was saved, a mismatch was found, or an extension was suggested.
+    nothing. Never delete or rewrite an existing script or index line here. If a save would conflict
+    with a file rule of the current task (for example "do not change any project files"), do not
+    save it yet: ask the user one question, and save only if they agree; if the user cannot be
+    asked, report the script and do not save it. Skip silently if nothing was written this session
+    and no scripts exist. Mention it in the End Session report only when a script was saved, a
+    mismatch was found, an extension was suggested, or a script that passed the save test was not
+    saved; in the last case, give the reason in one line.
 
 6. Update only the current solution's graph incrementally (intentionally cheap — never the other
    solutions' graphs):
