@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 18`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 19`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -244,6 +244,11 @@ re-sync — without the user having to remember or manually redo anything per pr
     user one question instead, and saves only if the user agrees. The Step 5a wording changed,
     so projects bootstrapped at v17 are flagged stale; re-run Bootstrap to pick up the new
     version. Not yet validated live in Copilot/Visual Studio.
+  - v19 — End Session Step 5a checks the task's file rules before any save or index-line change, not
+    only before saving a script. The check now comes before the save instruction. A forbidden
+    change is asked about first, which also covers adding a missing index line. The Step 5a
+    wording changed, so projects bootstrapped at v18 are flagged stale; re-run Bootstrap to pick
+    up the new version. Not yet validated live in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -1123,20 +1128,21 @@ sweep). This keeps the closing update low-token.
 5a. Reusable scripts safety net (see "Reusable scripts capture" above). Using only what is still
     visible in this session's context (do not dig through history), check whether you wrote working
     code for a repeatable mechanical step that was not saved as a script. If it passes the save test
-    in that section and no existing script in `scripts/agent/` could take it as a parameter, save it
-    and add its index line. If an existing script could take it as a parameter, do not edit that
-    script or save a near-copy here; report the suggested parameter in the End Session report
-    instead. Then, only if `docs/SCRIPTS.md` or `scripts/agent/` exists, do a light consistency
-    check: every index line must point to an existing file (use `Test-Path`, never a search tool),
-    and every file in `scripts/agent/` should have an index line. Add a missing index line for an
-    unlisted script; for anything else that is missing or inconsistent, report it and change
-    nothing. Never delete or rewrite an existing script or index line here. If a save would conflict
-    with a file rule of the current task (for example "do not change any project files"), do not
-    save it yet: ask the user one question, and save only if they agree; if the user cannot be
-    asked, report the script and do not save it. Skip silently if nothing was written this session
-    and no scripts exist. Mention it in the End Session report only when a script was saved, a
-    mismatch was found, an extension was suggested, or a script that passed the save test was not
-    saved; in the last case, give the reason in one line.
+    in that section and no existing script in `scripts/agent/` could take it as a parameter, first
+    check whether the current task's file rules forbid changes to project files (for example "do not
+    change any project files"). If they do, do not save yet: ask the user one question, and save
+    only if they agree; if the user cannot be asked, report the script and do not save it. If the
+    rules allow it, save the script and add its index line. If an existing script could take it as a
+    parameter, do not edit that script or save a near-copy here; report the suggested parameter in
+    the End Session report instead. Then, only if `docs/SCRIPTS.md` or `scripts/agent/` exists, do a
+    light consistency check: every index line must point to an existing file (use `Test-Path`, never
+    a search tool), and every file in `scripts/agent/` should have an index line. Adding a missing
+    index line for an unlisted script is a file change, so apply the same file-rule check before
+    adding it. For anything else that is missing or inconsistent, report it and change nothing.
+    Never delete or rewrite an existing script or index line here. Skip silently if nothing was
+    written this session and no scripts exist. Mention it in the End Session report only when a
+    script was saved, a mismatch was found, an extension was suggested, or a script that passed the
+    save test was not saved; in the last case, give the reason in one line.
 
 6. Update only the current solution's graph incrementally (intentionally cheap — never the other
    solutions' graphs):
