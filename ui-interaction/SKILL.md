@@ -232,6 +232,10 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   underlying feature is broken.
 - **Virtualized WPF DataGrid controls** — use the `set-grid-cell` verb; some grids need an
   explicit `--applyStrategy`/`--applyValue` to commit the edit.
+- **Plain-string ListBox items** — a `ListBoxItem` and its `TextBlock` can share the same `Name`,
+  causing a Name selector to return `ambiguous-match`. Give each item a unique `AutomationId`
+  in the app under test, or use a selector that resolves to one element. `scroll-into-view` can
+  move the scroll position even when it returns an error.
 - **Hover-driven pickers** — some pickers only detect a target after the OS cursor has physically
   entered the window; a raw click at a coordinate isn't sufficient on its own.
 - **Cross-process window discovery** — use `list-windows --all` or `--processName <name>` with
