@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 6`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 7`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -39,6 +39,10 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     work. agent-orchestrator's sessions are blue; whichever session starts first owns the colour.
     The script also provides `Set-AgentForegroundWindow` (Alt tap plus `SetForegroundWindow`,
     verified) for when `activate` is blocked by focus-stealing prevention.
+  - v7 — Documents cross-process window discovery, substring filters, default exclusions, and
+    new-window waits; replaces the discovery and scroll-to-element gaps with the supported
+    primitives. Adds UIA-only `scroll-into-view`, its activation caveat, methods, errors, and
+    explicit post-scroll verification.
 
 # UI Interaction
 
@@ -125,10 +129,17 @@ agent-orchestrator loads it from here.
 
 ## Core primitives
 
-- **list-windows / attach** — find and scope to a target window, by hwnd, pid, or title. Matching
-  by title alone when multiple windows share it is ambiguous — prefer `--pid` or an explicit hwnd
-  when the caller can supply one, and flag the ambiguity rather than silently picking one if it
-  can't.
+- **list-windows / attach** — find and scope to a target window, by hwnd, pid, or title.
+  `list-windows` has three mutually exclusive scopes: `--pid <n>` (or the session context pid
+  by default), `--all` (any process on the current desktop), or `--processName <name>` (all
+  processes matching the name case-insensitively; a trailing `.exe` is stripped).
+  `--titleContains` and `--className` are case-insensitive substring filters, not wildcards.
+  `--all` and `--processName` exclude DWM-cloaked, untitled, and zero-area windows by default;
+  `--includeUntitled` re-includes untitled windows only. Pid scope has no default exclusions.
+  Titles may contain sensitive data: filter first and keep only the needed rows. Discovery is
+  read-only and does not change session context; use the returned hwnd or set the context pid.
+  Matching by title alone when multiple windows share it is ambiguous — prefer `--pid` or an
+  explicit hwnd when available, and flag ambiguity rather than silently picking one.
 - **click** — by selector. Prefer `Name`-based selectors with a documented fallback strategy over
   `AutomationId` where the caller's target app is known to expose unreliable `AutomationId`s (that
   finding belongs to the caller/target app's own notes, not generalized here, since it isn't true
@@ -172,6 +183,23 @@ agent-orchestrator loads it from here.
 - **wait / poll** — for a UI state to settle, invoked asynchronously so a caller can relay
   progress without blocking.
 - **set-grid-cell** — for virtualized WPF DataGrid controls (see gotcha below).
+- **scroll-into-view** — CLI: `scroll-into-view`; MCP: `ui_scroll_into_view`. Uses UIA patterns
+  only: it does not request activation and makes no cursor or input calls, but the target's UIA
+  provider may activate its window during a scroll (observed with WPF). It does not restore the
+  scroll position. Run `find-all` first to check selector matches; for virtualized lists pass
+  the list as the scope with both `--scopeStrategy` and `--scopeValue`. The scope is both the
+  search area and scroll container. Afterward verify with `find-first` or `get-text`.
+  Methods: `already-visible`, `scroll-item`, `ancestor-scroll`, `item-container`, `scroll-search`.
+  It tries `ScrollItemPattern`, a vertically scrollable ancestor, or
+  `ItemContainerPattern.FindItemByProperty` and `Realize` before a scroll-search from the top;
+  success requires `fullyVisible: true`. Horizontal virtualization is not searched, and no
+  mouse-wheel fallback is implemented.
+  Errors: `invalid-argument`, `window-not-responding`, `element-not-found`, `stale-context`,
+  `container-not-found`, `ambiguous-container`, `not-scrollable`, `ambiguous-match`, `timeout`,
+  `element-not-found-after-scroll`, `scroll-provider-error`. `element-not-found` means the hwnd
+  has no window; `element-not-found-after-scroll` means the element was not found or disappeared
+  after scrolling. A dead or closed hwnd can return `window-not-responding` from the shared
+  responsiveness check. Narrow ambiguous matches/scopes rather than choosing one silently.
 
 ### Verifying typed input
 
@@ -206,14 +234,12 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   explicit `--applyStrategy`/`--applyValue` to commit the edit.
 - **Hover-driven pickers** — some pickers only detect a target after the OS cursor has physically
   entered the window; a raw click at a coordinate isn't sufficient on its own.
-- **New windows owned by another process** — after an action expected to open a new window, if
-  the result is not visible via `wait-for-window-change`/`list-windows` scoped to the original
-  process, the new window may belong to a different process entirely (e.g. a "Report a Problem"
-  action opening a browser instead of a dialog in the host app). `list-windows` currently requires
-  a `--pid` or context pid; there is no cross-process window-enumeration primitive yet. The caller
-  must attach to a plausibly involved process by name to check, or ask the calling skill/agent
-  which process to check. This is a known gap, not something to work around silently by guessing.
-- **Scroll-to-element** is also a known gap.
+- **Cross-process window discovery** — use `list-windows --all` or `--processName <name>` with
+  filters. `wait-for-window-change` accepts the same scopes and filters: `--until settle` waits
+  for a stable hwnd set; `--until match` waits for a nonempty stable match and requires at least
+  one of `--titleContains`, `--className`, or `--processName`. To find a newly opened window,
+  pass hwnds from an earlier `list-windows` as a comma-separated `--excludeHwnds` list; a window
+  opened before the wait's first snapshot otherwise belongs to its baseline, not `newWindows`.
 - **Strict option parsing** — the CLI now rejects a value-taking flag with no value, or followed
   by another `--` flag, with `invalid-argument` instead of silently using `"true"`. Windows
   PowerShell 5.1 drops empty-string arguments to native programs, which is how `--text ''` used

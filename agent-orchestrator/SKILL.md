@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 4`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 5`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -66,6 +66,9 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     refuses to send while that banner or `WorkspaceTrustWarningBanner` is shown, unless
     `-IgnoreBanners`. Validated live: both detected the banner; clicking `Update working directory`
     cleared it.
+  - v5 — Fixes Step 1's no-pid fallback: discover with `--processName devenv` and the plain
+    `--titleContains "Microsoft Visual Studio"` substring, not an unscoped session-pid lookup
+    or wildcard pattern. Confirm the returned hwnd and pid and never guess among multiple matches.
 
 # Agent Orchestrator
 
@@ -215,9 +218,11 @@ Confirm `Hwnd`, `Title`, and that the process is still alive. Hwnds can change i
 instance was restarted — never assume a previously-known hwnd is still valid; re-verify at the
 start of a new session or after any long gap.
 
-If you don't have a pid, ask the user, or use `list-windows` without `--pid` and match by title
-(e.g. `"* - Microsoft Visual Studio*"`) — be aware this can resolve to the wrong instance if
-multiple windows share a matching title; prefer `--pid` when it's available.
+Prefer `--pid` when available. If you don't have a pid, use
+`list-windows --processName devenv --titleContains "Microsoft Visual Studio"` and confirm the
+returned hwnd and pid before use. `--titleContains` is a substring filter, not a wildcard;
+without an explicit scope, `list-windows` uses the session context pid. Do not guess among
+multiple matches — ask the user to identify the intended instance.
 
 ## Step 2 — Send a task to the agent
 
