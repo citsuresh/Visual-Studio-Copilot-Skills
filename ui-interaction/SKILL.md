@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 7`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 8`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -43,6 +43,9 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     new-window waits; replaces the discovery and scroll-to-element gaps with the supported
     primitives. Adds UIA-only `scroll-into-view`, its activation caveat, methods, errors, and
     explicit post-scroll verification.
+  - v8 — Documents shipped CLI `--controlType` selector filtering and absolute
+    `scroll-container --verticalPercent` for reading virtualized content. MCP support for these
+    toolkit additions is pending a rebuild.
 
 # UI Interaction
 
@@ -145,17 +148,23 @@ agent-orchestrator loads it from here.
   finding belongs to the caller/target app's own notes, not generalized here, since it isn't true
   of every app). When a selector could plausibly match more than one element (e.g. shared labels,
   or a name that also matches a system element such as a browser bookmark), scope it with
-  `--scopeHwnd` (the only scoping flag `click`/`type` accept). `click`, `right-click`, `double-click`,
+  `--scopeHwnd` (`click` also accepts `--controlType` to filter by a recognized short UIA type).
+  `click`, `right-click`, `double-click`,
   `drag`, selector-form `move-mouse`, `type`, `get-text`, and `send-keys` now fail with
   `ambiguous-match` instead of acting on the first match. The response includes `count` and up to
   10 candidates (`name`, `automationId`, `controlType`, `className`), and no action is performed.
-  On `ambiguous-match`, narrow with `--scopeHwnd`, or retry using a candidate's `AutomationId` if
-  it is unique. This behavior requires an `agentdebug-ui.exe` built from the 2026-10-14 change;
-  an older build silently uses the first match. `get-text` now also accepts `--scopeHwnd`.
+  On `ambiguous-match`, narrow with `--scopeHwnd`, `--controlType` on supported verbs, or retry
+  using a candidate's `AutomationId` if it is unique. This behavior requires an
+  `agentdebug-ui.exe` built from the 2026-10-14 change; an older build silently uses the first
+  match. `get-text` now also accepts `--scopeHwnd`.
   If selector uniqueness is uncertain, use `find-all` first (see
   `CLI_CONTRACT.md`) to confirm the match count before acting. Its own
   `--scopeStrategy`/`--scopeValue` flags can narrow that pre-check, but they are not accepted by
-  `click`/`type` themselves. A selector matching a label does not prove that it
+  `click`/`type` themselves. CLI `click`, `get-text`, `find-first`, `find-all`, and
+  `wait-for-element` accept optional `--controlType <short name>`; this filters candidates before
+  matching/ambiguity checks, but does not guarantee uniqueness. An unknown type returns
+  `invalid-argument`. MCP support for this new selector option is pending a rebuild; use the CLI
+  until the matching MCP tools are rebuilt. A selector matching a label does not prove that it
   targets the intended control — confirm the matched element's `controlType`/`className` in the
   response, not just that `success: true` was returned.
 - **inspect / read** — returns the current element tree, text, and state. This is the primitive
@@ -183,6 +192,15 @@ agent-orchestrator loads it from here.
 - **wait / poll** — for a UI state to settle, invoked asynchronously so a caller can relay
   progress without blocking.
 - **set-grid-cell** — for virtualized WPF DataGrid controls (see gotcha below).
+- **scroll-container** — CLI only until MCP is rebuilt:
+  `scroll-container --hwnd <h> --strategy <Name|AutomationId> --value <v> --verticalPercent <0..100> [--scopeHwnd <h2>]`.
+  Moves one uniquely selected container to an absolute vertical percent using UIA `ScrollPattern` only;
+  there is no direction or relative-step option. Check `changed`, `boundaryReached`, and
+  `verticalScrollPercentAfter`, then re-read the rendered content at each position. This is
+  useful for surveying a virtualized list: `scroll-into-view` exposes a specific target, not
+  every item. The call does not request activation or send input, but changes the scroll position
+  and does not restore it. An ambiguous container must be narrowed; a container without vertical
+  scrolling returns `not-scrollable`. Do not infer the full list from one rendered snapshot.
 - **scroll-into-view** — CLI: `scroll-into-view`; MCP: `ui_scroll_into_view`. Uses UIA patterns
   only: it does not request activation and makes no cursor or input calls, but the target's UIA
   provider may activate its window during a scroll (observed with WPF). It does not restore the
