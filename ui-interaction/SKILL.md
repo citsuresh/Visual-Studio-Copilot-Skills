@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 8`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 9`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -46,6 +46,9 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
   - v8 — Documents shipped CLI `--controlType` selector filtering and absolute
     `scroll-container --verticalPercent` for reading virtualized content. MCP support for these
     toolkit additions is pending a rebuild.
+  - v9 — Documents that `read-visible-text` output is flat and unlabelled, collapsed content is
+    not expanded, and long virtualized lists should be re-read after each `scroll-container`
+    position.
 
 # UI Interaction
 
@@ -248,6 +251,7 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   `OwnerHwnd`/`IsModal`/`IsForeground`. If a click that should trigger a dialog appears to have no
   effect, re-run `list-windows`/`attach` and check for a new `#32770` entry before concluding the
   underlying feature is broken.
+- **`read-visible-text` output is flat.** It returns one de-duplicated list of strings in visual order, with no label for which element each string came from, so it cannot tell chat messages from tool-call details or other UI text. Collapsed or expandable content (for example, folded tool-call details) is not expanded, so its inner text does not appear. Do not treat its output as a complete transcript. To check a specific element's text, use a scoped `inspect` or `get-text` on that element. When reading a long virtualized list, re-read after each `scroll-container` position, because one read covers only what is currently rendered.
 - **Virtualized WPF DataGrid controls** — use the `set-grid-cell` verb; some grids need an
   explicit `--applyStrategy`/`--applyValue` to commit the edit.
 - **Plain-string ListBox items** — a `ListBoxItem` and its `TextBlock` can share the same `Name`,
