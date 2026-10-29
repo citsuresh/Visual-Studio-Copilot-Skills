@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 9`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 10`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -49,6 +49,9 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
   - v9 — Documents that `read-visible-text` output is flat and unlabelled, collapsed content is
     not expanded, and long virtualized lists should be re-read after each `scroll-container`
     position.
+  - v10 — Documents that `inspect` screenshots are opt-in (toolkit commit `aabc864`): pass
+    `screenshot` only when an image is needed and delete only the returned `screenshotPath` files.
+    Toolkit builds and MCP servers not yet rebuilt still save a screenshot on every `inspect`.
 
 # UI Interaction
 
@@ -74,8 +77,18 @@ navigate where I meant it to"), that judgment stays with the caller. This skill 
   both.
 - Full verb contract: `C:\MyFiles\Git\AgentDebugToolkit\docs\CLI_CONTRACT.md`. Read this if a verb
   behaves unexpectedly — do not guess at flags.
-- **Screenshot cleanup is the caller's responsibility.** `inspect --screenshot true` saves to
-  `%LOCALAPPDATA%\AgentDebugToolkit\screenshots\` and does not delete the file automatically.
+- **Screenshots are opt-in, and cleanup is the caller's responsibility.** `inspect --screenshot
+  true` (MCP: `screenshot: true`) saves a PNG of the whole window to
+  `%LOCALAPPDATA%\AgentDebugToolkit\screenshots\` and returns its path in `screenshotPath`; the
+  file is not deleted automatically. The capture can include source code, chat text and other
+  window contents, so pass `screenshot` only when an image is actually needed.
+  - At the end of the task, delete only the files whose paths your own calls returned in
+    `screenshotPath`, never the whole folder or files you did not create (other runs or users may
+    keep screenshots on purpose).
+  - Toolkit builds from before commit `aabc864`, and any MCP server not rebuilt since, save a
+    screenshot on **every** `inspect` even when none is requested. On those builds, check every
+    `inspect` result for `screenshotPath` and clean up those paths too, and prefer `find-all`,
+    `get-text` or `read-visible-text` over `inspect` when they are enough.
 
 ## Step 0: Version Check
 
