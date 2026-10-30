@@ -1,10 +1,32 @@
 <#
 .SYNOPSIS
-    Light-weight alternative to Watch-CopilotChat.ps1: waits for a Copilot chat to finish or to need a
+    Light-weight alternative to Watch-CopilotChatV1.ps1: waits for a Copilot chat to finish or to need a
     person, using one small UI Automation probe per poll instead of a full tree dump.
 
 .DESCRIPTION
-    Watch-CopilotChat.ps1 dumps the whole UI tree on every poll (several seconds of UI Automation work
+    WHICH WATCHER? This is V2, the light watcher and the default. Watch-CopilotChatV1.ps1 is the
+    full-tree one; reach for it only for what this script does not return.
+
+    V2 pros:
+      - Light: about 7 percent of one core and about 0.3 seconds per probe on a long chat (V1: about
+        70 percent and about 4 seconds), so it hardly disturbs the Visual Studio being driven.
+      - Silent while polling (no per-poll tokens); -TraceFile is opt-in.
+      - Never activates, restores, scrolls, clicks or types, so it works with the window overlapped or
+        minimized.
+      - In-process UI Automation: no agentdebug-ui.exe needed.
+      - Also reports NotVisible, WindowGone and ProbeError, which V1 does not.
+    V2 cons:
+      - Says only THAT a prompt is waiting (Pending plus a prompt type); it does not return the
+        question or options. Call Watch-CopilotChatV1.ps1 once for those.
+      - No plain-text question detection: a reply that ends "please approve" is reported as plain
+        Idle. Read the reply with Read-CopilotReply.ps1 and look for a question.
+      - No banner reporting, and no -AsJson.
+      - Recognizes a permission prompt only by the exact "Allow this time" button, and a card by
+        "Submit" or "Next question"; other wording or the older "Waiting..." marker can be missed.
+      - The completion-footer pattern is fixed in the script.
+      - With -RequireBusyFirst, a reply that finishes before the first probe is reported only after
+        -StartGraceSeconds (V1 notices the new footer at once).
+    Watch-CopilotChatV1.ps1 dumps the whole UI tree on every poll (several seconds of UI Automation work
     inside Visual Studio per poll on a long chat). This script asks one cheap question per poll, in-process,
     and never searches inside the message list's items (it checks only the list's scroll position and its last item):
 
@@ -28,7 +50,7 @@
     and is gone and the list, scrolled to its end, ends in a completion footer, or (b) after -QuietSeconds
     with no stop button and no prompt. Either way, confirm the reply with Read-CopilotReply.ps1, which scrolls
     to the end and reads it. For the question text and options of a Pending prompt, call
-    Watch-CopilotChat.ps1 once (it extracts them); this script only says that something is waiting.
+    Watch-CopilotChatV1.ps1 once (it extracts them); this script only says that something is waiting.
 
     Nothing is written to the console while polling, so a caller reading only the final result spends no
     tokens on polls. -TraceFile writes one line per poll for debugging.
@@ -67,7 +89,7 @@
     ProbeMsMedian, ProbeMsMax, ElapsedSeconds, Mismatches (only with -CrossCheck), Note.
 
 .EXAMPLE
-    .\Wait-CopilotChat.ps1 -Hwnd 0x121B1A -RequireBusyFirst
+    .\Watch-CopilotChatV2.ps1 -Hwnd 0x121B1A -RequireBusyFirst
 #>
 [CmdletBinding()]
 param(
@@ -205,7 +227,7 @@ $script:mismatches = 0
 $script:errors = 0
 $deadline = $script:started.AddSeconds($TimeoutSeconds)
 $quietSince = $null
-if ($TraceFile) { Set-Content -Path $TraceFile -Value "# Wait-CopilotChat trace, hwnd $Hwnd, interval ${PollIntervalSeconds}s" -Encoding UTF8 }
+if ($TraceFile) { Set-Content -Path $TraceFile -Value "# Watch-CopilotChatV2 trace, hwnd $Hwnd, interval ${PollIntervalSeconds}s" -Encoding UTF8 }
 
 while ($true) {
     $pollStart = Get-Date
@@ -243,8 +265,8 @@ while ($true) {
     }
 
     if (-not $f.Chat) { return (Finish 'NotVisible' $null 'Neither the chat list nor the input placeholder is showing: another tab may be active.') }
-    if ($f.Permission) { return (Finish 'Pending' 'PermissionPrompt' 'A tool permission prompt is waiting. Use Watch-CopilotChat.ps1 for its question and options.') }
-    if ($f.Card) { return (Finish 'Pending' 'ChoiceCard' 'A question card is waiting. Use Watch-CopilotChat.ps1 for its question and options.') }
+    if ($f.Permission) { return (Finish 'Pending' 'PermissionPrompt' 'A tool permission prompt is waiting. Use Watch-CopilotChatV1.ps1 for its question and options.') }
+    if ($f.Card) { return (Finish 'Pending' 'ChoiceCard' 'A question card is waiting. Use Watch-CopilotChatV1.ps1 for its question and options.') }
 
     if ($f.Busy) {
         $script:busySeen = $true

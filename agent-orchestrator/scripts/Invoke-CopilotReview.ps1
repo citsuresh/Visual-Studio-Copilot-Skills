@@ -13,8 +13,8 @@
          clears the input first, which would destroy a draft someone is typing). -OverwriteInput
          overrides the second check.
       3. Appends a short unique reference tag to the prompt, sends it with Send-CopilotPrompt.ps1, and
-         waits with Wait-CopilotChat.ps1 (default, -Poller Light: one cheap probe of the input area per poll,
-         works with the window overlapped or minimized) or Watch-CopilotChat.ps1 (-Poller Watch).
+         waits with Watch-CopilotChatV2.ps1 (default, -Poller V2: one cheap probe of the input area per poll,
+         works with the window overlapped or minimized) or Watch-CopilotChatV1.ps1 (-Poller V1).
       4. A tool permission prompt or question card is never answered here: the call returns
          Status NeedsUser with the question and options so the person can answer it.
       5. When the chat goes idle, Read-CopilotReply.ps1 scrolls to the end and returns the reply after
@@ -78,10 +78,10 @@ param(
     # One short beep when the wait ends (any result except NotSent). -NoBeep silences it.
     [switch]$NoBeep,
 
-    # Light (default): Wait-CopilotChat.ps1, about 7 percent of one core while waiting. Watch: the original
-    # Watch-CopilotChat.ps1 tree-dump poller (about 70 percent of one core at a 5 second interval).
-    [ValidateSet('Light', 'Watch')]
-    [string]$Poller = 'Light',
+    # V2 (default): Watch-CopilotChatV2.ps1, about 7 percent of one core while waiting. V1: the original
+    # Watch-CopilotChatV1.ps1 tree-dump poller (about 70 percent of one core at a 5 second interval).
+    [ValidateSet('V2', 'V1')]
+    [string]$Poller = 'V2',
 
     [ValidateRange(200, 100000)]
     [int]$MaxReplyChars = 6000,
@@ -93,7 +93,7 @@ $ErrorActionPreference = 'Stop'
 # The inherited DOTNET_ROOT from VS breaks agentdebug-ui.exe; always clear it.
 Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
 if (-not (Test-Path $ExePath)) { throw "agentdebug-ui.exe not found at '$ExePath'. Pass -ExePath explicitly." }
-foreach ($n in 'Send-CopilotPrompt.ps1', 'Watch-CopilotChat.ps1', 'Wait-CopilotChat.ps1', 'Read-CopilotReply.ps1') {
+foreach ($n in 'Send-CopilotPrompt.ps1', 'Watch-CopilotChatV1.ps1', 'Watch-CopilotChatV2.ps1', 'Read-CopilotReply.ps1') {
     if (-not (Test-Path (Join-Path $PSScriptRoot $n))) { throw "$n not found next to this script." }
 }
 $started = Get-Date
@@ -155,8 +155,8 @@ if (-not $send.Sent) {
 }
 
 # ---- 4. wait, never answering a prompt on the person's behalf
-$watch = Join-Path $PSScriptRoot 'Watch-CopilotChat.ps1'
-$wait = Join-Path $PSScriptRoot 'Wait-CopilotChat.ps1'
+$watchV1 = Join-Path $PSScriptRoot 'Watch-CopilotChatV1.ps1'
+$watchV2 = Join-Path $PSScriptRoot 'Watch-CopilotChatV2.ps1'
 $read = Join-Path $PSScriptRoot 'Read-CopilotReply.ps1'
 $deadline = $started.AddSeconds($TimeoutSeconds)
 $first = $true
@@ -166,8 +166,8 @@ do {
     $left = ($deadline - (Get-Date)).TotalSeconds
     if ($left -lt 10) { break }       # not enough time for another wait: fall through to the Timeout result
     $remaining = [int][Math]::Min(180, $left)
-    if ($Poller -eq 'Light') {
-        $w = & $wait -Hwnd $Hwnd -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -QuietSeconds 20 -RequireBusyFirst:$first -NoBeep
+    if ($Poller -eq 'V2') {
+        $w = & $watchV2 -Hwnd $Hwnd -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -QuietSeconds 20 -RequireBusyFirst:$first -NoBeep
         if ($w.State -eq 'Pending') {
             # The light poller only says that something is waiting; the watcher extracts the question and options once.
             $leftNow = ($deadline - (Get-Date)).TotalSeconds
@@ -177,7 +177,7 @@ do {
                 $d = $w
             }
             else {
-                $d = & $watch -Hwnd $Hwnd -ExePath $ExePath -TimeoutSeconds ([int][Math]::Min(40, $leftNow - 3)) -PollIntervalSeconds 8 6>$null | Select-Object -Last 1
+                $d = & $watchV1 -Hwnd $Hwnd -ExePath $ExePath -TimeoutSeconds ([int][Math]::Min(40, $leftNow - 3)) -PollIntervalSeconds 8 6>$null | Select-Object -Last 1
             }
             if ($d -and $d.State -eq 'Pending') {
                 $w = [pscustomobject]@{ State = 'Pending'; PromptKind = $(if ($d.PromptKind) { $d.PromptKind } else { $w.PromptKind }); Question = $d.Question; Options = $d.Options }
@@ -188,7 +188,7 @@ do {
                 # never be missed. Otherwise carry on waiting.
                 # With under 12 s left there is no time for another probe (the wait needs at least 10 s): report it unconfirmed.
                 if (($deadline - (Get-Date)).TotalSeconds -ge 12) {
-                    $again = & $wait -Hwnd $Hwnd -TimeoutSeconds 10 -PollIntervalSeconds 2 -QuietSeconds 5 -NoBeep
+                    $again = & $watchV2 -Hwnd $Hwnd -TimeoutSeconds 10 -PollIntervalSeconds 2 -QuietSeconds 5 -NoBeep
                 }
                 else { $again = [pscustomobject]@{ State = 'Pending'; PromptKind = $w.PromptKind } }
                 if ($again.State -eq 'Pending') {
@@ -208,10 +208,10 @@ do {
         }
     }
     elseif ($first) {
-        $w = & $watch -Hwnd $Hwnd -ExePath $ExePath -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -MaxPollIntervalSeconds $PollIntervalSeconds -PollBackoffMultiplier 1 -IdleWithoutFooterPolls 4 -RequireWorkingFirst 6>$null | Select-Object -Last 1
+        $w = & $watchV1 -Hwnd $Hwnd -ExePath $ExePath -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -MaxPollIntervalSeconds $PollIntervalSeconds -PollBackoffMultiplier 1 -IdleWithoutFooterPolls 4 -RequireWorkingFirst 6>$null | Select-Object -Last 1
     }
     else {
-        $w = & $watch -Hwnd $Hwnd -ExePath $ExePath -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -MaxPollIntervalSeconds $PollIntervalSeconds -PollBackoffMultiplier 1 -IdleWithoutFooterPolls 4 6>$null | Select-Object -Last 1
+        $w = & $watchV1 -Hwnd $Hwnd -ExePath $ExePath -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -MaxPollIntervalSeconds $PollIntervalSeconds -PollBackoffMultiplier 1 -IdleWithoutFooterPolls 4 6>$null | Select-Object -Last 1
     }
     $first = $false
 

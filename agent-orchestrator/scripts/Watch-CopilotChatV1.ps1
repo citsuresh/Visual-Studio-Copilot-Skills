@@ -4,6 +4,23 @@
     user input, goes idle with a new final message, or a timeout is reached.
 
 .DESCRIPTION
+    WHICH WATCHER? This is V1, the full-tree watcher. Watch-CopilotChatV2.ps1 is the light one and the
+    default; use V1 only when you need what V2 does not return.
+
+    V1 pros:
+      - Returns the content of a Pending prompt: Question, Options, Recommended, MorePages, and the
+        prompt type (ChoicePrompt, FreeTextPrompt, PermissionPrompt).
+      - Detects an Idle chat that ends in a plain-text question or approval request (AwaitingReply,
+        LastMessageTail, -QuestionPattern), and returns LastMessage and the completion footer.
+      - Reports chat banners (workspace mismatch, workspace trust) in its Pending and Idle results.
+      - Recognizes more permission-prompt shapes (ExtraActionsButton, or sibling Allow* and Deny
+        buttons) and the older "Waiting..." marker; markers and patterns can be overridden.
+      - Console progress lines, -ProgressFile and -NotifyOnDone for a supervisor that cannot stream.
+    V1 cons:
+      - Dumps the whole UI tree on every poll: about 4 seconds per poll on a long chat and about 70
+        percent of one core at a 5 second interval, inside the Visual Studio process being driven.
+      - Needs agentdebug-ui.exe (built from the AgentDebugToolkit repo).
+      - Noisy: one console line per poll unless the output is redirected.
     Wraps repeated `inspect --hwnd <h>` calls, parses the resulting UIA tree, and reports a
     single-line status so a calling agent/session doesn't need to re-implement the polling
     loop and tree-walk logic every time.
@@ -141,13 +158,13 @@
       ElapsedSeconds   : how long the loop ran before returning
 
 .EXAMPLE
-    .\Watch-CopilotChat.ps1 -Hwnd 0xCA18B2 -TimeoutSeconds 300
+    .\Watch-CopilotChatV1.ps1 -Hwnd 0xCA18B2 -TimeoutSeconds 300
 
 .EXAMPLE
-    .\Watch-CopilotChat.ps1 -Hwnd 0xCA18B2 -AsJson | ConvertFrom-Json
+    .\Watch-CopilotChatV1.ps1 -Hwnd 0xCA18B2 -AsJson | ConvertFrom-Json
 
 .EXAMPLE
-    .\Watch-CopilotChat.ps1 -Hwnd 0xCA18B2 -RequireWorkingFirst -PollIntervalSeconds 10
+    .\Watch-CopilotChatV1.ps1 -Hwnd 0xCA18B2 -RequireWorkingFirst -PollIntervalSeconds 10
 #>
 [CmdletBinding()]
 param(

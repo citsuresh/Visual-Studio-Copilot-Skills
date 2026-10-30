@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 7`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 8`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -93,6 +93,15 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     (a false alarm, see Step 3). Not run live: the new navigation. Two attempts to hide the chat
     and watch the script recover were defeated by the window losing the foreground, so v7's
     navigation is covered by a parse check and code review only; test it before relying on it.
+  - v8 — The two watcher scripts are now `Watch-CopilotChatV1.ps1` (the old `Watch-CopilotChat.ps1`,
+    full UI tree per poll) and `Watch-CopilotChatV2.ps1` (the old `Wait-CopilotChat.ps1`, one small
+    probe per poll). Use V2 by default; each script's header lists its pros and cons. V1 stays for
+    what V2 does not return: the question and options of a Pending prompt, plain-text question
+    detection (`AwaitingReply`), banners. `Invoke-CopilotReview.ps1`'s `-Poller` values are now `V2`
+    (default) and `V1`. There is no unversioned `Watch-CopilotChat.ps1` any more; anything that
+    called it must use a versioned name. Not run live after the rename: only parse checks and a
+    reference search. The copy at `tools\Watch-CopilotChat.ps1` in the AgentDebugToolkit repo is
+    the old V1 and is not renamed yet.
 
 # Agent Orchestrator
 
@@ -116,7 +125,7 @@ This skill composes two lower-level mechanism skills rather than reimplementing 
 What stays here, because it's specific to orchestrating a Copilot chat session and nothing else
 covers it: which selectors actually work against the real Copilot Chat control (Step 2),
 recognizing and correctly answering a `ChoicePrompt` card versus a plain chat reply (Step 4),
-classifying chat state (`Watch-CopilotChat.ps1`, Step 3) and its known unreliability, the
+classifying chat state (`Watch-CopilotChatV1.ps1`, Step 3) and its known unreliability, the
 standard decompose -> implement -> audit -> review -> approve -> commit loop (Step 5), and the
 independent-verification discipline before approving any commit.
 
@@ -130,7 +139,8 @@ directory; otherwise use the full path.
 | Script | Use it for | Changes anything? |
 | --- | --- | --- |
 | `Send-CopilotPrompt.ps1` | Step 2: new session (optional), clear, paste, verify, then Send | Sends a prompt |
-| `Watch-CopilotChat.ps1` | Step 3: poll until Pending, Idle, or timeout | No |
+| `Watch-CopilotChatV2.ps1` | Step 3 (default): light poll until Pending, Idle, or timeout; no prompt text | No |
+| `Watch-CopilotChatV1.ps1` | Step 3: full-tree poll; returns prompt question/options, `AwaitingReply`, banners | No |
 | `Get-CopilotChatTranscript.ps1` | Step 3: full text of the latest reply/replies | No |
 | `Select-ChoicePromptOption.ps1` | Step 4: answer a `ChoicePrompt` card (verifies the echo) or, with `-Button`, a permission prompt | Clicks (moves the mouse) |
 | `Compare-RepoSnapshot.ps1` | Step 5: which files the agent really added/modified/deleted | Writes only the snapshot file |
@@ -156,7 +166,7 @@ directory; otherwise use the full path.
   red while they activate the window, type, or click, then return to blue (or to the user's
   cursors if no session is active). Any other code that moves the mouse or sends keys must do
   the same: `. <path>\AgentCursor.ps1; Enable-AgentCursor; try { ... } finally { Restore-AgentCursor }`.
-  Read-only scripts (`Watch-CopilotChat.ps1`, `Get-CopilotChatTranscript.ps1`,
+  Read-only scripts (`Watch-CopilotChatV1.ps1`, `Watch-CopilotChatV2.ps1`, `Get-CopilotChatTranscript.ps1`,
   `Compare-RepoSnapshot.ps1`) don't change the cursor.
 - If a dot is ever left behind, `AgentCursor.ps1 -Restore` clears everything (or the user
   can sign out and back in). A session flag older than 12 hours is ignored.
@@ -269,7 +279,7 @@ shows a working-directory mismatch or untrusted-workspace banner (see Step 4); d
   looks the window up itself, failing with a plain "no window" message when none matches and
   with the candidate list when several do. If a
   handle is stale, `Error` now says the window no longer exists rather than just "could not bring
-  to foreground". The same applies to `Watch-CopilotChat.ps1`: look the hwnd up again first.
+  to foreground". The same applies to the watcher scripts: look the hwnd up again first.
 - **Finding the chat.** If the input is not showing, `Send-CopilotPrompt.ps1` first selects the
   `Chat` tab (it can sit behind a sibling tab such as Git Changes in the same pane), and if the
   pane then shows only the session list it creates a new session, so a send into a window with
@@ -316,11 +326,22 @@ Then click Send:
 
 ## Step 3 — Poll for state (Working / Pending / Idle)
 
-Use the reusable script, bundled with this skill at
-`scripts\Watch-CopilotChat.ps1` (next to this SKILL.md — always available even if
-`C:\MyFiles\Git\AgentDebugToolkit` isn't cloned/up to date). It's also committed in that repo at
-`tools\Watch-CopilotChat.ps1`; the two should be kept in sync — if you improve one, copy the
-change to the other. It classifies state from the UIA tree (NOT by button-name heuristics like
+Two reusable watcher scripts are bundled with this skill in `scripts\` (next to this SKILL.md —
+always available even if `C:\MyFiles\Git\AgentDebugToolkit` isn't cloned/up to date):
+
+- **`Watch-CopilotChatV2.ps1` — the default.** One small probe per poll (about 7 % of a core), silent
+  while polling, never activates the window. It says that a prompt is waiting (`Pending` plus a
+  prompt type) or that the chat finished (`Idle`), and nothing more.
+- **`Watch-CopilotChatV1.ps1` — the full-tree watcher.** Heavy (about 70 % of a core), but it returns
+  what V2 cannot: the `Question`, `Options` and `MorePages` of a Pending prompt, plain-text question
+  detection (`AwaitingReply`), banners, `LastMessage`. Use it once when V2 reports Pending, or when
+  you need one of those.
+
+The header of each script lists its pros and cons. Everything below that describes states, markers,
+`-RequireWorkingFirst`, `AwaitingReply`, `-ProgressFile` and `-NotifyOnDone` is V1 behavior; V2 takes
+`-RequireBusyFirst`, `-QuietSeconds` and `-TraceFile` instead (see its header). V1 is also committed
+in the AgentDebugToolkit repo at `tools\Watch-CopilotChat.ps1` (old name, not renamed yet; it can be
+out of sync). V1 classifies state from the UIA tree (NOT by button-name heuristics like
 "does a Cancel button exist" — a `ChoicePrompt` card also has its own Cancel button, so that check
 alone false-positives as WORKING when the agent is actually PENDING on your input; this was
 observed and corrected mid-session):
@@ -349,7 +370,7 @@ the agent starts; after `-StartGraceSeconds` (default 30) it accepts Idle anyway
 that finish before the first poll (`WorkingSeen: false` in the result tells you that happened).
 
 ```powershell
-.\Watch-CopilotChat.ps1 -Hwnd 0x691588 -RequireWorkingFirst -TimeoutSeconds 300 -PollIntervalSeconds 12
+.\Watch-CopilotChatV1.ps1 -Hwnd 0x691588 -RequireWorkingFirst -TimeoutSeconds 300 -PollIntervalSeconds 12
 ```
 
 **Idle is not always "done".** An agent can end its turn by asking for approval in plain text, with
@@ -409,7 +430,7 @@ does not exist or it is virtualized..."}` responses from `inspect` are a transie
 virtualization race — simply retry, don't treat as a real failure.
 
 **Verify cheaply.** Most of a supervised run is checking state, so use the cheapest check that
-answers the question, in this order: (1) the `Watch-CopilotChat.ps1 -Hwnd <h>` result (`State`,
+answers the question, in this order: (1) the `Watch-CopilotChatV1.ps1 -Hwnd <h>` result (`State`,
 `PromptKind`, `Banners`); (2) `Get-CopilotChatTranscript.ps1 -Hwnd <h> -Last 0 -IncludeFooter
 -AsText` for the reply text, after moving the chat list to its end with `scroll-container --hwnd
 <h> --strategy AutomationId --value session --verticalPercent 100` (the list is virtualized, so a
