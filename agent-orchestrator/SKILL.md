@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 8`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 9`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -102,6 +102,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     called it must use a versioned name. Not run live after the rename: only parse checks and a
     reference search. The copy at `tools\Watch-CopilotChat.ps1` in the AgentDebugToolkit repo is
     the old V1 and is not renamed yet.
+  - v9 — The end-of-wait signal is now the Windows `tada` sound (`Media\tada.wav`, with a beep as the
+    fallback) instead of beeps, in `Watch-CopilotChatV1.ps1` (`-NotifyOnDone`), `Watch-CopilotChatV2.ps1` and
+    `Invoke-CopilotReview.ps1` (`-NoBeep` silences it). It plays when a background chat is done or needs
+    the person (a prompt or question is waiting), so someone working in another window hears it. The
+    sound plays on the machine running the script; a Claude mobile client does not receive it.
 
 # Agent Orchestrator
 
@@ -385,7 +390,7 @@ reply that merely quotes "let me know whether" while discussing it), so read the
 acting.
 
 Two options help a supervisor that cannot stream output: `-ProgressFile <path>` appends every
-`[poll ...]` line to a file as well as the console, and `-NotifyOnDone` beeps when the watch ends
+`[poll ...]` line to a file as well as the console, and `-NotifyOnDone` plays the tada sound when the watch ends
 (Pending, Idle or Timeout). When `AwaitingReply` is true the result also has `LastMessageTail`,
 the last 600 characters, because `LastMessage` keeps the start of a long message. The default maximum poll interval is 30s, so a reply that finishes
 mid-sleep is noticed within about half a minute.

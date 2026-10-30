@@ -121,7 +121,7 @@
     runs the watcher as a blocking or background call can read progress while it runs.
 
 .PARAMETER NotifyOnDone
-    Play a short beep sequence when the watch ends (Pending, Idle or Timeout).
+    Play the Windows "tada" sound when the watch ends (Pending, Idle or Timeout); falls back to a beep.
 
 .PARAMETER QuestionPattern
     Regex applied to the last 600 characters of LastMessage when Idle is confirmed. A match
@@ -343,7 +343,7 @@ function Write-PollLine {
 
 function Invoke-DoneSignal {
     if (-not $NotifyOnDone) { return }
-    try { foreach ($f in 880, 1100, 1320) { [console]::Beep($f, 250) } } catch { }
+    try { (New-Object System.Media.SoundPlayer (Join-Path $env:SystemRoot 'Media\tada.wav')).PlaySync() } catch { try { [console]::Beep(880, 200) } catch { } }
 }
 
 $start = Get-Date
