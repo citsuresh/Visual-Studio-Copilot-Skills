@@ -115,12 +115,14 @@ How to read results:
 - **Usage figures are as stored, one row per model request.** `input_tokens` is the whole prompt of
   each request, so a chat's summed input counts the re-sent context again every request: report it
   as "tokens processed", split into input, cached (`cache_read_tokens`), `output_tokens` and
-  `reasoning_tokens`, and never call it the chat's length. For length use `turn_count` or the
-  `--by-turn` request counts. `subagents` are requests made by subagents of that chat; `main` are
-  the chat's own. `nano_aiu` is the stored cost unit; its relation to the credits shown in the
-  chat window is **not verified**, so give it as `nano_aiu` (divide by 1e9 only if you say it is
-  an unverified conversion) and do not call it credits. `recorded: false` is a normal answer: the
-  chat has no usage rows (about a quarter of chats have none) or the store has no usage table.
+  `reasoning_tokens`, and never call it the chat's length. For the conversation's length use
+  `turn_count`; the `--by-turn` request counts are usage volume (several model requests can serve
+  one turn), not length. `subagents` are requests made by subagents of that chat; `main` are the
+  chat's own. `nano_aiu` is the stored cost unit; its relation to the credits shown in the chat
+  window is **not verified**, so report the stored value as `nano_aiu`, never convert it, and do
+  not call it credits. `recorded: false` is a normal answer: the chat has no usage rows (about a
+  quarter of chats have none), or the store has no usage table, or the table lacks a column the
+  tool needs (`note` says whether the chat has no rows or the usage table is unavailable).
   Usage numbers are confidential in aggregate like the chats: report totals the user asked for.
 - **`cwd` can be a parent folder**, not the repository root; prefer `repository` and `branch`.
 
