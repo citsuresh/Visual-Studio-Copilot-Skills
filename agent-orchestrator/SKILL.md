@@ -391,6 +391,22 @@ messages are returned, so scroll the chat if an older one is missing.
 does not exist or it is virtualized..."}` responses from `inspect` are a transient UIA
 virtualization race — simply retry, don't treat as a real failure.
 
+**Verify cheaply.** Most of a supervised run is checking state, so use the cheapest check that
+answers the question, in this order: (1) the `Watch-CopilotChat.ps1 -Hwnd <h>` result (`State`,
+`PromptKind`, `Banners`); (2) `Get-CopilotChatTranscript.ps1 -Hwnd <h> -Last 0 -IncludeFooter
+-AsText` for the reply text, after moving the chat list to its end with `scroll-container --hwnd
+<h> --strategy AutomationId --value session --verticalPercent 100` (the list is virtualized, so a
+reply below the visible area is not returned until the list is scrolled, and an unscrolled read
+can look like "no reply yet" while the reply is already there; check that the result shows
+`boundaryReached` true or `verticalScrollPercentAfter` 100 before trusting the read, otherwise
+scroll again and re-read); (3) `find-first --hwnd <h> --strategy Name --value "<element name>"`
+for a single element (`--value "Ask Copilot"` is found only while the input is empty, and
+`--value "Allow this time"` is found only while a permission prompt is waiting) or `inspect --hwnd
+<h> --nameContains <text> --maxDepth <small>`; (4) a screenshot only when layout or an unknown
+dialog matters. Never run an unfiltered `inspect` of a chat window: its output can be very large
+and token-heavy. Before `Send-CopilotPrompt.ps1`, run `find-first --hwnd <h> --strategy Name
+--value "Ask Copilot"` and send only if it is found: the script clears the input first, so a draft
+the user is typing there would be replaced.
 ## Step 4 — Detect and answer prompts correctly
 
 Three distinct interaction shapes exist. Getting this wrong causes confusion (plain-text replies
