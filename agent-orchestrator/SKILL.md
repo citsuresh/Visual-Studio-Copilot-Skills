@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 6`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 7`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -83,6 +83,16 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     several matches, stale hwnd, nothing typed in each), the progress file and beep in the Watch
     script, and `QuestionPattern` against real replies. Not run live: a successful `-Quiet` send
     and an `AwaitingReply` result from a real chat.
+  - v7 — `Send-CopilotPrompt.ps1` finds the chat itself. When the chat input is not showing it
+    selects the `Chat` tab (in a window where Chat and Git Changes share a pane, the chat is not
+    rendered while Git Changes is the active tab), and if the pane then shows only the session
+    list it creates a new session; `-NoNavigate` turns this off. The banner check now runs after
+    that, because banners only render while the chat is visible. A new session now gets up to 30s
+    to show its input (it took longer than the old 10s). Since v6 these were run live: a
+    successful `-Quiet` send, `-TitleContains`, `LastMessageTail`, and an `AwaitingReply` result
+    (a false alarm, see Step 3). Not run live: the new navigation. Two attempts to hide the chat
+    and watch the script recover were defeated by the window losing the foreground, so v7's
+    navigation is covered by a parse check and code review only; test it before relying on it.
 
 # Agent Orchestrator
 
@@ -260,6 +270,13 @@ shows a working-directory mismatch or untrusted-workspace banner (see Step 4); d
   with the candidate list when several do. If a
   handle is stale, `Error` now says the window no longer exists rather than just "could not bring
   to foreground". The same applies to `Watch-CopilotChat.ps1`: look the hwnd up again first.
+- **Finding the chat.** If the input is not showing, `Send-CopilotPrompt.ps1` first selects the
+  `Chat` tab (it can sit behind a sibling tab such as Git Changes in the same pane), and if the
+  pane then shows only the session list it creates a new session, so a send into a window with
+  no chat open still works. It never creates a session when the input is already showing. Pass
+  `-NoNavigate` to require the chat to be open already, and `-NewSession` to always start a new
+  one (it waits up to 30s for the input). Do the same by hand when you use raw verbs:
+  `click --strategy Name --value Chat --controlType TabItem`, then `createNewThread`.
 - **`-Quiet`** returns `InputText` as `$null` on success, so a long prompt is not echoed back
   into your context. Failures still return it.
 - **Brief the agent so it does not stop to ask.** Many repos make the agent ask permission for
@@ -562,6 +579,11 @@ Run this when the orchestration session ends, including when it ends early or fa
   checking the actual files/git diff.
 - Don't assume a previously-known hwnd/pid is still valid across a long gap — re-verify (a
   restarted Visual Studio has a new hwnd; `Send-CopilotPrompt.ps1 -TitleContains` looks it up).
+- Don't rely on `agentdebug-ui.exe activate` alone before a raw `click` or `type`: with another
+  window grabbing focus, the verb fails with `foreground-activation-failed` ("no longer
+  foreground") again and again. Bring the window forward with `Set-AgentForegroundWindow`
+  (from `AgentCursor.ps1`, which the scripts use) right before the verb; that worked where
+  `activate` did not. If it still fails, stop and tell the user rather than looping.
 - Don't write a commit message with `Set-Content -Encoding utf8` in Windows PowerShell 5.1: it
   adds a byte-order mark, which ends up at the start of the commit subject. Write the file with
   `[IO.File]::WriteAllText($path, $msg, (New-Object Text.UTF8Encoding($false)))`, and pass it

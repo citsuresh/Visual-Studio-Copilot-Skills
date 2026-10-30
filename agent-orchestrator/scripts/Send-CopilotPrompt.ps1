@@ -23,7 +23,8 @@
     Prompt text. Must be a single line; the CLI rejects embedded newlines.
 
 .PARAMETER NewSession
-    Click "Create new session" (AutomationId createNewThread) before pasting.
+    Click "Create new session" (AutomationId createNewThread) before pasting. A new session can
+    take longer than 10 seconds to show its input; the script waits up to 30.
 
 .PARAMETER Retries
     Extra clear-and-paste attempts after a verification mismatch. Default 2.
@@ -41,6 +42,12 @@
 
 .PARAMETER ExePath
     Path to agentdebug-ui.exe.
+
+.PARAMETER NoNavigate
+    Do not look for the chat. By default, when the chat input is not showing, the script first
+    selects the "Chat" tab (it can sit behind a sibling tab such as Git Changes in the same pane)
+    and, if the pane then shows only the session list, creates a new session. Pass this to
+    require the chat to be open already.
 
 .PARAMETER Quiet
     On success, return InputText as $null instead of echoing the whole prompt back. Failures
@@ -81,7 +88,9 @@ param(
 
     [switch]$Quiet,
 
-    [string]$TitleContains
+    [string]$TitleContains,
+
+    [switch]$NoNavigate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -144,6 +153,33 @@ function Get-ForegroundFailureText {
     return 'Could not bring the target window to the foreground.'
 }
 
+function Test-ChatInput {
+    param([int]$TimeoutMs = 1500)
+    $r = Invoke-Ui @('wait-for-element', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--state', 'enabled', '--timeoutMs', [string]$TimeoutMs)
+    return [bool]$r.success
+}
+
+# The Chat tab can sit behind a sibling tab in the same pane (for example Git Changes), in which
+# case neither the input nor the "Create new session" button is rendered. Select the Chat tab.
+function Select-ChatTabIfHidden {
+    if (Test-ChatInput) { return }
+    $button = Invoke-Ui @('wait-for-element', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'createNewThread', '--timeoutMs', '1000')
+    if ($button.success) { return }
+    $null = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', 'Chat', '--controlType', 'TabItem')
+}
+
+# With the Chat tab showing but no input, the pane is on its session list: create a session.
+# Returns $null when the input is ready, otherwise an error text.
+function Ensure-ChatInput {
+    if (Test-ChatInput) { return $null }
+    $created = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'createNewThread')
+    if (-not $created.success) {
+        return "The chat input is not showing and a new session could not be created: $($created.error) $($created.message)"
+    }
+    if (Test-ChatInput -TimeoutMs 30000) { return $null }
+    return 'The chat input did not appear after creating a session.'
+}
+
 if (-not $Hwnd) {
     $found = Get-TopLevelWindows -Filter @('--titleContains', $TitleContains)
     if ($null -eq $found) {
@@ -160,14 +196,6 @@ if (-not $Hwnd) {
     $Hwnd = [string]$candidates[0].Hwnd
 }
 
-# Read-only banner check before any input, so no cursor change or click happens if it fails.
-if (-not $IgnoreBanners) {
-    $tree = (& $ExePath inspect --hwnd $Hwnd --maxDepth 25 2>&1 | Out-String)
-    $found = @([regex]::Matches($tree, '"automationId"\s*:\s*"(HarnessWorkspaceMismatchBanner|WorkspaceTrustWarningBanner)"', 'IgnoreCase') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
-    if ($found.Count -gt 0) {
-        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Chat shows $($found -join ', '): the session's folder does not match the open folder (or is untrusted). Nothing was typed. Ask the user, then fix it or pass -IgnoreBanners."
-    }
-}
 
 # Red-dot cursor while this script activates the window, types and clicks; always restored.
 # Shared with ui-interaction; agent-orchestrator and ui-interaction are sibling skill folders.
@@ -176,19 +204,39 @@ if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not fou
 . $agentCursor
 Enable-AgentCursor
 try {
-    if ($NewSession) {
-        # Bring the target forward first; input verbs refuse to type into a background window.
-        if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
-            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
+    # Bring the target forward first; input verbs refuse to type into a background window.
+    if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
+        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
+    }
+    if (-not $NoNavigate) { Select-ChatTabIfHidden }
+
+    # Banner check before any input; banners only render while the chat is visible.
+    if (-not $IgnoreBanners) {
+        $tree = (& $ExePath inspect --hwnd $Hwnd --maxDepth 25 2>&1 | Out-String)
+        $found = @([regex]::Matches($tree, '"automationId"\s*:\s*"(HarnessWorkspaceMismatchBanner|WorkspaceTrustWarningBanner)"', 'IgnoreCase') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+        if ($found.Count -gt 0) {
+            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Chat shows $($found -join ', '): the session's folder does not match the open folder (or is untrusted). Nothing was typed. Ask the user, then fix it or pass -IgnoreBanners."
         }
+    }
+
+    if ($NewSession) {
         $created = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'createNewThread')
         if (-not $created.success) {
             return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Could not create a new session: $($created.error) $($created.message)"
         }
-        $ready = Invoke-Ui @('wait-for-element', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--state', 'enabled', '--timeoutMs', '10000')
-        if (-not $ready.success) {
-            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Chat input did not appear after creating a session: $($ready.error)"
+        # A new session can take well over 10 seconds to render its input.
+        if (-not (Test-ChatInput -TimeoutMs 30000)) {
+            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'Chat input did not appear after creating a session.'
         }
+    }
+    elseif (-not $NoNavigate) {
+        $chatError = Ensure-ChatInput
+        if ($chatError) {
+            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$chatError Nothing was typed."
+        }
+    }
+    elseif (-not (Test-ChatInput -TimeoutMs 5000)) {
+        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'The chat input is not showing (-NoNavigate was given). Nothing was typed.'
     }
 
     $attempt = 0
