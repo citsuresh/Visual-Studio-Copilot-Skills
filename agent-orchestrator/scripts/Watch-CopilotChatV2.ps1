@@ -1,62 +1,83 @@
 <#
 .SYNOPSIS
-    Light-weight alternative to Watch-CopilotChatV1.ps1: waits for a Copilot chat to finish or to need a
-    person, using one small UI Automation probe per poll instead of a full tree dump.
+    Waits for a Copilot chat in Visual Studio to finish or to need a person, with one small UI Automation
+    probe per poll. The default watcher; Watch-CopilotChatV1.ps1 is the older full-tree one.
 
 .DESCRIPTION
-    WHICH WATCHER? This is V2, the light watcher and the default. Watch-CopilotChatV1.ps1 is the
-    full-tree one; reach for it only for what this script does not return.
+    WHAT IT DOES, IN ORDER
+      1. Polls the chat cheaply (about 0.5 s per probe, no console output) until the chat is Idle (finished),
+         Pending (a question card or permission prompt waits for a person), or something is wrong.
+      2. Beeps once when the wait ends (-NoBeep silences it).
+      3. Unless -NoDetail is given and the wait ended Pending or Idle, runs Watch-CopilotChatV1.ps1 ONCE to
+         collect the details a light probe cannot see (question, options, banners, plain-text question
+         detection, last message) and merges them into the result. This costs one full tree dump (about
+         5 to 25 seconds) at the end only, never while polling.
+
+    The result is therefore a superset of what V1 returned: same field names (State, PromptKind, Question,
+    Options, Recommended, MorePages, Banners, LastMessage, LastMessageTail, AwaitingReply, Completed,
+    CompletionFooter, MessageCount) plus the V2 fields (BusySeen, Polls, ProbeMsMedian, ProbeMsMax, ...).
+
+    WHICH WATCHER?  Use V2 (this script) by default; use V1 directly only when you need to watch with live
+    progress lines, -ProgressFile or -NotifyOnDone, or when agentdebug-ui.exe is unavailable and you accept
+    that V2 then returns no details.
 
     V2 pros:
-      - Light: about 7 percent of one core and about 0.3 seconds per probe on a long chat (V1: about
-        70 percent and about 4 seconds), so it hardly disturbs the Visual Studio being driven.
+      - Light while polling: about 7 percent of one core, about 0.3 to 1.5 seconds per probe on a long chat
+        (V1: about 70 percent and about 4 seconds per poll), so it hardly disturbs the Visual Studio being driven.
       - Silent while polling (no per-poll tokens); -TraceFile is opt-in.
-      - Never activates, restores, scrolls, clicks or types, so it works with the window overlapped or
-        minimized.
-      - In-process UI Automation: no agentdebug-ui.exe needed.
+      - Never activates, restores, scrolls, clicks or types, so it works with the window overlapped or minimized.
+      - Needs no agentdebug-ui.exe for the wait itself (in-process UI Automation).
       - Also reports NotVisible, WindowGone and ProbeError, which V1 does not.
+      - The final detail step is also a safety net: if the light probe said Idle but the full tree shows an
+        open prompt, the result is upgraded to Pending (Upgraded = true).
     V2 cons:
-      - Says only THAT a prompt is waiting (Pending plus a prompt type); it does not return the
-        question or options. Call Watch-CopilotChatV1.ps1 once for those.
-      - No plain-text question detection: a reply that ends "please approve" is reported as plain
-        Idle. Read the reply with Read-CopilotReply.ps1 and look for a question.
-      - No banner reporting, and no -AsJson.
-      - Recognizes a permission prompt only by the exact "Allow this time" button, and a card by
-        "Submit" or "Next question"; other wording or the older "Waiting..." marker can be missed.
-      - The completion-footer pattern is fixed in the script.
+      - The waiting itself is blind to anything outside the few things it looks for (below). A prompt of a shape
+        it does not know looks like "busy" until the timeout. -CrossCheck compares it with the whole-window
+        probe to find such shapes; run it after a Visual Studio or Copilot update.
+      - It sees a card or prompt only in the LAST real message of the chat list, and only while the list is
+        scrolled to its end (the list is virtualized; it never scrolls). A card above a scrolled-up view is missed.
+      - A card is recognized by a button named "Submit" or "Next question", a permission prompt by "Allow this
+        time"; other wording is missed while polling (the final detail step can still catch it).
+      - The detail step needs agentdebug-ui.exe and Watch-CopilotChatV1.ps1 next to this script; without them
+        the result has DetailNote instead of details.
       - With -RequireBusyFirst, a reply that finishes before the first probe is reported only after
         -StartGraceSeconds (V1 notices the new footer at once).
-    Watch-CopilotChatV1.ps1 dumps the whole UI tree on every poll (several seconds of UI Automation work
-    inside Visual Studio per poll on a long chat). This script asks one cheap question per poll, in-process,
-    and never searches inside the message list's items (it checks only the list's scroll position and its last item):
+      - The completion-footer pattern is fixed in the script.
+      - No -AsJson (pipe the object to ConvertTo-Json) and no progress file.
 
-    Input area (always rendered, independent of how the list is scrolled):
-      - the stop button (AutomationId CancelButton)       -> Copilot is busy (it stays on while Copilot waits
-        for a permission and between tool steps, where the "Working" text is absent)
-      - the "Allow this time" button (the "Deny" button is not checked separately) -> Pending, PermissionPrompt
-      - a card's "Submit" or "Next question" button        -> Pending, ChoiceCard
-      - the "Ask Copilot" placeholder                      -> the chat pane is showing (input empty)
+    HOW THE POLL WORKS
+      The chat pane (class GenericPane, name Chat) has two kinds of direct children: the message list (class
+      ChatSessionList, AutomationId session) and the input area. The pane is found once and cached.
 
-    End of the message list (about 3 ms; read only when the list is scrolled to its end, because the list is
-    virtualized and its last rendered item is only the real last message at the end):
-      - the last item is a completion footer ("The response cost N credits." / "The response used the ...
-        model")                                            -> a finished reply
+      Input area, always rendered:
+        - stop button (AutomationId CancelButton)   -> Copilot is busy (it stays on while Copilot waits for a
+          permission and between tool steps, where the "Working" text is absent)
+        - "Allow this time" button                  -> Pending, PermissionPrompt
+        - "Submit" / "Next question" button         -> Pending, ChoiceCard
+        - "Ask Copilot" placeholder                 -> the chat pane is showing (input empty)
 
-    The chat pane (class GenericPane, name Chat) has the message list (class ChatSessionList) and the input
-    area as direct children; only the non-list children are searched. The pane is found once and cached.
-    The script never scrolls anything.
+      End of the message list, read only when the list is scrolled to its end. The list can end with empty
+      view-model placeholder items (name "Microsoft.VisualStudio....") that carry no text; they are skipped to
+      reach the last real message, which is then checked for:
+        - a completion footer ("The response cost N credits." / "The response used the ... model") -> finished
+        - a card or permission button inside it (the question card is a message in the list, not in the input
+          area) -> Pending
 
-    Pending is reported as soon as it is seen. Idle is reported (a) as soon as the stop button has been seen
-    and is gone and the list, scrolled to its end, ends in a completion footer, or (b) after -QuietSeconds
-    with no stop button and no prompt. Either way, confirm the reply with Read-CopilotReply.ps1, which scrolls
-    to the end and reads it. For the question text and options of a Pending prompt, call
-    Watch-CopilotChatV1.ps1 once (it extracts them); this script only says that something is waiting.
+    WHEN THE WAIT ENDS
+      Pending     as soon as a card or permission prompt is seen.
+      Idle        (a) once the stop button has been seen and is gone and the list ends in a completion footer, or
+                  (b) after -QuietSeconds with no stop button and no prompt.
+      NotVisible  neither the list nor the input placeholder is showing (another tab, such as Git Changes, is active).
+      WindowGone  the window no longer exists.
+      ProbeError  three probes in a row failed while the window still exists.
+      Timeout     still busy after -TimeoutSeconds.
+    Confirm an Idle reply with Read-CopilotReply.ps1, which scrolls to the end and reads it.
 
-    Nothing is written to the console while polling, so a caller reading only the final result spends no
-    tokens on polls. -TraceFile writes one line per poll for debugging.
+    TEST CASES: tests\Watch-CopilotChatV2.tests.md next to this script lists every scenario, how to set it up, the
+    expected result and the last result. Read it before changing the probes and update it afterwards.
 
-    It never clicks, types, scrolls, activates or restores a window. The only thing it writes is -TraceFile, if given.
-
+    SAFETY: it never clicks, types, scrolls, activates or restores a window. It writes only -TraceFile, if given.
+    The detail step starts V1, which only reads (agentdebug-ui inspect).
 .PARAMETER Hwnd
     Window handle, e.g. "0x121B1A".
 
@@ -80,16 +101,44 @@
 .PARAMETER TraceFile
     Optional file; one line per poll: time, probe duration, flags.
 
+.PARAMETER ExePath
+    Path to agentdebug-ui.exe, used only by the detail step (V1). Default: the AgentDebugToolkit build output.
+
+.PARAMETER NoDetail
+    Skip the final detail step: the result then has no Question/Options/Banners/AwaitingReply/LastMessage and the
+    wait ends sooner (no full tree dump). Use when only "done or waiting" matters.
+
+.PARAMETER DetailTimeoutSeconds
+    Upper bound for the detail step (it runs V1 once with a short poll interval). Default 25.
+
 .PARAMETER CrossCheck
     Debug/validation: also run the slow whole-window probe on every poll and count disagreements with the
     scoped probe (Mismatches in the result). Adds the load this script exists to avoid; use it to validate.
 
 .OUTPUTS
-    PSCustomObject: State (Idle, Pending, NotVisible, WindowGone, ProbeError, Timeout), PromptKind, BusySeen, Polls,
-    ProbeMsMedian, ProbeMsMax, ElapsedSeconds, Mismatches (only with -CrossCheck), Note.
+    PSCustomObject:
+      State, PromptKind (ChoiceCard / PermissionPrompt from the light probe; ChoicePrompt / FreeTextPrompt /
+      PermissionPrompt once the detail step has run), BusySeen, Polls, ProbeMsMedian, ProbeMsMax, ElapsedSeconds,
+      Mismatches (only with -CrossCheck), Note.
+      From the detail step (null when it did not run or failed; see DetailNote):
+        Question, Options, Recommended, MorePages (a multi-question card has more pages), Banners (Id, Text,
+        Buttons of workspace-mismatch / trust banners), LastMessage, LastMessageTail (last 600 characters, only
+        when AwaitingReply), AwaitingReply (the last message looks like a plain-text question or approval request:
+        Idle then does NOT mean the task is done), Completed, CompletionFooter, MessageCount.
+      Upgraded = true when the light probe said Idle but the detail step found an open prompt.
+      DetailNote explains a skipped or failed detail step.
 
 .EXAMPLE
+    # Right after sending a prompt: wait for done/waiting, with details.
     .\Watch-CopilotChatV2.ps1 -Hwnd 0x121B1A -RequireBusyFirst
+
+.EXAMPLE
+    # Only "done or waiting" matters; no full tree dump at the end.
+    .\Watch-CopilotChatV2.ps1 -Hwnd 0x121B1A -RequireBusyFirst -NoDetail
+
+.EXAMPLE
+    # Validate the light probe against the whole-window probe (Mismatches should be 0), with a trace.
+    .\Watch-CopilotChatV2.ps1 -Hwnd 0x121B1A -TimeoutSeconds 30 -CrossCheck -TraceFile $env:TEMP\v2.txt -NoBeep
 #>
 [CmdletBinding()]
 param(
@@ -113,6 +162,13 @@ param(
     [string]$TraceFile,
 
     [switch]$CrossCheck,
+
+    [string]$ExePath = 'C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe',
+
+    [switch]$NoDetail,
+
+    [ValidateRange(10, 300)]
+    [int]$DetailTimeoutSeconds = 25,
 
     # One short beep when the wait ends (done or waiting for a person). -NoBeep silences it (the review wrapper does, and beeps once itself).
     [switch]$NoBeep
@@ -161,11 +217,33 @@ function Add-Match($f, $e) {
 function Test-ListAtEnd($list) {
     try {
         $p = $list.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
-        return (-not $p.Current.VerticallyScrollable) -or ($p.Current.VerticalScrollPercent -ge 99)
+        if (-not $p.Current.VerticallyScrollable) { return $true }
+        $percent = $p.Current.VerticalScrollPercent
+        if ($percent -ge 99) { return $true }
+        # The scroll percentage is counted in items and often stops a little short of 100 (for example 98.5 with a
+        # trailing placeholder item) although the last message is fully visible. Treat that as "at the end": the
+        # last rendered item lies fully inside the visible list, so nothing further down is waiting to be rendered.
+        if ($percent -ge 90) {
+            $last = $walker.GetLastChild($list)
+            if ($last) {
+                $listBottom = $list.Current.BoundingRectangle.Bottom
+                return ($last.Current.BoundingRectangle.Bottom -le ($listBottom + 3))
+            }
+        }
+        return $false
     }
     catch { return $false }
 }
 
+# True when the list is scrolled to within about 10 percent of its end, so the last few rendered items are the
+# newest messages. Looser than Test-ListAtEnd: used only to look for a card or prompt, which may be partly scrolled out.
+function Test-ListNearEnd($list) {
+    try {
+        $p = $list.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+        return (-not $p.Current.VerticallyScrollable) -or ($p.Current.VerticalScrollPercent -ge 90)
+    }
+    catch { return $false }
+}
 # Slow reference probe over the whole window (used only for -CrossCheck).
 function Get-FlagsWhole {
     $f = New-Flags
@@ -183,11 +261,31 @@ function Get-FlagsScoped {
             foreach ($k in $kids) {
                 if ($k.Current.ClassName -eq 'ChatSessionList' -or $k.Current.AutomationId -eq 'session') {
                     $f.Chat = $true
-                    if (Test-ListAtEnd $k) {
-                        $last = $walker.GetLastChild($k)
-                        if ($last -and ($last.Current.Name -match $footerPattern)) { $f.Footer = $true }
-                    }
-                    continue
+                    $atEnd = Test-ListAtEnd $k
+                    if ($atEnd -or (Test-ListNearEnd $k)) {
+                        $item = $walker.GetLastChild($k)
+                        # The list can end with empty view-model placeholders (name "Microsoft.VisualStudio....");
+                        # V1 ignores them too, so skip them to reach the last real message.
+                        $skipped = 0
+                        while ($item -and $skipped -lt 5 -and $item.Current.Name -match '^Microsoft\.VisualStudio\.') {
+                            $item = $walker.GetPreviousSibling($item)
+                            $skipped++
+                        }
+                        # A finished reply: the last real message is a completion footer. Strict: only when the list
+                        # is really at its end, otherwise an older reply's footer could be mistaken for the last one.
+                        if ($atEnd -and $item -and ($item.Current.Name -match $footerPattern)) { $f.Footer = $true }
+                        # A question card or permission prompt is a message in the list (a ChatMessageItem holding
+                        # Submit / Next question / Allow this time), not part of the input area. It can be partly
+                        # scrolled out of view, so look at the last few real messages while the list is near its end.
+                        if (-not $f.Footer) {
+                            $looked = 0
+                            while ($item -and $looked -lt 3) {
+                                foreach ($e in $item.FindAll($descendants, $inputCond)) { Add-Match $f $e }
+                                $item = $walker.GetPreviousSibling($item)
+                                $looked++
+                            }
+                        }
+                    }                    continue
                 }
                 Add-Match $f $k                                   # the child itself may be the element
                 foreach ($e in $k.FindAll($descendants, $inputCond)) { Add-Match $f $e }
@@ -203,6 +301,60 @@ function Get-FlagsScoped {
     $f
 }
 
+# The details a light probe cannot see (question, options, banners, plain-text question detection, last message)
+# come from one run of Watch-CopilotChatV1.ps1, made only when the wait ends. Returns @{ Data = <V1 result> } or
+# @{ Error = <why not> }; never throws.
+function Get-V1Detail {
+    $v1 = Join-Path $PSScriptRoot 'Watch-CopilotChatV1.ps1'
+    if (-not (Test-Path $v1)) { return @{ Error = 'Watch-CopilotChatV1.ps1 not found next to this script.' } }
+    if (-not (Test-Path $ExePath)) { return @{ Error = "agentdebug-ui.exe not found at '$ExePath'; pass -ExePath." } }
+    try {
+        # 6>$null drops V1's per-poll console lines (Write-Host); its result is the JSON on the output stream.
+        $raw = & $v1 -Hwnd $Hwnd -ExePath $ExePath -TimeoutSeconds $DetailTimeoutSeconds -PollIntervalSeconds 2 -MaxPollIntervalSeconds 3 -AsJson 6>$null | Out-String
+        $d = $raw | ConvertFrom-Json
+        if (-not $d) { return @{ Error = 'The detail step returned nothing.' } }
+        return @{ Data = $d }
+    }
+    catch { return @{ Error = "The detail step failed: $($_.Exception.Message)" } }
+}
+
+# One field of a V1 result, or $null when V1 did not return it (V1 omits fields that do not apply to its state).
+function Get-V1Field($d, [string]$Name) {
+    if ($d.PSObject.Properties.Name -contains $Name) { return $d.$Name }
+    $null
+}
+
+# Adds the V1 details to the result and reconciles the state (V1's full-tree view wins over the light probe).
+function Add-Detail($o) {
+    $res = Get-V1Detail
+    foreach ($n in 'Question', 'Options', 'Recommended', 'MorePages', 'Banners', 'LastMessage', 'LastMessageTail', 'AwaitingReply', 'Completed', 'CompletionFooter', 'MessageCount') { $o[$n] = $null }
+    if ($res.Error) { $o.DetailNote = $res.Error; return }
+    $d = $res.Data
+    foreach ($n in 'Question', 'Options', 'Recommended', 'MorePages', 'LastMessage', 'LastMessageTail', 'AwaitingReply', 'Completed', 'MessageCount') { $o[$n] = Get-V1Field $d $n }
+    $o.CompletionFooter = Get-V1Field $d 'CompletionFooter'
+    # V1 prints an empty banner list as an empty object; normalize to an empty array.
+    $b = Get-V1Field $d 'Banners'
+    $o.Banners = if ($b -and @($b.PSObject.Properties).Count -gt 0 -and ($b -is [System.Array] -or $b.Id)) { @($b) } else { @() }
+    $v1State = Get-V1Field $d 'State'
+    if ($v1State -eq 'Pending') {
+        if ($o.State -ne 'Pending') {
+            $o.Upgraded = $true
+            $o.State = 'Pending'
+            $o.Note = 'The light probe missed an open prompt; the full tree found it.'
+        }
+        $o.PromptKind = Get-V1Field $d 'PromptKind'
+    }
+    elseif ($o.State -eq 'Pending') {
+        $o.DetailNote = "The detail step saw state '$v1State', not Pending: the prompt may have been answered meanwhile."
+    }
+    elseif ($v1State -ne 'Idle') {
+        $o.DetailNote = "The detail step saw state '$v1State', so the chat may not be finished."
+    }
+    if ($o.State -eq 'Idle' -and $o.AwaitingReply) {
+        $o.Note = 'The last message looks like a question or approval request in plain text (no card): Idle does not mean the task is done. Read LastMessageTail and reply.'
+    }
+}
+
 function Finish([string]$State, [string]$Kind, [string]$Note) {
     $sorted = @($script:probeMs | Sort-Object)
     $o = [ordered]@{
@@ -216,7 +368,8 @@ function Finish([string]$State, [string]$Kind, [string]$Note) {
     }
     if ($CrossCheck) { $o.Mismatches = $script:mismatches }
     $o.Note = $Note
-    if (-not $NoBeep) { try { [console]::Beep(880, 200) } catch { } }
+    if (-not $NoBeep) { try { [console]::Beep(880, 200) } catch { } }   # beep first: the details below can take a while
+    if (-not $NoDetail -and $State -in 'Pending', 'Idle') { Add-Detail $o }
     [pscustomobject]$o
 }
 
@@ -265,8 +418,8 @@ while ($true) {
     }
 
     if (-not $f.Chat) { return (Finish 'NotVisible' $null 'Neither the chat list nor the input placeholder is showing: another tab may be active.') }
-    if ($f.Permission) { return (Finish 'Pending' 'PermissionPrompt' 'A tool permission prompt is waiting. Use Watch-CopilotChatV1.ps1 for its question and options.') }
-    if ($f.Card) { return (Finish 'Pending' 'ChoiceCard' 'A question card is waiting. Use Watch-CopilotChatV1.ps1 for its question and options.') }
+    if ($f.Permission) { return (Finish 'Pending' 'PermissionPrompt' 'A tool permission prompt is waiting. Question and Options below come from the detail step.') }
+    if ($f.Card) { return (Finish 'Pending' 'ChoiceCard' 'A question card is waiting. Question and Options below come from the detail step.') }
 
     if ($f.Busy) {
         $script:busySeen = $true

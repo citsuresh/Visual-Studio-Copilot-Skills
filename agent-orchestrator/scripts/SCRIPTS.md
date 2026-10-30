@@ -1,7 +1,7 @@
 ﻿# Learned scripts (agent-orchestrator)
 
 Scripts saved by the orchestrator during supervised runs, next to the core scripts listed in
-`../SKILL.md`. Check this table before writing orchestration code. Curated by the user: scripts and
+`../SKILL.md`. Test cases for these and the core scripts are in `tests\` (start at `tests\README.md`). Check this table before writing orchestration code. Curated by the user: scripts and
 lines are never deleted by the orchestrator.
 
 | Script | Purpose | How to call | Read-only or sends input / modifies | Date |

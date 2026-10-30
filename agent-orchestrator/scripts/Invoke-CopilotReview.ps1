@@ -167,7 +167,7 @@ do {
     if ($left -lt 10) { break }       # not enough time for another wait: fall through to the Timeout result
     $remaining = [int][Math]::Min(180, $left)
     if ($Poller -eq 'V2') {
-        $w = & $watchV2 -Hwnd $Hwnd -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -QuietSeconds 20 -RequireBusyFirst:$first -NoBeep
+        $w = & $watchV2 -Hwnd $Hwnd -TimeoutSeconds $remaining -PollIntervalSeconds $PollIntervalSeconds -QuietSeconds 20 -RequireBusyFirst:$first -NoBeep -NoDetail
         if ($w.State -eq 'Pending') {
             # The light poller only says that something is waiting; the watcher extracts the question and options once.
             $leftNow = ($deadline - (Get-Date)).TotalSeconds
@@ -188,7 +188,7 @@ do {
                 # never be missed. Otherwise carry on waiting.
                 # With under 12 s left there is no time for another probe (the wait needs at least 10 s): report it unconfirmed.
                 if (($deadline - (Get-Date)).TotalSeconds -ge 12) {
-                    $again = & $watchV2 -Hwnd $Hwnd -TimeoutSeconds 10 -PollIntervalSeconds 2 -QuietSeconds 5 -NoBeep
+                    $again = & $watchV2 -Hwnd $Hwnd -TimeoutSeconds 10 -PollIntervalSeconds 2 -QuietSeconds 5 -NoBeep -NoDetail
                 }
                 else { $again = [pscustomobject]@{ State = 'Pending'; PromptKind = $w.PromptKind } }
                 if ($again.State -eq 'Pending') {

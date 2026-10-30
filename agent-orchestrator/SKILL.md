@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 10`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 11`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -111,6 +111,17 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     scripts (`Watch-CopilotChatV1.ps1` `-NotifyOnDone`, `Watch-CopilotChatV2.ps1`,
     `Invoke-CopilotReview.ps1`) beep again, as before v9. The `tada` sound is reserved for the
     orchestrating Claude finishing its own task for the user and is not played by these scripts.
+  - v11 - `Watch-CopilotChatV2.ps1` fixed and extended. A live card test found that V2 never saw a
+    question card: the card is a message in the chat list, which V2 did not search, the list ends with an
+    empty placeholder item, and the list's scroll percentage stops short of 100. V2 now searches the last
+    three real messages while the list is within 10 percent of its end, and skips trailing placeholders for
+    the completion footer. It also returns V1's details (question, options, banners, `AwaitingReply`,
+    last message) by running V1 once when the wait ends (`-NoDetail` skips it, `-ExePath` points at
+    agentdebug-ui.exe), and upgrades Idle to Pending if the full tree shows a prompt the light probe missed.
+    Test cases for the watchers and the other scripts are now in `scripts\tests\`. Verified live on
+    2026-10-31: single, two-question and free-text cards, plain-text question, normal reply, NotVisible,
+    WindowGone, Timeout, missing exe, NoDetail, `Select-ChoicePromptOption.ps1` on all card types. Not run:
+    permission prompt, banners, the Upgraded path, a card above a scrolled-up view.
 
 # Agent Orchestrator
 
@@ -338,17 +349,21 @@ Then click Send:
 Two reusable watcher scripts are bundled with this skill in `scripts\` (next to this SKILL.md —
 always available even if `C:\MyFiles\Git\AgentDebugToolkit` isn't cloned/up to date):
 
-- **`Watch-CopilotChatV2.ps1` — the default.** One small probe per poll (about 7 % of a core), silent
-  while polling, never activates the window. It says that a prompt is waiting (`Pending` plus a
-  prompt type) or that the chat finished (`Idle`), and nothing more.
-- **`Watch-CopilotChatV1.ps1` — the full-tree watcher.** Heavy (about 70 % of a core), but it returns
-  what V2 cannot: the `Question`, `Options` and `MorePages` of a Pending prompt, plain-text question
-  detection (`AwaitingReply`), banners, `LastMessage`. Use it once when V2 reports Pending, or when
-  you need one of those.
+- **`Watch-CopilotChatV2.ps1` — the default.** One small probe per poll (about 7 % of a core, median
+  probe under a second), silent while polling, never activates the window. When the wait ends Pending
+  or Idle it runs V1 once and merges the result, so it returns everything V1 does (`Question`,
+  `Options`, `Recommended`, `MorePages`, `Banners`, `LastMessage`, `LastMessageTail`, `AwaitingReply`,
+  `CompletionFooter`) plus `NotVisible`, `WindowGone` and `ProbeError`. `-NoDetail` skips that final
+  step. It sees a card or prompt only in the last few messages while the list is near its end; run it
+  with `-CrossCheck` after a Visual Studio or Copilot update.
+- **`Watch-CopilotChatV1.ps1` — the full-tree watcher.** Heavy (about 70 % of a core), a full tree dump
+  per poll. Use it directly only when you want live progress lines, `-ProgressFile`, `-NotifyOnDone`
+  or `-RequireWorkingFirst`.
 
-The header of each script lists its pros and cons. Everything below that describes states, markers,
-`-RequireWorkingFirst`, `AwaitingReply`, `-ProgressFile` and `-NotifyOnDone` is V1 behavior; V2 takes
-`-RequireBusyFirst`, `-QuietSeconds` and `-TraceFile` instead (see its header). V1 is also committed
+The header of each script lists its pros and cons, and `scripts\tests\` lists their test cases (start
+at `tests\README.md`; read the script's file before changing it). Everything below that describes
+states, markers, `-RequireWorkingFirst`, `AwaitingReply`, `-ProgressFile` and `-NotifyOnDone` is V1
+behavior; V2 takes `-RequireBusyFirst`, `-QuietSeconds` and `-TraceFile` instead (see its header). V1 is also committed
 in the AgentDebugToolkit repo at `tools\Watch-CopilotChat.ps1` (old name, not renamed yet; it can be
 out of sync). V1 classifies state from the UIA tree (NOT by button-name heuristics like
 "does a Cancel button exist" — a `ChoicePrompt` card also has its own Cancel button, so that check

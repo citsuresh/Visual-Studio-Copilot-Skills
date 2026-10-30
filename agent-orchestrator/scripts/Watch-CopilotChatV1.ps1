@@ -4,6 +4,8 @@
     user input, goes idle with a new final message, or a timeout is reached.
 
 .DESCRIPTION
+    TEST CASES: tests\Watch-CopilotChatV1.tests.md next to this script.
+
     WHICH WATCHER? This is V1, the full-tree watcher. Watch-CopilotChatV2.ps1 is the light one and the
     default; use V1 only when you need what V2 does not return.
 
