@@ -5,10 +5,12 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 1`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 2`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md` once at the start of a
   session (Step 0).
 - Changelog:
+  - v2 — adds the `usage` command (token and cost figures of one chat, optionally per turn) and the
+    usage section of `stats`; both read the `assistant_usage_events` table. No existing step changed.
   - v1 — initial version. Wraps the `chathistory` CLI of VsChatHistoryToolkit (search, sessions,
     show, turns, checkpoints, stats, rename, undo-rename). Written from the toolkit's contract and
     from its Stage 2 runs against a real store with Visual Studio open.
@@ -79,7 +81,8 @@ names are `snake_case`. Every success has `ok`, `command`, `coverage` and `trunc
 | `chathistory show <id>` | one chat's details | `session`, `solution`, `solution_source`, `user_named`, `checkpoints[]` (`number`, `title`) |
 | `chathistory turns <id> [--index I \| --range A-B] [--max-chars N]` | read turns in small pieces | `turns[]`: `index`, `timestamp`, `user_message`, `assistant_response`, `truncated`; `total_turns` |
 | `chathistory checkpoints <id> [--full]` | a chat's checkpoints | `checkpoints[]`: `number`, `title`, `overview` (and with `--full` more fields) |
-| `chathistory stats` | counts | `total_sessions`, `total_turns`, `by_repository[]`, `by_cwd[]`, `by_month[]` |
+| `chathistory usage <id> [--by-turn]` | token and cost figures of one chat | `recorded`, `total` / `main` / `subagents` (`requests`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `nano_aiu`, `duration_ms`), `first_at`, `last_at`, `by_model[]`, `by_turn[]` with `--by-turn` |
+| `chathistory stats` | counts, and usage over all chats | `total_sessions`, `total_turns`, `by_repository[]`, `by_cwd[]`, `by_month[]`, `usage` (`sessions_with_usage`, `total`, `by_model[]`, `by_month[]`) |
 | `chathistory rename <id> "<title>" [--force] [--dry-run]` | rename a chat (writes) | `applied`, `old_title`, `new_title`, `note` |
 | `chathistory undo-rename <id> [--force] [--dry-run]` | restore the last rename | same shape as rename |
 
@@ -109,6 +112,16 @@ How to read results:
   stopped at a limit, so it does not prove the solution is absent (`truncated` is then also true).
   A solution name longer than 200 characters is shortened. The solution is never guessed from
   folders or chat text.
+- **Usage figures are as stored, one row per model request.** `input_tokens` is the whole prompt of
+  each request, so a chat's summed input counts the re-sent context again every request: report it
+  as "tokens processed", split into input, cached (`cache_read_tokens`), `output_tokens` and
+  `reasoning_tokens`, and never call it the chat's length. For length use `turn_count` or the
+  `--by-turn` request counts. `subagents` are requests made by subagents of that chat; `main` are
+  the chat's own. `nano_aiu` is the stored cost unit; its relation to the credits shown in the
+  chat window is **not verified**, so give it as `nano_aiu` (divide by 1e9 only if you say it is
+  an unverified conversion) and do not call it credits. `recorded: false` is a normal answer: the
+  chat has no usage rows (about a quarter of chats have none) or the store has no usage table.
+  Usage numbers are confidential in aggregate like the chats: report totals the user asked for.
 - **`cwd` can be a parent folder**, not the repository root; prefer `repository` and `branch`.
 
 ## Typical workflows
@@ -125,6 +138,11 @@ How to read results:
 summaries); read turns only for details the checkpoints lack.
 
 **Count or overview.** `stats` (top 25 per group; check `truncated`).
+
+**How big or costly was a chat.** `show <id>` for `turn_count`, then `usage <id>` for requests and
+tokens; add `--by-turn` to find the expensive turns (at most 100 turns; `truncated` says more). To
+rank chats by cost, run `sessions` and then `usage` on the few candidates; there is no cross-chat
+ranking command. For all chats together use the `usage` section of `stats` (by model and month).
 
 ## Renaming (writes; only when the user asks)
 
@@ -169,6 +187,9 @@ go to stderr as `error (<code>): <message>`.
 
 - Coverage is `session-store.db` only. Some chats listed in Visual Studio are not in it.
 - Search is word-based; it is not a substring or regular-expression search.
+- Usage covers only chats that have rows in `assistant_usage_events`; it cannot say what a reply
+  "cost" in the chat window's credits, and it has no per-message token count (one row is one model
+  request, several of which can serve one reply).
 - Large or recently written chats can be slow to `show` (the event log is scanned for the solution).
 - The tool never prints a whole chat; use `turns` ranges for more, in small steps.
 - Rename and undo are the only writes, and only for one session by exact id.
