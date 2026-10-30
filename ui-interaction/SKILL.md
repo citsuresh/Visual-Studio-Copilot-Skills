@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 10`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 11`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -52,6 +52,11 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
   - v10 — Documents that `inspect` screenshots are opt-in (toolkit commit `aabc864`): pass
     `screenshot` only when an image is needed and delete only the returned `screenshotPath` files.
     Toolkit builds and MCP servers not yet rebuilt still save a screenshot on every `inspect`.
+  - v11 — Documents the toolkit's own cursor session (toolkit commit `daee298`): CLI
+    `cursor-session start|stop [--kind UiAutomation|Orchestrator]` and MCP
+    `ui_cursor_session_start` / `ui_cursor_session_stop`. It shares `AgentCursor.ps1`'s flag file,
+    so either can be used for the green (or blue) session. Use the MCP tools when no PowerShell
+    is available, and always stop the session when monitoring or a multi-step run ends.
 
 # UI Interaction
 
@@ -137,6 +142,21 @@ agent-orchestrator loads it from here.
   `scripts\AgentCursor.ps1 -Session Stop -Kind UiAutomation` when it ends or fails, and before
   any reply that waits for the user (a question, a confirmation, a report) - start it again when
   you resume. A single action or a read-only check gets red only (or nothing), never green.
+- **Green session without PowerShell (MCP / CLI).** Toolkit builds from commit `daee298` on can
+  start and stop the same session themselves: MCP `ui_cursor_session_start` and
+  `ui_cursor_session_stop` (default kind `UiAutomation`, green), or CLI
+  `agentdebug-ui.exe cursor-session start|stop [--kind UiAutomation|Orchestrator]`. They share the
+  script's flag file and first-owner rule, so a start while another kind owns the cursor returns
+  `changed: false` with the owner and leaves the cursor alone. Use this around any monitoring or
+  polling loop driven through MCP tools (for example watching a Copilot chat with `ui_find_all`
+  and `ui_read_visible_text`):
+  1. Start the session before the first poll.
+  2. Stop it, passing the same `kind`, when monitoring ends, on any error, and before any reply
+     that waits for the user; start it again when you resume.
+  3. A stop with no `kind` clears any session, including a blue agent-orchestrator one, so pass
+     the kind unless clearing a leftover dot.
+  A failure to draw the dot returns success with a `warning`; continue without it. A server not
+  rebuilt since `daee298` does not list these tools; fall back to the script.
 - **One colour at a time.** The first session started owns the colour. Inside an
   agent-orchestrator session (blue), `-Kind UiAutomation` Start and Stop change nothing - keep
   calling them as normal; the blue session is stopped by its owner. After a red block the cursor
