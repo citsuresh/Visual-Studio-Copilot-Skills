@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 23`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 24`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -285,6 +285,17 @@ re-sync — without the user having to remember or manually redo anything per pr
     the report said the question got no answer, but no question was shown. Workflow 0 and End
     Session wording changed, so projects bootstrapped at v22 are flagged stale; re-run Bootstrap to
     pick up the new version. Not yet validated live in Copilot/Visual Studio.
+  - v24 — Bootstrap gains a new Step 7b: a passive pointer bullet in "Project Guidelines" for the
+    separate `vs-chat-history` skill (search earlier Visual Studio Copilot Chat conversations on
+    this machine). Unlike Step 7a it applies to every target, not only UI apps, because finding an
+    earlier chat is useful in any project. Safeguards: it is added only when the skill is
+    installed on this machine (`%USERPROFILE%\.copilot\skills\vs-chat-history\SKILL.md` exists; if
+    that cannot be checked, the step is skipped), the bullet itself is conditional ("If the skill
+    is installed ... Ignore this note if it is not") because `copilot-instructions.md` is
+    committed and shared with people who may not have the skill, it is idempotent (an existing
+    note mentioning `vs-chat-history`, case-insensitive, is left alone), and, like 7a, it needs
+    no `ask_user` confirmation. Projects bootstrapped at v23 are flagged stale; re-run Bootstrap
+    to pick up the note. Not yet validated live in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -802,7 +813,7 @@ overwriting/duplicating content. This incremental/merge-safe rule applies ONLY t
 files — it does not apply to the "Persistent Project Memory" section of
 `.github/copilot-instructions.md` (see Step 6, which is fully regenerated every run) nor
 override the merge-safe handling separately specified for "Project Guidelines"/"Response
-Guidelines" in Steps 7, 7a, and 8.
+Guidelines" in Steps 7, 7a, 7b, and 8.
 
 Some repos have no C# solution to build a graph from at all (e.g., a repo containing only
 documentation/markdown, no `.sln`/`.slnx` anywhere) — see Step 0a's "docs-only mode" detection,
@@ -1055,6 +1066,21 @@ other steps are unaffected.
       consistent with how other doc cross-references (e.g. the `docs/KEY_FLOWS.md` pointer in
       `docs/CODE_SUMMARY.md`) are added without a per-add confirmation.
 
+7b. Add a pointer to the `vs-chat-history` skill. This applies to every target, not only UI apps.
+    - Skip this step silently unless the skill is installed on this machine: check that
+      `%USERPROFILE%\.copilot\skills\vs-chat-history\SKILL.md` exists. If it does not exist, or
+      you cannot check, skip — the note is optional.
+    - Search `.github/copilot-instructions.md` for an existing note mentioning `vs-chat-history`
+      (case-insensitive). If found, leave it unchanged (idempotent) — don't duplicate.
+    - If not found, add this bullet to the "Project Guidelines" section (create the section if it
+      doesn't exist yet, as in Step 7a):
+      - If the `vs-chat-history` skill is installed, use it to search earlier Visual Studio
+        Copilot Chat conversations on this machine (for example "what did we decide about X",
+        "which chat worked on Y"). It reads `session-store.db` only, and chat text is
+        confidential: show short excerpts only. Ignore this note if the skill is not installed.
+    No `ask_user` confirmation needed, for the same reason as Step 7a: this is a passive
+    informational pointer, not a change to Copilot's autonomous behavior.
+
 8. Ensure a "Response Guidelines" section exists in `.github/copilot-instructions.md`
    instructing concise, minimal replies by default (no filler, no restating the question, no
    unnecessary preamble), EXCEPT in these cases where full detail is required:
@@ -1107,7 +1133,7 @@ other steps are unaffected.
 	to `.github/copilot-instructions.md`: its "Persistent Project Memory" section (Step 6) must
 	always be force-checked and fully regenerated/overwritten this run even if
 	`copilot-instructions.md` already exists — never skip Step 6 on the grounds that the file
-	already exists. Its "Project Guidelines" (Step 7, plus the Step 7a UI-app pointer bullet) and
+	already exists. Its "Project Guidelines" (Step 7, plus the Step 7a UI-app pointer bullet and the Step 7b chat-history pointer bullet) and
 	"Response Guidelines" (Step 8) sections remain separately merge-safe/additive-only, as
 	specified in those steps.
 
