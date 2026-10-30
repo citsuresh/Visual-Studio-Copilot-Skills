@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 5`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 6`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -69,6 +69,20 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
   - v5 — Fixes Step 1's no-pid fallback: discover with `--processName devenv` and the plain
     `--titleContains "Microsoft Visual Studio"` substring, not an unscoped session-pid lookup
     or wildcard pattern. Confirm the returned hwnd and pid and never guess among multiple matches.
+  - v6 — Lessons from a long supervised run. `Watch-CopilotChat.ps1` returns `AwaitingReply` (and
+    a `Note`) when an Idle chat ends with a plain-text question or approval request, because the
+    agent asked and stopped and Idle alone looks like "finished"; adds `-ProgressFile`,
+    `-NotifyOnDone` and `-QuestionPattern`; the default `-MaxPollIntervalSeconds` is 30 (was 60),
+    so a finished reply is noticed sooner. `Send-CopilotPrompt.ps1` adds `-TitleContains` (look
+    the window up by title, since an hwnd goes stale when Visual Studio restarts), says so when
+    the window no longer exists, and adds `-Quiet` (do not echo the prompt back on success).
+    `-TitleContains` fails with the candidate list when several windows match, and with a plain
+    "no window" message when none does; a failed window listing is reported as such.
+    New Step 2 briefing template and two gotchas (commit-message encoding in Windows PowerShell
+    5.1, stale git lock files). Checked: failure paths of the Send script (no args, no match,
+    several matches, stale hwnd, nothing typed in each), the progress file and beep in the Watch
+    script, and `QuestionPattern` against real replies. Not run live: a successful `-Quiet` send
+    and an `AwaitingReply` result from a real chat.
 
 # Agent Orchestrator
 
@@ -238,7 +252,24 @@ back. It clicks Send **only** if the input matches the prompt exactly, and retri
 prompt). `Sent: false` means nothing was sent — read `Error` and `InputText`. Omit `-NewSession`
 to reply in the current conversation. It also refuses, before typing anything, while the chat
 shows a working-directory mismatch or untrusted-workspace banner (see Step 4); don't pass
-`-IgnoreBanners` unless the user agreed. The raw equivalent, for fallback:
+`-IgnoreBanners` unless the user agreed.
+
+- **Stale window handles.** An hwnd is only valid until that Visual Studio instance closes; a
+  restart gives a new one. Pass `-TitleContains '<project> - '` instead of `-Hwnd` and the script
+  looks the window up itself, failing with a plain "no window" message when none matches and
+  with the candidate list when several do. If a
+  handle is stale, `Error` now says the window no longer exists rather than just "could not bring
+  to foreground". The same applies to `Watch-CopilotChat.ps1`: look the hwnd up again first.
+- **`-Quiet`** returns `InputText` as `$null` on success, so a long prompt is not echoed back
+  into your context. Failures still return it.
+- **Brief the agent so it does not stop to ask.** Many repos make the agent ask permission for
+  each follow-up fix, which costs one round trip per fix. Put the decisions you can already make
+  in the task text: what is pre-approved ("apply in-scope fixes without asking"), what is not
+  ("do not touch files X, Y; do not commit, stage or push"), and what counts as blocked ("stop
+  and report only if a build, test or permission prevents progress"). Only pre-approve what the
+  user has authorized; commit and push need the user's explicit say-so.
+
+The raw equivalent, for fallback:
 
 Prefer **clipboard paste over synthetic typing** for reliability with longer text (user
 preference, confirmed this session):
@@ -303,6 +334,23 @@ that finish before the first poll (`WorkingSeen: false` in the result tells you 
 ```powershell
 .\Watch-CopilotChat.ps1 -Hwnd 0x691588 -RequireWorkingFirst -TimeoutSeconds 300 -PollIntervalSeconds 12
 ```
+
+**Idle is not always "done".** An agent can end its turn by asking for approval in plain text, with
+no card, and that looks exactly like a finished task. When the last message ends with a question
+or phrases such as "please approve" or "approve or decline" (`-QuestionPattern`), the result has
+`AwaitingReply: true` and a `Note`. Treat it as a question: read `LastMessageTail` (the last 600
+characters, set only in this case; `LastMessage` keeps the start of a long reply and can omit a
+question at the end), answer it with `Send-CopilotPrompt.ps1` (Step 4, case 1) if you are
+authorized to, otherwise report it to the user. The check is a heuristic in both directions:
+a `false` is not proof the task is complete, and a `true` can be a false alarm (for example, a
+reply that merely quotes "let me know whether" while discussing it), so read the tail before
+acting.
+
+Two options help a supervisor that cannot stream output: `-ProgressFile <path>` appends every
+`[poll ...]` line to a file as well as the console, and `-NotifyOnDone` beeps when the watch ends
+(Pending, Idle or Timeout). When `AwaitingReply` is true the result also has `LastMessageTail`,
+the last 600 characters, because `LastMessage` keeps the start of a long message. The default maximum poll interval is 30s, so a reply that finishes
+mid-sleep is noticed within about half a minute.
 
 **Run it asynchronously (`mode="async"`), not synchronously, so progress can be relayed to the
 user while it's still running** — a sync call only surfaces output after the whole script
@@ -496,7 +544,16 @@ Run this when the orchestration session ends, including when it ends early or fa
   option was selected — re-inspect after submitting to confirm (see Step 4's gotcha note).
 - Don't trust `LastMessage`/chat-transcript claims about code changes without independently
   checking the actual files/git diff.
-- Don't assume a previously-known hwnd/pid is still valid across a long gap — re-verify.
+- Don't assume a previously-known hwnd/pid is still valid across a long gap — re-verify (a
+  restarted Visual Studio has a new hwnd; `Send-CopilotPrompt.ps1 -TitleContains` looks it up).
+- Don't write a commit message with `Set-Content -Encoding utf8` in Windows PowerShell 5.1: it
+  adds a byte-order mark, which ends up at the start of the commit subject. Write the file with
+  `[IO.File]::WriteAllText($path, $msg, (New-Object Text.UTF8Encoding($false)))`, and pass it
+  with `git commit -F <file>`. `git commit -F -` with a here-string misparses the message there.
+- Don't blame the repo when Visual Studio's Git Changes pane shows nothing but `git status`
+  disagrees: look for stale `.git\index.lock` / `next-index-*.lock` files with no git process
+  running (the pane then warns that a Git process may be running). Delete them only with the
+  user's go-ahead, then restart that Visual Studio instance if the pane stays empty.
 - Don't use `AutomationId=WpfTextView` for the chat input — it's ambiguous; use
   `--strategy Name --value "Ask Copilot"` for input, `--strategy AutomationId --value SendButton`
   for Send.

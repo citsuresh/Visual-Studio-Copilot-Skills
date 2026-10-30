@@ -10,7 +10,14 @@
     does not match after -Retries attempts, it does NOT send and returns Sent=false.
 
 .PARAMETER Hwnd
-    Target window handle, e.g. "0x60AAA".
+    Target window handle, e.g. "0x60AAA". Optional when -TitleContains is given. A handle goes
+    stale when Visual Studio is restarted; use -TitleContains to look it up each time.
+
+.PARAMETER TitleContains
+    Resolve the target window by title substring (list-windows --all --titleContains) instead
+    of passing a handle. Fails with Sent=false when no window matches, and lists the candidates
+    when more than one matches. Ignored when -Hwnd is also given. Declared last so the
+    positional order of the other parameters is unchanged.
 
 .PARAMETER Text
     Prompt text. Must be a single line; the CLI rejects embedded newlines.
@@ -35,15 +42,23 @@
 .PARAMETER ExePath
     Path to agentdebug-ui.exe.
 
+.PARAMETER Quiet
+    On success, return InputText as $null instead of echoing the whole prompt back. Failures
+    still return the text that was read from the input, since it explains the failure.
+
 .OUTPUTS
-    PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error.
+    PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error. When the window
+    cannot be brought to the foreground and it no longer exists, Error says so (typically
+    Visual Studio was restarted and the handle is stale).
 
 .EXAMPLE
     .\Send-CopilotPrompt.ps1 -Hwnd 0x60AAA -NewSession -Text 'Run Bootstrap.'
+
+.EXAMPLE
+    .\Send-CopilotPrompt.ps1 -TitleContains 'AgentDebugToolkit - ' -Quiet -AsJson -Text 'Continue.'
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Hwnd,
 
     [Parameter(Mandatory = $true)]
@@ -62,7 +77,11 @@ param(
 
     [string]$ExePath = 'C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe',
 
-    [switch]$AsJson
+    [switch]$AsJson,
+
+    [switch]$Quiet,
+
+    [string]$TitleContains
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,6 +94,9 @@ if (-not (Test-Path $ExePath)) {
 if ($Text -match "[`r`n]") {
     throw "-Text must be a single line; the chat CLI rejects embedded newlines."
 }
+if (-not $Hwnd -and -not $TitleContains) {
+    throw "Pass -Hwnd or -TitleContains."
+}
 
 function Invoke-Ui {
     param([string[]]$Arguments)
@@ -84,6 +106,7 @@ function Invoke-Ui {
 
 function Write-Result {
     param([bool]$Sent, [int]$Attempts, [string]$InputText, [string]$ErrorText)
+    if ($Quiet -and $Sent) { $InputText = $null }
     $result = [pscustomobject]@{ Sent = $Sent; Attempts = $Attempts; InputText = $InputText; Error = $ErrorText }
     if ($AsJson) { $result | ConvertTo-Json -Depth 3 } else { $result }
 }
@@ -94,6 +117,47 @@ function Clear-ChatInput {
         # Fall back to keyboard selection when the input exposes no writable ValuePattern.
         $null = Invoke-Ui @('send-keys', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--keys', '^a{DEL}')
     }
+}
+
+function Get-TopLevelWindows {
+    param([string[]]$Filter = @())
+    $r = Invoke-Ui (@('list-windows', '--all') + $Filter)
+    # The leading comma keeps an empty list an empty array; a bare empty array would unroll to $null,
+    # which this function uses to mean "the listing failed".
+    if ($r.success) { return ,@($r.windows) }
+    $script:ListWindowsError = "$($r.error) $($r.message)".Trim()
+    return $null
+}
+
+# Explains a foreground failure: a handle that is no longer in the window list means the
+# window was closed or Visual Studio was restarted, which is the usual cause of a stale handle.
+function Get-ForegroundFailureText {
+    $wanted = [Convert]::ToInt64($Hwnd, 16)
+    $windows = Get-TopLevelWindows
+    if ($null -eq $windows) {
+        return "Could not bring the target window to the foreground, and the window list failed too ($script:ListWindowsError)."
+    }
+    $present = @($windows | Where-Object { [Convert]::ToInt64($_.Hwnd, 16) -eq $wanted })
+    if ($present.Count -eq 0) {
+        return "Window $Hwnd no longer exists (the app may have been restarted, so the handle is stale). Look it up again, or pass -TitleContains."
+    }
+    return 'Could not bring the target window to the foreground.'
+}
+
+if (-not $Hwnd) {
+    $found = Get-TopLevelWindows -Filter @('--titleContains', $TitleContains)
+    if ($null -eq $found) {
+        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Could not list windows to resolve -TitleContains '$TitleContains': $script:ListWindowsError. Nothing was typed."
+    }
+    $candidates = @($found)
+    if ($candidates.Count -eq 0) {
+        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "No window title contains '$TitleContains'. Nothing was typed."
+    }
+    if ($candidates.Count -gt 1) {
+        $list = ($candidates | ForEach-Object { "$($_.Hwnd) '$($_.Title)'" }) -join '; '
+        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "More than one window title contains '$TitleContains': $list. Pass -Hwnd or a longer -TitleContains. Nothing was typed."
+    }
+    $Hwnd = [string]$candidates[0].Hwnd
 }
 
 # Read-only banner check before any input, so no cursor change or click happens if it fails.
@@ -115,7 +179,7 @@ try {
     if ($NewSession) {
         # Bring the target forward first; input verbs refuse to type into a background window.
         if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
-            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'Could not bring the target window to the foreground; nothing was typed or clicked.'
+            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
         }
         $created = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'createNewThread')
         if (-not $created.success) {
@@ -133,7 +197,7 @@ try {
     while ($attempt -le $Retries) {
         $attempt++
         if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
-            $lastError = 'Could not bring the target window to the foreground.'
+            $lastError = Get-ForegroundFailureText
             continue
         }
         Clear-ChatInput
