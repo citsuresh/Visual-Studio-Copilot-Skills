@@ -75,7 +75,7 @@ param(
 
     [switch]$OverwriteInput,
 
-    # Plays the Windows "tada" sound when the wait ends (done or needs the person; any result except NotSent), falling back to a beep. -NoBeep silences it.
+    # One short beep when the wait ends (any result except NotSent). -NoBeep silences it.
     [switch]$NoBeep,
 
     # V2 (default): Watch-CopilotChatV2.ps1, about 7 percent of one core while waiting. V1: the original
@@ -113,7 +113,7 @@ function New-Result([string]$Status, [string]$Reason, $Extra = @{}) {
         ElapsedSeconds = [int]((Get-Date) - $script:started).TotalSeconds
     }
     foreach ($k in $Extra.Keys) { $o[$k] = $Extra[$k] }
-    if (-not $NoBeep -and $Status -ne 'NotSent') { try { (New-Object System.Media.SoundPlayer (Join-Path $env:SystemRoot 'Media\tada.wav')).PlaySync() } catch { try { [console]::Beep(880, 200) } catch { } } }
+    if (-not $NoBeep -and $Status -ne 'NotSent') { try { [console]::Beep(880, 200) } catch { } }
     [pscustomobject]$o
 }
 

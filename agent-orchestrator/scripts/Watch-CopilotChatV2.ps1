@@ -114,7 +114,7 @@ param(
 
     [switch]$CrossCheck,
 
-    # Plays the Windows "tada" sound when the wait ends (done or waiting for a person), so someone working in another window hears it; falls back to a beep. -NoBeep silences it (the review wrapper does, and plays it once itself).
+    # One short beep when the wait ends (done or waiting for a person). -NoBeep silences it (the review wrapper does, and beeps once itself).
     [switch]$NoBeep
 )
 
@@ -216,7 +216,7 @@ function Finish([string]$State, [string]$Kind, [string]$Note) {
     }
     if ($CrossCheck) { $o.Mismatches = $script:mismatches }
     $o.Note = $Note
-    if (-not $NoBeep) { try { (New-Object System.Media.SoundPlayer (Join-Path $env:SystemRoot 'Media\tada.wav')).PlaySync() } catch { try { [console]::Beep(880, 200) } catch { } } }
+    if (-not $NoBeep) { try { [console]::Beep(880, 200) } catch { } }
     [pscustomobject]$o
 }
 
