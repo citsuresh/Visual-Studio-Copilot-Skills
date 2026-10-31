@@ -5,10 +5,13 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 2`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 3`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md` once at the start of a
   session (Step 0).
 - Changelog:
+  - v3 — adds the `files` command (files a chat edited or created; chats that touched a file) and
+    `peak_input_tokens` / `last_input_tokens` in `usage` (the chat's real context size). No
+    existing step changed.
   - v2 — adds the `usage` command (token and cost figures of one chat, optionally per turn) and the
     usage section of `stats`; both read the `assistant_usage_events` table. No existing step changed.
   - v1 — initial version. Wraps the `chathistory` CLI of VsChatHistoryToolkit (search, sessions,
@@ -82,6 +85,8 @@ names are `snake_case`. Every success has `ok`, `command`, `coverage` and `trunc
 | `chathistory turns <id> [--index I \| --range A-B] [--max-chars N]` | read turns in small pieces | `turns[]`: `index`, `timestamp`, `user_message`, `assistant_response`, `truncated`; `total_turns` |
 | `chathistory checkpoints <id> [--full]` | a chat's checkpoints | `checkpoints[]`: `number`, `title`, `overview` (and with `--full` more fields) |
 | `chathistory usage <id> [--by-turn]` | token and cost figures of one chat | `recorded`, `total` / `main` / `subagents` (`requests`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `nano_aiu`, `duration_ms`), `first_at`, `last_at`, `by_model[]`, `by_turn[]` with `--by-turn` |
+| `chathistory files <id> [--limit N]` | files a chat edited or created | `recorded`, `files[]`: `file_path`, `tool_name` (`edit`/`create`), `turn_index`, `first_seen_at` |
+| `chathistory files --path <text> [--limit N]` | which chats touched a file whose path contains the text (ASCII case-insensitive) | `sessions[]`: session id, title, file count, last turn; newest first |
 | `chathistory stats` | counts, and usage over all chats | `total_sessions`, `total_turns`, `by_repository[]`, `by_cwd[]`, `by_month[]`, `usage` (`sessions_with_usage`, `total`, `by_model[]`, `by_month[]`) |
 | `chathistory rename <id> "<title>" [--force] [--dry-run]` | rename a chat (writes) | `applied`, `old_title`, `new_title`, `note` |
 | `chathistory undo-rename <id> [--force] [--dry-run]` | restore the last rename | same shape as rename |
@@ -141,8 +146,13 @@ summaries); read turns only for details the checkpoints lack.
 
 **Count or overview.** `stats` (top 25 per group; check `truncated`).
 
+**Which chat touched a file.** `files --path <part of the path>`, then `show <id>` on the best hit.
+`files <id>` lists what one chat changed. Only edits and creations made through the chat's tools are
+recorded, so reads, and changes made outside the chat, are not.
+
 **How big or costly was a chat.** `show <id>` for `turn_count`, then `usage <id>` for requests and
-tokens; add `--by-turn` to find the expensive turns (at most 100 turns; `truncated` says more). To
+tokens (`peak_input_tokens` and `last_input_tokens` are the chat's real context size, from main-chat
+requests only); add `--by-turn` to find the expensive turns (at most 100 turns; `truncated` says more). To
 rank chats by cost, run `sessions` and then `usage` on the few candidates; there is no cross-chat
 ranking command. For all chats together use the `usage` section of `stats` (by model and month).
 
