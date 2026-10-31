@@ -31,18 +31,10 @@ Read [README.md](README.md) first. "Last result" is from 2026-10-31 unless state
 | IR-05 | Wait exceeds `-TimeoutSeconds` | `Status` Timeout | Not run |
 | IR-06 | After a Watch V2 change | IR-01 still passes (it calls `Watch-CopilotChatV2.ps1` and, on Pending, V1) | Pass 2026-10-31 after the V2 detail change (toolkit chat, 66 s; one foreground-activation retry, recovered). The wrapper now passes `-NoDetail` to V2 because it fetches prompt details itself |
 
-## AgentCursor.ps1 (outline, not yet run as a test)
+## AgentCursor.ps1
 
-| ID | Setup / action | Expected |
-| --- | --- | --- |
-| A-01 | `-Session Start`, then `-Session Stop` | Blue dot while driving, the system cursor restored after Stop; the flag file `%TEMP%\agent-cursor-session.flag` exists only between them |
-| A-02 | `-Session Stop` twice | The second is a no-op |
-| A-03 | A script that crashes between Enable and Restore | The cursor is restored (try/finally in the callers) |
-| A-04 | A second session started while one is running | The first session owns the colour |
+See [AgentCursor.tests.md](../../../ui-interaction/scripts/tests/AgentCursor.tests.md) for its test cases.
 
-## Compare-RepoSnapshot.ps1 (outline, not yet run as a test)
+## Compare-RepoSnapshot.ps1
 
-| ID | Setup / action | Expected |
-| --- | --- | --- |
-| P-01 | Snapshot, change a file, snapshot, compare | Reports the changed file; untracked files included |
-| P-02 | No change | Reports no difference |
+See [Compare-RepoSnapshot.tests.md](Compare-RepoSnapshot.tests.md) for its test cases.

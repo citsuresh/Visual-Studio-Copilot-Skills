@@ -13,7 +13,8 @@ a regression test.
 | `Send-CopilotPrompt.ps1` | [Send-CopilotPrompt.tests.md](Send-CopilotPrompt.tests.md) |
 | `Select-ChoicePromptOption.ps1` | [Select-ChoicePromptOption.tests.md](Select-ChoicePromptOption.tests.md) |
 | `Read-CopilotReply.ps1`, `Get-CopilotChatTranscript.ps1`, `Invoke-CopilotReview.ps1` | [Reading-and-review-scripts.tests.md](Reading-and-review-scripts.tests.md) |
-| `AgentCursor.ps1`, `Compare-RepoSnapshot.ps1` | outlines in [Reading-and-review-scripts.tests.md](Reading-and-review-scripts.tests.md) |
+| `AgentCursor.ps1` (owned by `ui-interaction`) | [AgentCursor.tests.md](../../../ui-interaction/scripts/tests/AgentCursor.tests.md) |
+| `Compare-RepoSnapshot.ps1` | [Compare-RepoSnapshot.tests.md](Compare-RepoSnapshot.tests.md) |
 
 ## Format of a test case
 
