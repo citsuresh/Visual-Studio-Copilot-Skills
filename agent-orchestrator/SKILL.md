@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 11`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 12`. This is this file's own version, used to detect when the globally
   installed copy at `C:\Users\sveluswa\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -122,6 +122,13 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     2026-10-31: single, two-question and free-text cards, plain-text question, normal reply, NotVisible,
     WindowGone, Timeout, missing exe, NoDetail, `Select-ChoicePromptOption.ps1` on all card types. Not run:
     permission prompt, banners, the Upgraded path, a card above a scrolled-up view.
+  - v12 - `Watch-CopilotChatV2.ps1` returns `ChatSwitched` when the visible chat is no longer the one
+    being watched. It watches whichever chat is visible, so clicking New chat mid-task used to end with a false
+    Idle while the first chat kept working. It now keeps the session title from the chat pane header and
+    fires when the title changes, the stop button is gone and there is no completion footer (a rename while
+    busy or after a footer is followed silently). `Invoke-CopilotReview.ps1` returns NoReply for it. Verified
+    live on 2026-10-31 (switch at t=12 s detected at 17 s; a normal send into a new session stayed Idle). A
+    missing or shared title cannot be detected: always confirm the reply with `Read-CopilotReply.ps1`.
 
 # Agent Orchestrator
 
@@ -353,7 +360,7 @@ always available even if `C:\MyFiles\Git\AgentDebugToolkit` isn't cloned/up to d
   probe under a second), silent while polling, never activates the window. When the wait ends Pending
   or Idle it runs V1 once and merges the result, so it returns everything V1 does (`Question`,
   `Options`, `Recommended`, `MorePages`, `Banners`, `LastMessage`, `LastMessageTail`, `AwaitingReply`,
-  `CompletionFooter`) plus `NotVisible`, `WindowGone` and `ProbeError`. `-NoDetail` skips that final
+  `CompletionFooter`) plus `NotVisible`, `ChatSwitched`, `WindowGone` and `ProbeError`. `-NoDetail` skips that final
   step. It sees a card or prompt only in the last few messages while the list is near its end; run it
   with `-CrossCheck` after a Visual Studio or Copilot update.
 - **`Watch-CopilotChatV1.ps1` — the full-tree watcher.** Heavy (about 70 % of a core), a full tree dump

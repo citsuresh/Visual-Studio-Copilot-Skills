@@ -30,6 +30,7 @@ Read [README.md](README.md) first. "Last result" is from 2026-10-31 unless state
 | IR-04 | `-Poller V1` | Same flow with the full-tree watcher | Not run |
 | IR-05 | Wait exceeds `-TimeoutSeconds` | `Status` Timeout | Not run |
 | IR-06 | After a Watch V2 change | IR-01 still passes (it calls `Watch-CopilotChatV2.ps1` and, on Pending, V1) | Pass 2026-10-31 after the V2 detail change (toolkit chat, 66 s; one foreground-activation retry, recovered). The wrapper now passes `-NoDetail` to V2 because it fetches prompt details itself |
+| IR-07 | Another chat becomes visible while waiting (click New chat) | `Status` NoReply with a ChatSwitched message; nothing more sent | Not run through the wrapper (the V2 state itself passed, V2-21) |
 
 ## AgentCursor.ps1
 

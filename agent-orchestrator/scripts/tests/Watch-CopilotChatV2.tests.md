@@ -44,6 +44,10 @@ for prompts that asked for other labels). Read the real options before answering
 | V2-18 | Tool permission prompt open | Pending, `PromptKind` PermissionPrompt (`Allow this time` found in the input area or last message) | Not run: tools are auto-approved here |
 | V2-19 | Card open while the list is scrolled up more than about 10 % from the end | Known limit: not detected while polling (Timeout), detail step cannot help because it never runs | Not run; documented as a con in the script header |
 | V2-20 | Workspace-mismatch / trust banner showing | `Banners` lists it with Id, Text, Buttons (from the detail step) | Not run: needs a mismatched window |
+| V2-21 | A task is running (stop button showing), then someone clicks "New chat" (the visible chat changes). Watch with `-TraceFile`. | `State` ChatSwitched, `Note` says the watched chat may still be working; the trace shows the title changing and busy dropping | Pass 2026-10-31 (toolkit chat; clicked Create new session at t=12 s; ChatSwitched at 17 s instead of a false Idle) |
+| V2-22 | REGRESSION for V2-21: start the watcher, then send the first message of a NEW session (the title changes from "New session..." to the prompt text while the chat is busy) | No ChatSwitched: the title change while busy is followed silently; the wait ends Idle through the completion footer | Pass 2026-10-31 (24 s, Idle) |
+| V2-23 | The session title element is missing or two chats share a title | Known limit: no ChatSwitched, a switch can look like a false Idle; callers must confirm with `Read-CopilotReply.ps1` | Not run |
+| V2-24 | A finished reply whose session title changes after the footer (Copilot renames the session) | No ChatSwitched (a footer at the end of the list means the reply finished) | Not run live; covered by the rule in the code |
 
 ## Bugs these cases found (keep as regression tests)
 
@@ -55,6 +59,7 @@ for prompts that asked for other labels). Read the real options before answering
    (V2-06). Fixed by searching while the list is within 10 % of its end, keeping the footer test strict.
 4. 2026-10-31: the first audit compared V1's fields with V2's, not what each could SEE. Always run
    `-CrossCheck` against a real card (V2-01) before calling V2 equivalent to V1.
+5. 2026-10-31: the watcher follows whichever chat is visible, so clicking "New chat" mid-task ended with a false Idle while the first chat kept working (found by the supervising chat in VsChatHistoryToolkit). Fixed with a ChatSwitched state keyed on the session title in the pane header; fire only when the title changed, the stop button is gone and there is no footer (V2-21, V2-22).
 
 ## Procedure after changing V2
 

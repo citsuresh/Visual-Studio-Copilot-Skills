@@ -200,6 +200,9 @@ do {
         elseif ($w.State -eq 'NotVisible') {
             return New-Result 'NoReply' 'ChatNotVisible: the chat pane stopped showing while waiting (another tab was selected). Nothing more was sent; select the Chat tab and read the reply with Read-CopilotReply.ps1.'
         }
+        elseif ($w.State -eq 'ChatSwitched') {
+            return New-Result 'NoReply' 'ChatSwitched: another chat became the visible one while waiting. The original chat may still be working; select it again and read the reply with Read-CopilotReply.ps1.'
+        }
         elseif ($w.State -eq 'ProbeError') {
             return New-Result 'NoReply' "ProbeError: $($w.Note)"
         }

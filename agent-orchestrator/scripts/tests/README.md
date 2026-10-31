@@ -15,6 +15,7 @@ a regression test.
 | `Read-CopilotReply.ps1`, `Get-CopilotChatTranscript.ps1`, `Invoke-CopilotReview.ps1` | [Reading-and-review-scripts.tests.md](Reading-and-review-scripts.tests.md) |
 | `AgentCursor.ps1` (owned by `ui-interaction`) | [AgentCursor.tests.md](../../../ui-interaction/scripts/tests/AgentCursor.tests.md) |
 | `Compare-RepoSnapshot.ps1` | [Compare-RepoSnapshot.tests.md](Compare-RepoSnapshot.tests.md) |
+| Cost of supervising a chat (measurements, not test cases) | [Monitoring-cost.md](Monitoring-cost.md) |
 
 ## Format of a test case
 

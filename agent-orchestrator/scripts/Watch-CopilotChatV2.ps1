@@ -31,6 +31,9 @@
       - The final detail step is also a safety net: if the light probe said Idle but the full tree shows an
         open prompt, the result is upgraded to Pending (Upgraded = true).
     V2 cons:
+      - It watches whichever chat is VISIBLE, not one specific conversation. A change of chat is detected only through
+        the session title in the chat pane header (see ChatSwitched below); if the header is missing, or two chats
+        share a title, a switch looks like the old chat finishing (a false Idle). Always confirm with Read-CopilotReply.ps1.
       - The waiting itself is blind to anything outside the few things it looks for (below). A prompt of a shape
         it does not know looks like "busy" until the timeout. -CrossCheck compares it with the whole-window
         probe to find such shapes; run it after a Visual Studio or Copilot update.
@@ -68,6 +71,9 @@
       Idle        (a) once the stop button has been seen and is gone and the list ends in a completion footer, or
                   (b) after -QuietSeconds with no stop button and no prompt.
       NotVisible  neither the list nor the input placeholder is showing (another tab, such as Git Changes, is active).
+      ChatSwitched  the visible chat is no longer the one being watched (someone clicked "New chat" or opened another
+                  session): the session title changed, the stop button is gone and there is no completion footer.
+                  The watched chat may still be working; select it again and read it with Read-CopilotReply.ps1.
       WindowGone  the window no longer exists.
       ProbeError  three probes in a row failed while the window still exists.
       Timeout     still busy after -TimeoutSeconds.
@@ -117,7 +123,7 @@
 
 .OUTPUTS
     PSCustomObject:
-      State, PromptKind (ChoiceCard / PermissionPrompt from the light probe; ChoicePrompt / FreeTextPrompt /
+      State (Idle, Pending, NotVisible, ChatSwitched, WindowGone, ProbeError, Timeout), PromptKind (ChoiceCard / PermissionPrompt from the light probe; ChoicePrompt / FreeTextPrompt /
       PermissionPrompt once the detail step has run), BusySeen, Polls, ProbeMsMedian, ProbeMsMax, ElapsedSeconds,
       Mismatches (only with -CrossCheck), Note.
       From the detail step (null when it did not run or failed; see DetailNote):
@@ -202,7 +208,8 @@ if (-not ('CopilotWait.NativeCheck' -as [type])) {   # define once per process; 
     Add-Type -Namespace CopilotWait -Name NativeCheck -MemberDefinition '[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);'
 }
 
-function New-Flags { @{ Busy = $false; Permission = $false; Card = $false; Chat = $false; Footer = $false } }
+# Title is the session title shown in the chat pane header (AutomationId "title"); $null when that element was not found.
+function New-Flags { @{ Busy = $false; Permission = $false; Card = $false; Chat = $false; Footer = $false; Title = $null } }
 
 function Add-Match($f, $e) {
     $id = $e.Current.AutomationId
@@ -287,6 +294,7 @@ function Get-FlagsScoped {
                         }
                     }                    continue
                 }
+                if ($k.Current.AutomationId -eq 'title') { $f.Title = $k.Current.Name }   # marker for ChatSwitched
                 Add-Match $f $k                                   # the child itself may be the element
                 foreach ($e in $k.FindAll($descendants, $inputCond)) { Add-Match $f $e }
             }
@@ -378,6 +386,10 @@ $script:probeMs = New-Object System.Collections.Generic.List[int]
 $script:busySeen = $false
 $script:mismatches = 0
 $script:errors = 0
+# ChatSwitched marker: the session title of the chat being watched. Adopted from the first non-empty title, so a new
+# chat whose title only appears when its first message is sent does not count as a switch.
+$script:titleMarker = $null
+$script:markerSet = $false
 $deadline = $script:started.AddSeconds($TimeoutSeconds)
 $quietSince = $null
 if ($TraceFile) { Set-Content -Path $TraceFile -Value "# Watch-CopilotChatV2 trace, hwnd $Hwnd, interval ${PollIntervalSeconds}s" -Encoding UTF8 }
@@ -412,7 +424,7 @@ while ($true) {
         if (-not $agree) { $script:mismatches++ }
     }
     if ($TraceFile) {
-        $line = 't={0:N1} probeMs={1} busy={2} permission={3} card={4} chat={5} footerAtEnd={6}' -f $elapsed, $script:probeMs[-1], [int]$f.Busy, [int]$f.Permission, [int]$f.Card, [int]$f.Chat, [int]$f.Footer
+        $line = 't={0:N1} probeMs={1} busy={2} permission={3} card={4} chat={5} footerAtEnd={6} title=[{7}]' -f $elapsed, $script:probeMs[-1], [int]$f.Busy, [int]$f.Permission, [int]$f.Card, [int]$f.Chat, [int]$f.Footer, $(if ($f.Title) { $f.Title.Substring(0, [Math]::Min(30, $f.Title.Length)) })
         if ($whole) { $line += (' | whole busy={0} permission={1} card={2} chat={3} agree={4}' -f [int]$whole.Busy, [int]$whole.Permission, [int]$whole.Card, [int]$whole.Chat, [int]$agree) }
         Add-Content -Path $TraceFile -Encoding UTF8 -Value $line
     }
@@ -420,6 +432,20 @@ while ($true) {
     if (-not $f.Chat) { return (Finish 'NotVisible' $null 'Neither the chat list nor the input placeholder is showing: another tab may be active.') }
     if ($f.Permission) { return (Finish 'Pending' 'PermissionPrompt' 'A tool permission prompt is waiting. Question and Options below come from the detail step.') }
     if ($f.Card) { return (Finish 'Pending' 'ChoiceCard' 'A question card is waiting. Question and Options below come from the detail step.') }
+
+    # Chat switch: the title changed, the stop button is gone and nothing says the reply finished. A title that changes
+    # while the chat is busy, or after a completion footer, is Copilot renaming the same session: follow it.
+    if ($null -ne $f.Title) {
+        if (-not $script:markerSet) {
+            if ($f.Title) { $script:titleMarker = $f.Title; $script:markerSet = $true }
+        }
+        elseif ($f.Title -ne $script:titleMarker) {
+            if ($script:busySeen -and -not $f.Busy -and -not $f.Footer) {
+                return (Finish 'ChatSwitched' $null 'The visible chat is no longer the one being watched (its session title changed and the stop button is gone). The original chat may still be working: select it again and read it with Read-CopilotReply.ps1.')
+            }
+            $script:titleMarker = $f.Title
+        }
+    }
 
     if ($f.Busy) {
         $script:busySeen = $true
