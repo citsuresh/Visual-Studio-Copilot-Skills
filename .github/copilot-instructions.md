@@ -1,14 +1,12 @@
-<!-- project-memory-management-graph: skill-version=14 -->
+<!-- project-memory-management-graph: skill-version=23 -->
 ## Persistent Project Memory
 
 This section is fully regenerated (overwritten) on every Bootstrap run. It is NOT merge-safe,
 unlike "Project Guidelines" and "Response Guidelines" below.
 
-This repo is in **docs-only mode**: no C# solution (`.sln`/`.slnx`) exists to build a code
-knowledge graph from (the only solution file found, `.vs\Visual-Studio-Copilot-Skills.slnx`, is
-Visual Studio's auto-generated, gitignored, empty open-folder scaffolding — not a real checked-in
-solution). No code graphs or `docs/KEY_FLOWS.md` are generated in this mode. The graph-related
-guidance below only applies if this repo gains a real C# solution and Bootstrap is re-run.
+This repository is in docs-only mode: no `.sln` or `.slnx` files are present. No code graph or
+`docs/KEY_FLOWS.md` is generated here. If a real C# solution is added, rerun Bootstrap to register
+and build its graph.
 
 ### Solution graph registry
 
@@ -68,6 +66,13 @@ solution would have `docs/full-graph.<slug>.json` and `docs/project-dependencies
   session.
 - Keep all memory files concise — they exist to reduce token usage on future re-reads, not to
   serve as exhaustive documentation.
+- `docs/KNOWN_OPEN_FINDINGS.md` is user-controlled. Never add, edit, or remove entries without an
+  explicit user request. When adding, check for a similar existing item and ask the user whether it
+  is a recurrence or a new issue.
+- `docs/FEATURE_CHECKLIST.md` is optional and user-curated; never create or change it unless the
+  user explicitly asks. Read it when planning or adding a feature.
+- Reusable scripts: before writing code for a repeatable mechanical step (filtering a log, applying the same edit to many files, extracting data from several files), check `docs/SCRIPTS.md` if it exists and run a script that fits, as its index line says; if the index line says it modifies or deletes files, ask the user before each run, and check its output before relying on it. If you wrote working code for such a step that is likely to be reused with different inputs, is more than a one-liner, can take its inputs as parameters, and contains no credentials, tokens, customer data or personal details, save it as `scripts/agent/<verb-noun>.ps1` with a header comment (purpose, parameters, whether it modifies anything), add one line to `docs/SCRIPTS.md` (table: script | purpose | how to call | read-only or modifies | date; create the file with the table header if it is missing), and say so in your reply. Before saving, check whether an existing script in `scripts/agent/` can take the new case as a parameter. If one can, extend that script with a backward-compatible parameter (its default keeps the current behaviour, and existing parameter names, order and output format stay unchanged), update its header comment, index line and date, and say so, rather than saving a near-copy. If the task's file rules forbid changing the existing script, do not save a near-copy; say in your reply which parameter the existing script needs. Every part that varies between uses (paths, patterns, comment markers, row counts, exclusions) must be a parameter. For C# projects, skip `obj` and `bin` folders by default, with a switch to include them. Before finishing a task, check once whether you wrote any script worth saving. If a script fails or is out of date, fix it in place and update its date, or do the step normally; never loop on a broken script. When a task runs a listed script, set its date in `docs/SCRIPTS.md` to today if the task's file rules allow editing that file; otherwise leave the date unchanged and say so in your reply. The user curates these files: never delete scripts or index lines on your own.
+- At End Session, check only the context from the session for a qualifying unsaved reusable script and check script/index consistency when either exists. Respect any file restrictions given for tasks in the session; ask before prohibited changes, and never delete or rewrite scripts or existing index entries. If `docs/SCRIPTS.md` exists, ask which scripts older than 60 days to keep, archive, or delete; make only requested changes. Ask separately whether anything should be added to `docs/KNOWN_OPEN_FINDINGS.md`.
 
 ## Project Guidelines
 
