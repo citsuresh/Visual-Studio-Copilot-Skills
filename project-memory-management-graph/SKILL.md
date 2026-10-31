@@ -399,8 +399,8 @@ should never be "stale," but should still record the current version).
   `docs/project-dependencies.<slug>.json`, regardless of how many solutions the repo contains.
   The slug is the solution filename without its extension, lowercased, with every character
   outside `[a-z0-9]` replaced by `-`, repeated hyphens collapsed, and leading/trailing hyphens
-  trimmed. For example, `Itron.Metering.FirmwareTesterWithTFSImport.sln` becomes
-  `itron-metering-firmwaretesterwithtfsimport`.
+  trimmed. For example, `Contoso.Metering.FirmwareTool.sln` becomes
+  `contoso-metering-firmwaretool`.
 - Before building, calculate slugs for all tracked solutions. If two tracked solutions produce
   the same slug, ask the user how to distinguish them; never guess or build either under a
   colliding filename until resolved.
@@ -1109,7 +1109,7 @@ other steps are unaffected.
     `docs/project-dependencies.json` during the first build, before the required rename. After
     the builds, report any remaining superseded unqualified `docs/full-graph.json` and any ad-hoc
     per-solution graph/dependencies files that do not match the slug convention (for example,
-    `docs/full-graph.firmwaretester.json`). Ask via `ask_user` before deleting any of them; never
+    `docs/full-graph.<slug>.json`). Ask via `ask_user` before deleting any of them; never
     auto-delete. Docs-only mode skips this step.
 
 10. Ensure `docs/graph-viewer.html` exists: this is a static, self-contained HTML file that lets

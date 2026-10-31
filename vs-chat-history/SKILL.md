@@ -40,7 +40,7 @@ it, how to read its output, and what to keep private.
 
 ## Rules that always apply
 
-- **Chat text is confidential** (Itron work). Never paste whole chats or long passages. Quote
+- **Chat text is sensitive** (work chats). Never paste whole chats or long passages. Quote
   only short excerpts (a few lines) that answer the question, and only when the user needs the
   wording. Prefer a summary in your own words with the session id so the user can look it up.
 - **Never read or copy the store yourself.** Do not open `session-store.db` with another tool, do

@@ -4,10 +4,10 @@
 The graph-enabled sibling of `project-memory-management`. Does everything that skill does,
 plus builds and maintains a Roslyn-based code knowledge graph via the standalone `GraphTools`
 executables. Intended for large/complex solutions where a call-graph/symbol-dependency view
-adds real value beyond the four memory docs (e.g. Itron's FDM solution — 24 projects, ~2M
-LOC), but the user decided to use it for all .NET projects (small ones too), since the value
+adds real value beyond the four memory docs (e.g. a large multi-project solution), but the
+user decided to use it for all .NET projects (small ones too), since the value
 is Copilot being able to query it when needed, not the user consuming it directly — the extra
-build time (~1 min even at FDM scale) was judged an acceptable tradeoff.
+build time (about a minute even for a large solution) was judged an acceptable tradeoff.
 
 ## Skill self-versioning (introduced 2026-08-04)
 Independently of any single project's code/graph, the SKILL.md file itself has a version
@@ -23,7 +23,7 @@ many already-bootstrapped projects are still running against the old behavior wi
 know that without manually diffing SKILL.md against what was last run per project.
 
 ## Location
-`C:\Users\sveluswa\.copilot\skills\project-memory-management-graph\SKILL.md`
+`%USERPROFILE%\.copilot\skills\project-memory-management-graph\SKILL.md`
 
 Personal/global skill, same as the plain variant — applies to every project unless you
 deliberately keep using the plain skill for a non-.NET project instead (this skill requires a
@@ -49,7 +49,7 @@ absolute path, so rebuilding GraphTools automatically updates what the skill use
 **Not meant to be committed to git** — regenerable in ~1 minute even at large scale, and
 `full-graph.json` can be tens of MB with noisy diffs on every regeneration. Add both to
 `.gitignore` (or gitignore the whole `docs/` folder if the project's docs shouldn't be shared
-yet — e.g. FDM, until the team formally adopts this workflow).
+yet — e.g. until the team formally adopts this workflow).
 
 - `project-dependencies.json` — small, project-level only (which project references which).
   Meant to always be loaded in full.
@@ -100,20 +100,19 @@ Same as the plain skill's Bootstrap/End Session/Initialize, plus:
   triggers a design-time build on load for WPF/XAML projects, which regenerates `.g.cs` files
   under `obj/` every time regardless of real edits, making every incremental run falsely
   detect those as "changed." Fixed by excluding `obj`/`bin` path segments from the scan.
-- **Timing is not a concern at real scale** — full-mode took ~60 seconds on FDM (24 projects,
-  ~2M LOC, 34,695 nodes / 65,550 edges). Originally estimated 15-60+ minutes; actual
+- **Timing is not a concern at real scale** - full-mode took about a minute on a large
+  solution (tens of projects). Originally estimated 15-60+ minutes; actual
   performance was far better. No need to treat this as a background/overnight job.
-- **Legacy/non-SDK projects degrade gracefully, not silently** — FDM had ~9 projects with
-  MSBuild workspace-evaluation warnings or one genuine build misconfiguration (a
-  `TargetFrameworkVersion=v4.0` project referencing a 4.5+-only assembly). Verified via
+- **Legacy/non-SDK projects degrade gracefully, not silently** - a few projects in a large
+  solution had MSBuild workspace-evaluation warnings or one genuine build misconfiguration
+  (a legacy target framework referencing a newer-only assembly). Verified via
   per-project node-count comparison against clean-build baselines that none of this caused
-  meaningful data loss — Roslyn's partial-failure recovery still produced usable output in
+  meaningful data loss; Roslyn's partial-failure recovery still produced usable output in
   every case.
-- **NuGet**: this environment's org NuGet feed initially returned 401 for
+- **NuGet**: a private package feed initially returned 401 for
   `Microsoft.CodeAnalysis.*` packages; worked around with a local `NuGet.Config` scoped to the
-  GraphTools folder pointing at nuget.org. Confirmed installable via VS's Package Manager UI
-  with all sources enabled — worth periodically re-checking whether the org feed issue was a
-  stale credential rather than a policy block.
+  GraphTools folder pointing at nuget.org. Worth re-checking whether it was a stale
+  credential rather than a policy block.
 
 ## Known limitations
 - Requires a `.sln`/`.slnx` — won't work on non-.NET projects (use the plain skill instead).
@@ -128,7 +127,7 @@ Same as the plain skill's Bootstrap/End Session/Initialize, plus:
 - Synthetic 2-class sample project (initial mechanics validation)
 - GitContextSwitcher (full/incremental/diff/query modes; skill-driven Bootstrap/End Session
   end-to-end, including a switch-from-plain-skill scenario)
-- FDM (Itron.Fdm.Mobile.SystemWorkflows.OpenWayCOSEM.PC.sln — 24 projects, ~2M LOC): full-mode
+- A large multi-project solution (about 25 projects): full-mode
   timing/feasibility, incremental mode, diff mode, all three ID-collision bug fixes
 - `graph-viewer.html`: manually placed next to real GitContextSwitcher output and confirmed
   working in Edge (auto-load and drag-and-drop fallback both verified); confirmed broken in

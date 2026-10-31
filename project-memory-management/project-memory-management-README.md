@@ -14,7 +14,7 @@ prompt-file workflow and the abandoned CopilotToolkit WPF sync-tool idea — Cop
 Agent Skills feature (Visual Studio Professional/Enterprise, v18.5+) made both unnecessary.
 
 ## Location
-`C:\Users\sveluswa\.copilot\skills\project-memory-management\SKILL.md`
+`%USERPROFILE%\.copilot\skills\project-memory-management\SKILL.md`
 
 Personal/global skills folder — anything placed here applies automatically to every project
 on this machine, no per-project copying needed.
@@ -77,7 +77,7 @@ on this machine, no per-project copying needed.
 - Requires a `.git` directory (or a top-level `.sln`/`.slnx` as fallback) to resolve the repo
   root — works for any repo type, not just .NET, since this skill itself doesn't touch code.
 - Doesn't know or care about git identity per-project — that's left in the global personal
-  `copilot-instructions.md` (`C:\Users\sveluswa\copilot-instructions.md`), not this skill.
+  `copilot-instructions.md` (`%USERPROFILE%\copilot-instructions.md`), not this skill.
 
 ## Tested on
 - GitContextSwitcher (clean init, and re-init/switch scenarios)
