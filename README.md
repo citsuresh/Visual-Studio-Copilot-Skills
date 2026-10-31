@@ -1,7 +1,14 @@
 # Visual Studio Copilot Skills
 
-Personal GitHub Copilot Agent Skills for Visual Studio — persistent, low-token project memory
-across sessions, with an optional Roslyn-based code knowledge graph for larger solutions.
+Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
+
+- **Project memory** (`project-memory-management-graph`, and the deprecated `project-memory-management`):
+  persistent, low-token project memory across sessions, with an optional Roslyn-based code knowledge
+  graph for larger solutions.
+- **UI automation and supervision** (`ui-interaction`, `vs-debug`, `ui-navigation-orchestrator`,
+  `agent-orchestrator`, `vs-chat-history`): drive and read other Windows applications and the Visual
+  Studio debugger, supervise a Copilot chat running in another Visual Studio window, and search the
+  local Copilot chat history.
 
 ## What's in this repo
 
@@ -17,9 +24,11 @@ across sessions, with an optional Roslyn-based code knowledge graph for larger s
 | `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
 | `tests/` | Manual test cases for `Install-Skills.ps1`. Test cases for the other scripts sit next to them, in each skill's `scripts/tests/` folder. |
 
-Each skill has three workflows: **Bootstrap** (start of session / first-time setup),
-**End Session** (cheap end-of-session snapshot), and **Initialize** (one-time setup that wires
-the skill into a project's own short trigger prompts).
+Each of the two project-memory skills has three workflows: **Bootstrap** (start of session /
+first-time setup), **End Session** (cheap end-of-session snapshot), and **Initialize** (one-time
+setup that wires the skill into a project's own short trigger prompts). The UI automation and
+supervision skills have no such workflows: they are used when a task needs them (see "Which skill
+to use" below), and their helper scripts and test cases live in each skill's `scripts/` folder.
 
 ## Prerequisites
 
