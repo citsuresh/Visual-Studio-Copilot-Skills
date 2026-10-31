@@ -5,10 +5,13 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 7`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 8`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md` once at the start of a
   session (Step 0).
 - Changelog:
+  - v8 — adds `rollup` (events summaries combined across the most recent chats: tool, skill and
+    permission counts, compaction statistics, session-end totals, chats without a log or session-end
+    event). No existing step changed.
   - v7 — subagent requests count toward `credits` (verified against a chat footer on a turn that used
     subagents): quote `total`, not `main`. Wording fix only.
   - v6 — adds `credits` (the credits the chat window shows, as the sum of `request_multiplier`) to
@@ -101,6 +104,7 @@ names are `snake_case`. Every success has `ok`, `command`, `coverage` and `trunc
 | `chathistory usage-top [--from DATE] [--to DATE] [--by requests\|tokens\|aiu\|credits] [--limit N]` | rank chats by usage in a period (default by `nano_aiu`) | `sessions[]`: `session_id`, `title`, `requests`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `reasoning_tokens`, `nano_aiu`, `last_at` |
 | `chathistory doctor` | read-only health report of the store (deletes nothing) | row and folder counts, rows without a folder, folders without a row, chats without turns or usage, the 10 largest event logs; counts are omitted (and `truncated` set) when the folder listing fails |
 | `chathistory events <id>` | what happened inside one chat, from its event log (never prints message text, tool arguments or paths) | `scan` (`complete`), `event_counts[]`, `tools[]`, `permission_kinds[]`, `skills[]`, `aborts`, `subagents_started`, `compaction_count`, `compactions[]` (prompt size before and after, trigger, limit), `shutdowns[]` (premium requests, `nano_aiu`, lines changed, context breakdown, per-model requests and cost) |
+| `chathistory rollup [--from DATE] [--to DATE] [--limit N]` | `events` combined across the most recent chats (default 20, max 100), read-only, 60 s and 512 MiB budget; limits apply when each scan starts | `chats_considered`, `chats_scanned`, `chats_skipped`, `chats_without_log`, `chats_with_incomplete_scan`, `chats_without_shutdown`, `event_counts[]`, `tools[]`, `skills[]`, `permission_kinds[]`, `aborts`, `subagents_started`, `compactions` (`count`, `by_trigger[]`, medians and max prompt size, median tokens removed), `shutdown_totals`, `top_chats_by_compactions[]` |
 | `chathistory activity [--from DATE] [--to DATE] [--limit N]` | turns, chats, requests and `nano_aiu` per day (UTC), newest first | `days[]` |
 | `chathistory stats` | counts, and usage over all chats | `total_sessions`, `total_turns`, `by_repository[]`, `by_cwd[]`, `by_month[]`, `usage` (`sessions_with_usage`, `total`, `by_model[]`, `by_month[]`) |
 | `chathistory rename <id> "<title>" [--force] [--dry-run]` | rename a chat (writes) | `applied`, `old_title`, `new_title`, `note` |
@@ -172,6 +176,8 @@ recorded, so reads, and changes made outside the chat, are not.
 **What happened in a chat (compactions, tools, aborts, lines changed).** `events <id>`. If `scan.complete`
 is false the log was only partly read (`truncated` is set): say so. Use it for "how often did it
 compact", "what did it spend premium requests on", "which tools or skills did it use".
+
+**Trends across chats (which tools or skills, how often chats compact).** `rollup --from <date>`. If `truncated` is true some chats were skipped or only partly read (budget, unreadable log, long compaction lists): say so, and narrow the date range or `--limit`. `by_trigger` and the medians cover only the first 25 compactions of each chat. `chats_without_shutdown` is not a crash count: the cause is not established (the session may still be open, or it ended without writing one), so do not call those chats crashed.
 
 **How big or costly was a chat.** `show <id>` for `turn_count`, then `usage <id>` for requests and
 tokens (`peak_input_tokens` and `last_input_tokens` are the chat's real context size, from main-chat
