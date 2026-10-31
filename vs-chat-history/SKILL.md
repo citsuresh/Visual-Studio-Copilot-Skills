@@ -5,10 +5,12 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 6`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 7`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md` once at the start of a
   session (Step 0).
 - Changelog:
+  - v7 — subagent requests count toward `credits` (verified against a chat footer on a turn that used
+    subagents): quote `total`, not `main`. Wording fix only.
   - v6 — adds `credits` (the credits the chat window shows, as the sum of `request_multiplier`) to
     `usage`, `stats`, `usage-top` (`--by credits`) and `activity`; replaces the v5 advice not to
     report credits. No existing step changed.
@@ -140,9 +142,7 @@ How to read results:
   the chat window (checked on 94 chats: there is no fixed conversion), so report the stored value
   as `nano_aiu`, never convert it, and do not call it credits. The credits figure is `credits`:
   the sum of `request_multiplier` over the requests, which matched the credits the chat window
-  shows after each reply on 6 of 6 turns checked (`usage --by-turn` gives it per turn). Quote the
-  `main` figure; subagent requests carry stored multipliers but the session-end data shows them
-  costing 0, so `subagents.credits` is unverified. `credits` is omitted (null) when the store has
+  shows after each reply on 7 of 7 turns checked (`usage --by-turn` gives it per turn). Quote `total`: subagent requests count (a turn with two Opus requests at 15.0 and two subagent requests at 1.0 showed 32.0 in the chat window); `main` and `subagents` show the split. `credits` is omitted (null) when the store has
   no `request_multiplier` column; per chat, `events` `shutdowns[]` also has
   `total_premium_requests`. `recorded: false` is a normal answer: the chat has no usage rows (about a
   quarter of chats have none), or the store has no usage table, or the table lacks a column the
