@@ -12,6 +12,7 @@ Read [README.md](README.md) first. "Last result" is from 2026-10-31 unless state
 | R-04 | Prompt phrase not in the chat | `PromptFound` false | Pass: seen when a card was open and my prompt was not shown |
 | R-05 | Reply still being written | `Busy` true | Pass |
 | R-06 | A question or approval at the end of the reply | Not detected here: use `Watch-CopilotChatV2.ps1` (`AwaitingReply`) | Known gap (the plan to add `-IncludePrompt` was replaced by V2's detail step) |
+| R-07 | REGRESSION: a long reply, so the prompt message is not rendered at the bottom of the chat list. `-AfterPrompt '<phrase>'` | `PromptFound` true, `ScrolledUpToFindPrompt` true, `PartialReply` true (messages rendered at neither scroll position are missing), the list is back at the bottom afterwards. Before the fix: `PromptFound` false and an empty `Reply` | Pass 2026-10-31 (toolkit chat, prompt far above newer messages: found after scrolling up, 10 messages merged, 58 s) |
 
 ## Get-CopilotChatTranscript.ps1
 

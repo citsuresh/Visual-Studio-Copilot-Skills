@@ -20,6 +20,13 @@
     The completion footer ("The response used ... / The response cost N credits.") is returned
     separately in Footer.
 
+    When the reply is longer than the visible chat area, the prompt message is not rendered at the bottom of the
+    list, so it cannot be found there. The script then scrolls up in steps (85, 70, 55, 40, 25, 10, 0 percent) until the
+    prompt is rendered, takes the messages after it, appends the messages rendered at the bottom that it has not seen
+    yet, and scrolls back to the bottom. Messages that were rendered at neither position are missing, so PartialReply
+    is true in that case: read the complete text in the chat if it matters. (Found 2026-10-31: before this, a long
+    reply gave PromptFound false and an empty Reply.)
+
     Read-only except for the chat list's scroll position. It never types or clicks.
 
 .PARAMETER Hwnd
@@ -113,6 +120,32 @@ else {
     }
 }
 
+# ---- 3b. long reply: the prompt scrolled out of the rendered part of the list. Look further up for it.
+$scrolledUp = $false
+if ($start -lt 0 -and $AfterPrompt -and -not $NoScroll) {
+    $bottomTexts = $texts
+    foreach ($pct in 85, 70, 55, 40, 25, 10, 0) {
+        $null = Invoke-Cli @('scroll-container', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'session', '--verticalPercent', [string]$pct)
+        Start-Sleep -Milliseconds 300
+        $upTexts = @(@(& $transcript -Hwnd $Hwnd -Last 0 -IncludeFooter -ExePath $ExePath) | ForEach-Object { $_.Text })
+        $found = -1
+        for ($i = $upTexts.Count - 1; $i -ge 0; $i--) {
+            if ($upTexts[$i].IndexOf($AfterPrompt, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $found = $i; break }
+        }
+        if ($found -ge 0) {
+            $merged = New-Object System.Collections.Generic.List[string]
+            foreach ($m in @($upTexts | Select-Object -Skip ($found + 1))) { $merged.Add($m) }
+            foreach ($m in $bottomTexts) { if (-not $merged.Contains($m)) { $merged.Add($m) } }
+            $texts = $merged.ToArray()
+            $start = 0
+            $scrolledUp = $true
+            break
+        }
+    }
+    # leave the list where we found it: at the bottom
+    $null = Invoke-Cli @('scroll-container', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'session', '--verticalPercent', '100')
+}
+
 $footer = $null
 $replyParts = New-Object System.Collections.Generic.List[string]
 if ($start -ge 0) {
@@ -147,4 +180,6 @@ $clean = (-not $truncated) -and ($fullReply -match '(?im)^[ \t]*(\*\*)?NO ISSUES
     Truncated         = $truncated
     Busy              = $busy
     IsClean           = $clean
+    ScrolledUpToFindPrompt = $scrolledUp
+    PartialReply      = $scrolledUp
 }
