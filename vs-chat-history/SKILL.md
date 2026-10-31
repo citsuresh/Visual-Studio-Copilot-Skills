@@ -5,10 +5,13 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 5`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 6`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md` once at the start of a
   session (Step 0).
 - Changelog:
+  - v6 — adds `credits` (the credits the chat window shows, as the sum of `request_multiplier`) to
+    `usage`, `stats`, `usage-top` (`--by credits`) and `activity`; replaces the v5 advice not to
+    report credits. No existing step changed.
   - v5 — adds `events <id>` (bounded summary of a chat's event log: compactions, session-end
     facts, tool, skill and permission counts, aborts, subagents) and `activity` (turns, chats,
     requests and `nano_aiu` per day); states what the credits check found (`nano_aiu` is not the
@@ -90,10 +93,10 @@ names are `snake_case`. Every success has `ok`, `command`, `coverage` and `trunc
 | `chathistory show <id>` | one chat's details | `session`, `solution`, `solution_source`, `user_named`, `checkpoints[]` (`number`, `title`) |
 | `chathistory turns <id> [--index I \| --range A-B] [--max-chars N]` | read turns in small pieces | `turns[]`: `index`, `timestamp`, `user_message`, `assistant_response`, `truncated`; `total_turns` |
 | `chathistory checkpoints <id> [--full]` | a chat's checkpoints | `checkpoints[]`: `number`, `title`, `overview` (and with `--full` more fields) |
-| `chathistory usage <id> [--by-turn]` | token and cost figures of one chat | `recorded`, `total` / `main` / `subagents` (`requests`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `nano_aiu`, `duration_ms`), `first_at`, `last_at`, `by_model[]`, `by_turn[]` with `--by-turn` |
+| `chathistory usage <id> [--by-turn]` | token and cost figures of one chat | `recorded`, `total` / `main` / `subagents` (`requests`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `nano_aiu`, `credits`, `duration_ms`), `first_at`, `last_at`, `by_model[]`, `by_turn[]` with `--by-turn` |
 | `chathistory files <id> [--limit N]` | files a chat edited or created | `recorded`, `files[]`: `file_path`, `tool_name` (`edit`/`create`), `turn_index`, `first_seen_at` |
 | `chathistory files --path <text> [--limit N]` | which chats touched a file whose path contains the text (ASCII case-insensitive) | `sessions[]`: session id, title, file count, last turn; newest first |
-| `chathistory usage-top [--from DATE] [--to DATE] [--by requests\|tokens\|aiu] [--limit N]` | rank chats by usage in a period (default by `nano_aiu`) | `sessions[]`: `session_id`, `title`, `requests`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `reasoning_tokens`, `nano_aiu`, `last_at` |
+| `chathistory usage-top [--from DATE] [--to DATE] [--by requests\|tokens\|aiu\|credits] [--limit N]` | rank chats by usage in a period (default by `nano_aiu`) | `sessions[]`: `session_id`, `title`, `requests`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `reasoning_tokens`, `nano_aiu`, `last_at` |
 | `chathistory doctor` | read-only health report of the store (deletes nothing) | row and folder counts, rows without a folder, folders without a row, chats without turns or usage, the 10 largest event logs; counts are omitted (and `truncated` set) when the folder listing fails |
 | `chathistory events <id>` | what happened inside one chat, from its event log (never prints message text, tool arguments or paths) | `scan` (`complete`), `event_counts[]`, `tools[]`, `permission_kinds[]`, `skills[]`, `aborts`, `subagents_started`, `compaction_count`, `compactions[]` (prompt size before and after, trigger, limit), `shutdowns[]` (premium requests, `nano_aiu`, lines changed, context breakdown, per-model requests and cost) |
 | `chathistory activity [--from DATE] [--to DATE] [--limit N]` | turns, chats, requests and `nano_aiu` per day (UTC), newest first | `days[]` |
@@ -135,9 +138,13 @@ How to read results:
   one turn), not length. `subagents` are requests made by subagents of that chat; `main` are the
   chat's own. `nano_aiu` is the stored, token-metered cost unit. It is **not** the credits shown in
   the chat window (checked on 94 chats: there is no fixed conversion), so report the stored value
-  as `nano_aiu`, never convert it, and do not call it credits. The credit-like figure is the
-  premium-request count (`total_premium_requests` in `events` `shutdowns[]`), which exists per chat only
-  for chats whose log has a session-end event, and not per reply. `recorded: false` is a normal answer: the chat has no usage rows (about a
+  as `nano_aiu`, never convert it, and do not call it credits. The credits figure is `credits`:
+  the sum of `request_multiplier` over the requests, which matched the credits the chat window
+  shows after each reply on 6 of 6 turns checked (`usage --by-turn` gives it per turn). Quote the
+  `main` figure; subagent requests carry stored multipliers but the session-end data shows them
+  costing 0, so `subagents.credits` is unverified. `credits` is omitted (null) when the store has
+  no `request_multiplier` column; per chat, `events` `shutdowns[]` also has
+  `total_premium_requests`. `recorded: false` is a normal answer: the chat has no usage rows (about a
   quarter of chats have none), or the store has no usage table, or the table lacks a column the
   tool needs (`note` says whether the chat has no rows or the usage table is unavailable).
   Usage numbers are confidential in aggregate like the chats: report totals the user asked for.
