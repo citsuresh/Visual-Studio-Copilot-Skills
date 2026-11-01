@@ -14,7 +14,7 @@ add a case here AND check that `Watch-CopilotChatV2.ps1` merges it (`Add-Detail`
 | V1-02 | Two-question card | Pending, `MorePages` true | Pass (via V2 detail) |
 | V1-03 | Free-text card | Pending; `Question` from the field label | Pass: this Copilot showed radio options "Enter text" / "Skip", so `PromptKind` was ChoicePrompt, never FreeTextPrompt. The FreeTextPrompt branch (a bare `FormField` Edit with Submit/Cancel) is not run |
 | V1-04 | Tool permission prompt open | Pending, `PromptKind` PermissionPrompt, `Options` = the prompt's own buttons (not the chat header buttons) | Pass 2026-11-01 (toolkit window: Pending, PermissionPrompt, `Options` Allow this time / Deny, `Banners` empty) |
-| V1-05 | Workspace trust card ("Do you trust this folder?") | Pending, PermissionPrompt, buttons `Trust once` / `Do not trust` | Not run (passed in v4 testing, per the SKILL.md changelog) |
+| V1-05 | Workspace trust card ("Do you trust this folder?") | Pending, PermissionPrompt, buttons `Trust once` / `Do not trust` | Pass 2026-11-01 (a window opened on an untrusted folder, answered by nobody): Pending, PermissionPrompt, Question "Do you trust this folder?", Options `Trust once` / `Do not trust`; `Banners` also listed WorkspaceTrustWarningBanner ("Chat is disabled because this workspace is not trusted.", no buttons) next to the mismatch banner |
 | V1-06 | Plain-text question reply | `State` Idle, `AwaitingReply` true, `LastMessageTail` set, `Note` says Idle is not done | Pass |
 | V1-07 | Normal reply | Idle, `Completed` true, `CompletionFooter`, `LastMessage`, `AwaitingReply` false | Pass |
 | V1-08 | Reply with no completion footer | Idle only after `-IdleWithoutFooterPolls` stable polls, `Note` says to check the transcript | Not run |
