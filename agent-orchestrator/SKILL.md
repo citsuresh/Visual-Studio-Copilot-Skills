@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 12`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 13`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -129,6 +129,15 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     busy or after a footer is followed silently). `Invoke-CopilotReview.ps1` returns NoReply for it. Verified
     live on 2026-10-31 (switch at t=12 s detected at 17 s; a normal send into a new session stayed Idle). A
     missing or shared title cannot be detected: always confirm the reply with `Read-CopilotReply.ps1`.
+  - v13 - Three fixes to `Invoke-CopilotReview.ps1` found by live test cases (2026-11-01). The draft guard never
+    worked: it looked for an element named `Ask Copilot` (the input box itself, present with or without text), so
+    a draft in the input was overwritten; it now reads the Send button (enabled only when the input holds text). The
+    reference tag appended to each prompt was 8 hex digits and Copilot treated it as a git commit; it is now
+    letters only (`msg-xxxxxxxx`). A complete reply could end as `NoReply` / `ReadNotConfirmed` when the list
+    scroll position stopped short of the end; `Read-CopilotReply.ps1` now reports `NearEnd` and the wrapper returns
+    Done with a caveat in Reason once the footer was read. Live results for Send-CopilotPrompt S-07 to S-10 and
+    Invoke-CopilotReview IR-02 to IR-07 are in scripts\tests (all pass; a first run of S-09, S-10 and IR-02 failed
+    because of a mistake in the test script, not in the scripts).
 
 # Agent Orchestrator
 

@@ -102,6 +102,9 @@ if (-not $NoScroll) {
     }
 }
 else { $scrolled = $null }
+# The scroll position is counted in items and often stops a little short of 100 (for example 98.5) although the end is
+# showing. NearEnd (95 percent or more) lets a caller that has already seen the completion footer accept that case.
+$nearEnd = [bool]($scrolled -or ($null -ne $percent -and $percent -ge 95))
 
 # ---- 2. read every rendered message
 $items = @(& $transcript -Hwnd $Hwnd -Last 0 -IncludeFooter -ExePath $ExePath)
@@ -173,6 +176,7 @@ $clean = (-not $truncated) -and ($fullReply -match '(?im)^[ \t]*(\*\*)?NO ISSUES
 [pscustomobject]@{
     PromptFound       = ($start -ge 0)
     ScrolledToEnd     = $scrolled
+    NearEnd           = $nearEnd
     ScrollPercent     = $percent
     Reply             = $reply
     Footer            = $footer

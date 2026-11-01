@@ -12,10 +12,10 @@ unless stated.
 | S-04 | `-TitleContains` that matches several windows | `Sent` false, error lists the candidates, nothing typed | Pass (v6 testing) |
 | S-05 | Stale `-Hwnd` (Visual Studio restarted) | `Sent` false, error says the window no longer exists, nothing typed | Pass (v6 testing) |
 | S-06 | Neither `-Hwnd` nor `-TitleContains` | Throws "Pass -Hwnd or -TitleContains." | Pass (v6 testing) |
-| S-07 | Chat tab hidden behind another tab (Git Changes) in the same pane | The script selects the `Chat` tab itself and sends | Pass: toolkit window, V2 said NotVisible before the send; send took 34 s |
-| S-08 | Chat tab selected but only the session list shows (no input) | Clicks "Create new session", waits up to 30 s for the input, sends | Not run |
-| S-09 | `-NewSession` | Creates a session first, waits up to 30 s for its input, sends | Not run since v7 (the step existed earlier; not re-verified) |
-| S-10 | `-NoNavigate` with the chat input missing | `Sent` false, "The chat input is not showing (-NoNavigate was given). Nothing was typed." | Not run (code review only) |
+| S-07 | Chat tab hidden behind another tab (Git Changes) in the same pane | The script selects the `Chat` tab itself and sends | Pass 2026-10-31 (toolkit window, V2 said NotVisible before the send) and 2026-11-01 (send ok after the chat was shown) |
+| S-08 | Chat tab selected but only the session list shows (no input) | Clicks "Create new session", waits up to 30 s for the input, sends | Pass 2026-11-01 (toolkit chat: Back to the session list, then send: the script created a session itself, the reply was S08) |
+| S-09 | `-NewSession` | Creates a session first, waits up to 30 s for its input, sends | Pass 2026-11-01 (toolkit chat: new session, first attempt, reply S09) |
+| S-10 | `-NoNavigate` with the chat input missing | `Sent` false, "The chat input is not showing (-NoNavigate was given). Nothing was typed." | Pass 2026-11-01 (toolkit chat: session list showing, Sent false, "The chat input is not showing (-NoNavigate was given). Nothing was typed.", the prompt never appeared) |
 | S-11 | Workspace banner showing | `Sent` false, names the banner, nothing typed, unless `-IgnoreBanners` | Pass (v4 testing) |
 | S-12 | Another app holds the foreground and focus stealing is blocked | `Sent` false, "Could not bring the target window to the foreground ... Nothing was typed" after retries; never types into the wrong window | Pass: seen repeatedly, nothing typed in any failure |
 | S-13 | Input already holds a draft | Script clears the input first, destroying the draft: callers must check (Invoke-CopilotReview does) | Known behavior; guarded in the wrapper |

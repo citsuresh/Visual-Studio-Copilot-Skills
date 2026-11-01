@@ -18,7 +18,7 @@
       4. A tool permission prompt or question card is never answered here: the call returns
          Status NeedsUser with the question and options so the person can answer it.
       5. When the chat goes idle, Read-CopilotReply.ps1 scrolls to the end and returns the reply after
-         the tag. The reply counts as complete only with a completion footer and the stop button gone.
+         the tag. The reply counts as complete only with a completion footer and the stop button gone; if the list scroll position does not reach its end, Done is still returned after several reads, with that caveat in Reason.
 
     Review mode (-Review) wraps the prompt in the standard review-only rules and asks for a ranked
     numbered list or the exact sentence NO ISSUES REMAIN; IsClean is true for that sentence.
@@ -129,6 +129,14 @@ if (-not $Hwnd) {
     $Hwnd = $wins[0].Hwnd
 }
 
+# Walks an inspect tree for the node with the given AutomationId.
+function Find-UiNode($node, [string]$id) {
+    if ($null -eq $node) { return $null }
+    if ($node.AutomationId -eq $id) { return $node }
+    foreach ($c in @($node.Children)) { $x = Find-UiNode $c $id; if ($x) { return $x } }
+    $null
+}
+
 # ---- 2. is the chat showing, and is the input empty?
 $listShown = Invoke-Cli @('find-first', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'session')
 $inputEmpty = Invoke-Cli @('find-first', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', 'Ask Copilot')
@@ -136,8 +144,15 @@ $chatVisible = ($listShown -and $listShown.found) -or ($inputEmpty -and $inputEm
 if (-not $chatVisible) {
     return New-Result 'NotSent' 'ChatNotVisible: the chat pane is not showing in that window (another tab, such as Git Changes, may be active). Nothing was sent.'
 }
-if (-not ($inputEmpty -and $inputEmpty.found) -and -not $OverwriteInput) {
-    return New-Result 'NotSent' 'InputNotEmpty: the chat input holds text (possibly a draft). Nothing was sent; use -OverwriteInput to replace it.'
+# The element named "Ask Copilot" is the input box itself and exists whether or not it holds text, and get-text returns its
+# name, not its content. The Send button's enabled state does follow the content: disabled when the input is empty,
+# enabled when text is typed (checked live on 2026-11-01), so use it to detect a draft.
+if (-not $OverwriteInput) {
+    $sendTree = Invoke-Cli @('inspect', '--hwnd', $Hwnd, '--nameContains', 'Send', '--controlType', 'Button', '--maxDepth', '25')
+    $sendBtn = Find-UiNode $sendTree.root 'SendButton'
+    if ($sendBtn -and $sendBtn.IsEnabled) {
+        return New-Result 'NotSent' 'InputNotEmpty: the chat input holds text (possibly a draft). Nothing was sent; use -OverwriteInput to replace it.'
+    }
 }
 
 # ---- 3. build the prompt (one paragraph, unique tag) and send it
@@ -146,8 +161,9 @@ if ($Review) {
     $text = 'Review only: do not edit any file, do not commit, do not push, do not run git commands that change anything. ' + $text +
         ' Reply with a short numbered list ranked by severity with file and line and a suggested fix, or say clearly: NO ISSUES REMAIN.'
 }
-$tag = 'ref ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
-$text = "$text ($tag)"
+# Letters only, so it cannot be mistaken for a git commit hash (an 8-digit hex tag made Copilot try to resolve it as a ref).
+$tag = 'msg-' + (-join ((97..122) | Get-Random -Count 8 | ForEach-Object { [char]$_ }))
+$text = "$text (${tag}: a label to find this message again, ignore it)"
 
 $send = & (Join-Path $PSScriptRoot 'Send-CopilotPrompt.ps1') -Hwnd $Hwnd -Quiet -Text $text -ExePath $ExePath
 if (-not $send.Sent) {
@@ -225,17 +241,19 @@ do {
     }
     if ($w -and $w.State -eq 'Idle') {
         $r = & $read -Hwnd $Hwnd -AfterPrompt $tag -MaxReplyChars $MaxReplyChars -ExePath $ExePath
-        if ($r.PromptFound -and $r.Footer -and -not $r.Busy -and $r.ScrolledToEnd) {
+        if ($r.PromptFound -and $r.Footer -and -not $r.Busy -and ($r.ScrolledToEnd -or $r.NearEnd)) {
             return New-Result 'Done' 'Reply complete (completion footer present, stop button gone, chat list confirmed at its end).' @{
                 Reply = $r.Reply; Footer = $r.Footer; IsClean = $r.IsClean; ScrolledToEnd = $r.ScrolledToEnd
             }
         }
-        if ($r.PromptFound -and $r.Footer -and -not $r.Busy -and -not $r.ScrolledToEnd) {
+        if ($r.PromptFound -and $r.Footer -and -not $r.Busy -and -not ($r.ScrolledToEnd -or $r.NearEnd)) {
             # The reply looks complete but the list was not confirmed at its end, so a later part may be unseen: read again.
             $unconfirmed++
             if ($unconfirmed -ge 3) {
-                return New-Result 'NoReply' 'ReadNotConfirmed: the reply looked complete but the chat list could not be confirmed at its end after several reads.' @{
-                    Reply = $r.Reply; Footer = $r.Footer; ScrolledToEnd = $r.ScrolledToEnd
+                # The completion footer was read after our prompt and the stop button is gone, so the reply is finished. The list scroll
+                # position (counted in items) can stay short of its end after a very tall last message; say so instead of failing.
+                return New-Result 'Done' 'Reply complete (completion footer read, stop button gone). The list scroll position did not reach its end, so a middle part of a very long reply may be missing; read the full text in the chat if it matters.' @{
+                    Reply = $r.Reply; Footer = $r.Footer; IsClean = $r.IsClean; ScrolledToEnd = $r.ScrolledToEnd
                 }
             }
             Start-Sleep -Seconds 5
