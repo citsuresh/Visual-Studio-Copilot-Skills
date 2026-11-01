@@ -70,4 +70,21 @@ What this shows:
 - A main-chat call costs about $0.085 here, and the length of the wait inside the call costs nothing. So the number of calls matters, not the minutes waited. This is the same size as at a 400,000-token context (about $0.1 per call), so cached context re-reads do not make a large chat much dearer per call.
 - A sub-agent costs about 50,000 tokens of its own start-up context plus the main chat's launch and report calls: $0.15 to $0.37 per run in the other chat's measurements, so likely $0.3 to $0.4 here.
 - The cheapest long wait is ONE background command with one long watcher call (`Watch-CopilotChatV2.ps1 -TimeoutSeconds` accepts up to 7200), which ends with one completion notice: two calls in all, about the cost of the run above, whatever the duration. Repeated foreground polls (one call per 5 minutes) and a sub-agent are both dearer for any wait that needs more than two calls.
-- Not measured: a task that runs 10 minutes or more (Copilot answered the heaviest controlled prompt in 151 s), so the claim that a single background wait costs the same however long it is rests on how the scripts work, not on a long run.
+- A task that runs 10 minutes or more was measured afterwards (see the next addendum).
+
+## Addendum 2026-11-01: a wait of more than 10 minutes
+
+One sample. Setup: the orchestrating Claude chat (context about 184,000 tokens, 18 percent of the window) sent one prompt to a Copilot chat that it owned: run `Start-Sleep -Seconds 660` in the terminal, wait, reply with one word. A single background script sent the prompt and ran ONE `Watch-CopilotChatV2.ps1 -RequireBusyFirst -TimeoutSeconds 1800` call, and the orchestrating chat ended its turn and did nothing until the completion notice.
+
+| Measure | Result |
+| --- | --- |
+| Watcher result | Idle, `ElapsedSeconds` 672, `Polls` 135, `BusySeen` true, probe median 267 ms |
+| Total wall time from send to reply | 679 s (about 11.3 minutes) |
+| Reply | DONE (the Copilot terminal tool did not cut the 11-minute command off) |
+| Orchestrating chat context | 184,400 before, 188,510 after: +4,110 tokens |
+| Spend | $14.60 before, $14.75 after: +$0.15 |
+
+What this shows:
+- The wait itself used no tokens and no calls. The background command was not cut off at 10 minutes, so a watcher with a 1,800 s limit can wait past that.
+- The context and spend deltas are an upper bound for the wait: they also include this chat's other messages in the same interval (questions and explanations with the user), not only the send, the notice and the result read.
+- One sample, rough (the spend counter lags). A wait of an hour or more was not tried.
