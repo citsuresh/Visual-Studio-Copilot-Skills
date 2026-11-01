@@ -36,7 +36,7 @@ window) or `not run` with the reason. Never write "pass" for something that was 
 
 ## Scenarios that need setup you cannot always get
 
-- Tool permission prompts ("Do you allow Copilot to ...?"): impossible when tools are auto-approved.
+- Tool permission prompts ("Do you allow Copilot to ...?"): need Copilot's tool approvals set to ask. A prompt appeared for listing a folder outside the workspace once approvals were set to ask; reads there and a plain `echo` were auto-approved before that. Choosing "Always allow" changes a lasting setting: do it only when the user asks.
 - Workspace banners (folder mismatch / untrusted folder): need a window whose open folder differs from the session's.
 - A chat list scrolled up while a card is open.
 Mark these `not run` with the reason until someone sets them up.
