@@ -21,7 +21,7 @@ add a case here AND check that `Watch-CopilotChatV2.ps1` merges it (`Add-Detail`
 | V1-09 | `-RequireWorkingFirst -StartGraceSeconds 100` on an idle chat, `-TimeoutSeconds 12` | `State` Timeout at about 12 s | Pass |
 | V1-10 | `-ProgressFile <path>` | Every `[poll ...]` line also appended to the file | Pass (7 lines) |
 | V1-11 | `-NotifyOnDone` | Three rising beeps when the watch ends | Code path only; not verified by ear |
-| V1-12 | Banner showing (`HarnessWorkspaceMismatchBanner`, `WorkspaceTrustWarningBanner`) | `Banners` lists Id, Text, Buttons in any state | Not run: needs a mismatched window (passed in v4 testing) |
+| V1-12 | Banner showing (`HarnessWorkspaceMismatchBanner`, `WorkspaceTrustWarningBanner`) | `Banners` lists Id, Text, Buttons in any state | Pass 2026-11-01 (skills window, session folder differs from the open folder): `Banners` = HarnessWorkspaceMismatchBanner with its text and buttons `Update working directory` / `Close message`; State Idle; nothing clicked |
 | V1-13 | `-AsJson` | JSON object on the output stream; per-poll lines go to the console stream (V2 drops them with `6>$null`) | Pass |
 | V1-14 | `-Hwnd` of a closed window | Defined behavior: today V1 loops on "no parseable data" until Timeout (V2 reports WindowGone at once) | Not run; known weakness |
 | V1-15 | Probe cost | About 4 s per poll and high CPU on a long chat | Observed earlier (about 70 % of a core at 5 s) |
