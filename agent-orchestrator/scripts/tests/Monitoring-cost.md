@@ -56,3 +56,18 @@ Whole rounds, for scale (everything in the round: Copilot builds, two or three r
 | Switching to a new chat mid-wait | **Limitation found** | The user clicked New chat about 9 s into a task. The stop button vanished, the watcher kept probing the new empty chat without errors (probes got faster: about 140 ms), and after its 20 s quiet period it reported `Idle` with the note "No stop button and no prompt for the quiet period", while the original chat was still working. The watcher follows the visible chat pane, not one conversation. The note text differs from a normal finish ("the chat ends in a completion footer"), and the documented rule applies: always confirm the reply with `Read-CopilotReply.ps1` before trusting `Idle`. |
 | `ProbeError` | Not tested | Needs repeated probe failures while the window still exists; no safe way to induce it. |
 | Stale-pane retry (probe exception on a replaced pane) | Not triggered | Switching chats did not raise a probe exception; the pane was found again on the next probe. |
+
+## Addendum 2026-11-01: measured in the orchestrating chat itself (large context)
+
+One sample, rough (the spend counter lags and includes this chat's own calls). Setup: the orchestrating Claude chat had a 741,727-token context (74 percent of the window). It sent a long task (review every .cs file, two sentences each) and waited with ONE foreground call: `Watch-CopilotChatV2.ps1 -RequireBusyFirst -TimeoutSeconds 280 -NoDetail`, which returned Idle after 151 s.
+
+| Measure | Before | After | Delta |
+| --- | --- | --- | --- |
+| Spend | $10.53 | $10.70 | +$0.17 for two tool calls (the send-and-wait call and the usage read) |
+| Context | 741,727 | 744,543 | +2,816 tokens |
+
+What this shows:
+- A main-chat call costs about $0.085 here, and the length of the wait inside the call costs nothing. So the number of calls matters, not the minutes waited. This is the same size as at a 400,000-token context (about $0.1 per call), so cached context re-reads do not make a large chat much dearer per call.
+- A sub-agent costs about 50,000 tokens of its own start-up context plus the main chat's launch and report calls: $0.15 to $0.37 per run in the other chat's measurements, so likely $0.3 to $0.4 here.
+- The cheapest long wait is ONE background command with one long watcher call (`Watch-CopilotChatV2.ps1 -TimeoutSeconds` accepts up to 7200), which ends with one completion notice: two calls in all, about the cost of the run above, whatever the duration. Repeated foreground polls (one call per 5 minutes) and a sub-agent are both dearer for any wait that needs more than two calls.
+- Not measured: a task that runs 10 minutes or more (Copilot answered the heaviest controlled prompt in 151 s), so the claim that a single background wait costs the same however long it is rests on how the scripts work, not on a long run.

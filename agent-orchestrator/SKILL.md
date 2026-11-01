@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 13`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 14`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -138,6 +138,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     Done with a caveat in Reason once the footer was read. Live results for Send-CopilotPrompt S-07 to S-10 and
     Invoke-CopilotReview IR-02 to IR-07 are in scripts\tests (all pass; a first run of S-09, S-10 and IR-02 failed
     because of a mistake in the test script, not in the scripts).
+  - v14 - Step 3 says how to wait cheaply: one long background watcher call and its completion notice (two calls in
+    all, whatever the duration), not repeated short polls and not a monitoring sub-agent. Based on measurements in
+    `scripts\tests\Monitoring-cost.md` (a call costs about the same at a 400,000- and a 740,000-token context; a
+    sub-agent adds about 50,000 tokens of start-up). Documentation only; no script changed. Not measured: a wait of
+    10 minutes or more.
 
 # Agent Orchestrator
 
@@ -412,6 +417,8 @@ that finish before the first poll (`WorkingSeen: false` in the result tells you 
 ```powershell
 .\Watch-CopilotChatV1.ps1 -Hwnd 0x691588 -RequireWorkingFirst -TimeoutSeconds 300 -PollIntervalSeconds 12
 ```
+
+How to wait cheaply: the cost of a wait is the number of tool calls, not the minutes (measured, see `scripts\tests\Monitoring-cost.md`). Start ONE long watcher call as a background command (`Watch-CopilotChatV2.ps1 -TimeoutSeconds 1800` or more; it accepts up to 7200) and end your turn: its completion notice is the only other call. Do not poll with repeated short foreground calls, and do not start a monitoring sub-agent just to wait; a sub-agent costs about 50,000 tokens of start-up on top of the launch and report calls.
 
 **Idle is not always "done".** An agent can end its turn by asking for approval in plain text, with
 no card, and that looks exactly like a finished task. When the last message ends with a question
