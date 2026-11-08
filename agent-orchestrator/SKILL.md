@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 15`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 16`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -158,6 +158,10 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     lasting-permission refusal paths, and the shared title lookup with several matches. NOT tested live: `-MenuItem`
     on a real prompt, `Set-ChatScroll.ps1` on a real chat, the foreground retry message, `-TitleContains` against a
     live chat.
+  - v16 - Documentation only, from a long live session: Step 2 now says not to send while the chat is working
+    (the Send button becomes Stop, so the send script fails after pasting and leaves the text unsent) and to keep
+    each Copilot round small (one item per prompt, a separate cheap read-only review prompt, one full test run per
+    round). No script changed.
 
 # Agent Orchestrator
 
@@ -356,6 +360,22 @@ shows a working-directory mismatch or untrusted-workspace banner (see Step 4); d
   ("do not touch files X, Y; do not commit, stage or push"), and what counts as blocked ("stop
   and report only if a build, test or permission prevents progress"). Only pre-approve what the
   user has authorized; commit and push need the user's explicit say-so.
+- **Do not send while the chat is working.** During a run Visual Studio replaces the Send button
+  with Stop, so `Send-CopilotPrompt.ps1` fails with `element-not-found ... SendButton` after it
+  has already pasted the text: the prompt sits unsent in the input box. Wait for the watcher to
+  report Idle, then send. Never press Enter or click Stop to force it; Stop cancels the work in
+  progress. (In one observed case the pasted text was later submitted as a queued message with
+  no action from the script, but do not rely on that.) Leftover pasted text is harmless: the
+  script clears the input and re-pastes on the next send.
+- **Keep each Copilot round small.** Give one work item per prompt, with its acceptance checks.
+  Rounds that bundled several items, plus their own audits and repeated full test runs, took
+  20 to 25 minutes and 50 to 85 credits each, and one stretch produced a single huge streamed tool
+  call that looked like a hang (the Copilot log under `%TEMP%\VSGitHubCopilotLogs` showed it was
+  still streaming). A read-only review of an existing diff took under 8 minutes and 3 to 8
+  credits and found real defects, so prefer: implement small, then a separate read-only review
+  prompt ("do not edit, build or run tests; ranked findings only, at most N"), then fix. Tell the
+  agent to run the full test suite once per round, after its last edit, and to repeat it only
+  before the final report of a work item and only if files changed since the last green run.
 
 The raw equivalent, for fallback:
 

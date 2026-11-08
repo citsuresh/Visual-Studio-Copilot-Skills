@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 14`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 15`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -69,6 +69,9 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     the real cursor, scrolls the window under it, stops if the cursor or foreground window changes,
     needs verification of the result. Removes the "no wheel scroll" gap; the line in the
     `scroll-into-view` primitive about no mouse-wheel fallback still describes that verb only.
+  - v15 — Records the verified accessibility fix: `--force-renderer-accessibility` on a throwaway
+    VS Code Insiders instance raised the UIA tree from 14 to 181 nodes and made selectors work.
+    Notes that it is a launch argument, exposes full content, and is untested on the Claude app.
 
 # UI Interaction
 
@@ -274,7 +277,17 @@ agent-orchestrator loads it from here.
   stop UIA probing after that result. Tell the user immediately: “UIA cannot read this app;
   screenshot and coordinates only.” Continue screenshot-first; do not keep retrying selectors.
   Never relaunch the app or enable accessibility without the user's approval, because that can
-  expose chat content. `--force-renderer-accessibility` is untested.
+  expose chat content.
+- **Root fix, verified on a throwaway app.** Launching an Electron/Chromium app with
+  `--force-renderer-accessibility` turns its accessibility tree on. On a throwaway VS Code
+  Insiders instance (temporary profile, extensions off) the same `inspect` went from 14 UIA
+  nodes (window frame only, 3 buttons, no edit controls) to 181 (37 named buttons, an edit
+  control and documents), `find-all` and Name-selector `click` then worked, and toggling a panel
+  by selector changed the tree. It is a launch argument: the app must be (re)started with it, it
+  cannot be switched on for a running instance, and it exposes the app's full content (chat text
+  included) to every UIA client, so it needs the user's approval. Untested on the Claude desktop
+  app itself, and relaunching that app ends the sessions running inside it; try any such change
+  on a throwaway instance first.
 - **Dead or replaced window.** A hwnd that no longer exists returns `window-gone` (older builds:
   `window-not-responding`), for example after an app restart. Re-run
   `list-windows --processName <name>` to find the current hwnd and pid, then take a fresh
