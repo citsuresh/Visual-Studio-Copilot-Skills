@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 15`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 16`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -72,6 +72,11 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
   - v15 — Records the verified accessibility fix: `--force-renderer-accessibility` on a throwaway
     VS Code Insiders instance raised the UIA tree from 14 to 181 nodes and made selectors work.
     Notes that it is a launch argument, exposes full content, and is untested on the Claude app.
+  - v16 — Corrects a misdiagnosis in v12-v15: the Claude desktop window was not opaque. The default
+    `--maxDepth 8` of `inspect` and `read-visible-text` stops above the page content (the chat input
+    is at depth 16; `read-visible-text` gave 6 lines at depth 8 and 272 at depth 30). The section now
+    says to probe deep and filtered (`--maxDepth 30`) before calling a window opaque, and keeps the
+    screenshot-first fallback and the accessibility-flag result for windows that stay frame-only.
 
 # UI Interaction
 
@@ -271,23 +276,34 @@ agent-orchestrator loads it from here.
   `window-not-responding` from the shared responsiveness check). Narrow ambiguous matches/scopes
   rather than choosing one silently.
 
-### Opaque windows: screenshot-first fallback
+### Electron and opaque windows: probe deep, then screenshot-first
 
-- If one initial `inspect` or `find-all` probe returns only the window frame and no app content,
-  stop UIA probing after that result. Tell the user immediately: “UIA cannot read this app;
-  screenshot and coordinates only.” Continue screenshot-first; do not keep retrying selectors.
-  Never relaunch the app or enable accessibility without the user's approval, because that can
-  expose chat content.
-- **Root fix, verified on a throwaway app.** Launching an Electron/Chromium app with
+- **Probe deep before calling a window opaque.** `inspect` and `read-visible-text` default to
+  `--maxDepth 8`, but an Electron/Chromium window nests its page content far below that. On the
+  Claude desktop app the web page starts around depth 9, the chat input (`Edit`, name `Prompt`,
+  with ValuePattern and TextPattern) is at depth 16, and `read-visible-text` returned 6 lines at
+  depth 8, 91 at depth 16 and 272 at depth 30. A result with only the window frame (Minimize,
+  Restore, Close, empty Pane/View nodes) at the default depth does **not** show the app is
+  opaque; this exact mistake produced an earlier "UIA cannot read Claude" conclusion. First
+  re-probe once, deep and filtered: `inspect --maxDepth 30 --controlType Edit` (or
+  `--nameContains <label>`, or `--controlType Button`) and `read-visible-text --maxDepth 30`.
+  Filtered output is a pruned tree, so it stays small. Chromium builds its accessibility tree
+  lazily, so if a deep probe still shows only the frame, probe once more after a few seconds
+  before deciding.
+- **Only if a deep filtered probe still returns just the window frame** is the app opaque.
+  Then stop UIA probing, tell the user immediately (“UIA cannot read this app; screenshot and
+  coordinates only”), and continue screenshot-first without retrying selectors. Never relaunch
+  the app or enable accessibility without the user's approval, because that can expose chat
+  content.
+- **Root fix for a truly opaque Electron app, verified on a throwaway app.** Launching it with
   `--force-renderer-accessibility` turns its accessibility tree on. On a throwaway VS Code
-  Insiders instance (temporary profile, extensions off) the same `inspect` went from 14 UIA
-  nodes (window frame only, 3 buttons, no edit controls) to 181 (37 named buttons, an edit
+  Insiders instance (temporary profile, extensions off) the same depth-14 `inspect` went from 14
+  UIA nodes (window frame only, 3 buttons, no edit controls) to 181 (37 named buttons, an edit
   control and documents), `find-all` and Name-selector `click` then worked, and toggling a panel
   by selector changed the tree. It is a launch argument: the app must be (re)started with it, it
   cannot be switched on for a running instance, and it exposes the app's full content (chat text
-  included) to every UIA client, so it needs the user's approval. Untested on the Claude desktop
-  app itself, and relaunching that app ends the sessions running inside it; try any such change
-  on a throwaway instance first.
+  included) to every UIA client, so it needs the user's approval. The Claude desktop app did not
+  need it: its tree was readable once probed deeply.
 - **Dead or replaced window.** A hwnd that no longer exists returns `window-gone` (older builds:
   `window-not-responding`), for example after an app restart. Re-run
   `list-windows --processName <name>` to find the current hwnd and pid, then take a fresh
