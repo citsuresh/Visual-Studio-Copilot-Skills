@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 13`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 14`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -65,6 +65,10 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     `send-keys` and `paste-text`. Adds guidance to look at as little as possible and to compare
     pixels locally before viewing. `Invoke-ScreenClick` is kept for older builds. Wheel scroll
     remains unsupported.
+  - v14 — Documents the mouse-wheel `scroll` verb / `ui_scroll` (toolkit commit `9f609c7`): moves
+    the real cursor, scrolls the window under it, stops if the cursor or foreground window changes,
+    needs verification of the result. Removes the "no wheel scroll" gap; the line in the
+    `scroll-into-view` primitive about no mouse-wheel fallback still describes that verb only.
 
 # UI Interaction
 
@@ -321,8 +325,16 @@ agent-orchestrator loads it from here.
   Left|Right] [-Double]`, DPI-aware, wrapped in the red cursor). The new CLI verbs also reach the
   MCP tools (`ui_click` with `x`/`y`, `ui_paste_text`, `--region`/`--scale`) only after the MCP
   server is rebuilt and restarted, which needs the sessions that use it closed.
-- **Still missing.** There is no supported mouse-wheel scroll; a direct wheel event was tried once
-  and its effect is unconfirmed.
+- **Scrolling.** `scroll --hwnd <h> --direction up|down|left|right [--clicks 1..50]` (MCP
+  `ui_scroll`; toolkit commit `9f609c7`) sends mouse-wheel notches with no UI Automation, so it
+  works where `scroll-container` and `scroll-into-view` cannot. It brings the window to the
+  foreground, **moves the user's real cursor** to the window center (or to `--x/--y`, which must be
+  inside the window like a coordinate click) and scrolls whatever window is under it, so a window
+  covering that point would receive the wheel. It stops if the cursor is moved by the user or by a
+  clip rectangle, or if the foreground window changes; do not touch the mouse while it runs. Success
+  means the input was sent, so verify the view changed (for example by comparing cropped
+  screenshots before and after). How far the content moves per notch is up to the application. On
+  an older build there is no wheel scroll.
 - **Data handling.** Screenshots can contain confidential content: capture only what the task
   needs, and delete only screenshot files whose paths your own calls returned.
 
