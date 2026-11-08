@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 12`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 13`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -59,6 +59,12 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     is available, and always stop the session when monitoring or a multi-step run ends.
   - v12 — Adds a screenshot-first fallback for opaque windows, restart-safe window rediscovery,
     physical-pixel coordinate guidance, and the optional `Invoke-ScreenClick` helper.
+  - v13 — Rewrites the opaque-window section for the toolkit's new verbs (commits `3e63f7d`,
+    `57c821f`, `07fe1d2`, `66b4441`): coordinate `click`/`right-click`/`double-click` with bounds
+    check, `window-gone`, screenshot `windowRect`/`dpiScale` with `--region`/`--scale`, selector-free
+    `send-keys` and `paste-text`. Adds guidance to look at as little as possible and to compare
+    pixels locally before viewing. `Invoke-ScreenClick` is kept for older builds. Wheel scroll
+    remains unsupported.
 
 # UI Interaction
 
@@ -250,12 +256,13 @@ agent-orchestrator loads it from here.
   `ItemContainerPattern.FindItemByProperty` and `Realize` before a scroll-search from the top;
   success requires `fullyVisible: true`. Horizontal virtualization is not searched, and no
   mouse-wheel fallback is implemented.
-  Errors: `invalid-argument`, `window-not-responding`, `element-not-found`, `stale-context`,
+  Errors: `invalid-argument`, `window-gone`, `window-not-responding`, `element-not-found`, `stale-context`,
   `container-not-found`, `ambiguous-container`, `not-scrollable`, `ambiguous-match`, `timeout`,
   `element-not-found-after-scroll`, `scroll-provider-error`. `element-not-found` means the hwnd
   has no window; `element-not-found-after-scroll` means the element was not found or disappeared
-  after scrolling. A dead or closed hwnd can return `window-not-responding` from the shared
-  responsiveness check. Narrow ambiguous matches/scopes rather than choosing one silently.
+  after scrolling. A dead or closed hwnd returns `window-gone` on current builds (older builds:
+  `window-not-responding` from the shared responsiveness check). Narrow ambiguous matches/scopes
+  rather than choosing one silently.
 
 ### Opaque windows: screenshot-first fallback
 
@@ -264,32 +271,60 @@ agent-orchestrator loads it from here.
   screenshot and coordinates only.” Continue screenshot-first; do not keep retrying selectors.
   Never relaunch the app or enable accessibility without the user's approval, because that can
   expose chat content. `--force-renderer-accessibility` is untested.
-- After an app restart, the old hwnd may return `window-not-responding` because the window was
-  replaced. Re-run `list-windows --processName <name>` to find the current hwnd and pid, then take
-  a fresh screenshot before any click. Do not reuse the old hwnd or an earlier screenshot.
-- Capture a fresh screenshot (for example, `inspect --screenshot true`) to identify targets,
-  then use the available absolute-coordinate actions: `activate`, `move-mouse --x/--y`,
-  `drag --targetX/--targetY`, `get-cursor-pos`, and `wait-for-window-change`. Selector-based
-  `click`, `type`, and `scroll-*` are not usable when app content is absent from UIA.
-  `send-keys` still requires a selector; using
-  `send-keys --focusMode none` with a window-name selector is untested.
-- **Coordinate recipe:** call `SetProcessDPIAware` before mapping screenshot pixels to screen
-  coordinates. Coordinates are physical pixels; for a screenshot of the whole window,
-  `screenX = windowLeft + screenshotPixelX` and
-  `screenY = windowTop + screenshotPixelY`. Use the window's current screen position, and do not
-  guess if the screenshot origin or scale is uncertain. Take a screenshot immediately before
-  each coordinate click and another immediately after it to verify the result; menus and lists
-  can move between captures.
-- The CLI has no coordinate-click verb. The optional helper
-  `scripts\Invoke-ScreenClick.ps1` can be dot-sourced and called as
-  `Invoke-ScreenClick -X <screenX> -Y <screenY> [-Button Left|Right] [-Double]`. It sets
-  process DPI awareness, moves to the absolute screen point, dispatches the click, and wraps
-  input in `Enable-AgentCursor` / `Restore-AgentCursor`. Dispatch is not proof the intended
-  target acted; verify from a fresh screenshot.
-- Capture only the screenshot content needed for the task. Delete only screenshot files whose
-  paths were returned by your own calls. There is no coordinate-click verb, `send-keys` requires
-  a selector, and mouse-wheel scrolling has no supported primitive; a direct wheel event was
-  tried once but its effect is unconfirmed.
+- **Dead or replaced window.** A hwnd that no longer exists returns `window-gone` (older builds:
+  `window-not-responding`), for example after an app restart. Re-run
+  `list-windows --processName <name>` to find the current hwnd and pid, then take a fresh
+  screenshot before any click. Do not reuse the old hwnd or an earlier screenshot.
+  `window-not-responding` now means the window exists but is hung.
+- **Seeing.** `screenshot --hwnd <h>` returns `screenshotPath` plus `windowRect` (left, top, right,
+  bottom, physical screen pixels), `imageWidth`, `imageHeight` and `dpiScale`. Do not look at a
+  full-window image when a small one answers the question: `--region x,y,w,h` (window image
+  pixels, inside the window) saves only that part, and `--scale 0.1..1.0` shrinks it. Look at as
+  little as the next decision needs, and for "did anything change?" compare before and after
+  pixels in a script before viewing either image. `inspect --screenshot` is unchanged. The capture
+  normally renders the target window itself, but if that fails the toolkit falls back to copying
+  the screen area, which also captures any window covering the target (a cropped image included):
+  keep the target unobscured when you depend on a capture.
+- **Coordinate recipe.** Coordinates are physical pixels. For an unscaled image,
+  `screenX = windowRect.left + imagePixelX` and `screenY = windowRect.top + imagePixelY`; with
+  `--region`/`--scale`, `screenX = windowRect.left + region.x + imagePixelX / scale` (likewise
+  y; ceiling rounding makes this approximate by up to one pixel). `windowRect` includes the
+  invisible resize border, so a maximized window sits at about −11,−11 and its image is larger
+  than the visible area. Do not multiply by `dpiScale` again. Geometry is only meaningful for a
+  visible window (a minimized window reports a rectangle near −32000).
+- **Acting by coordinates.** `click`, `right-click` and `double-click` accept `--x/--y` instead of
+  a selector (never both). The point must lie inside the `--hwnd` window rectangle, checked before
+  activation for a non-minimized window and again after activation or restore; pass
+  `--allowOutsideWindow` only deliberately. A point inside the rectangle can still hit another
+  window covering it. Also available: `activate`, `move-mouse --x/--y`, `get-cursor-pos` (a
+  cheap, image-free check that the pointer is at the intended point; it does not say which window
+  or control received a click, so still verify the effect) and `wait-for-window-change`.
+  `drag` is not an opaque-window tool: its source still needs `--strategy/--value`; only the
+  destination can be `--targetX/--targetY`. Take a screenshot immediately before each coordinate action and
+  verify the result afterwards; menus and lists move between captures.
+- **Keys and text without a selector.** `send-keys --hwnd <h> --keys <...>` with no
+  `--strategy/--value` sends keys to whatever has focus in that window (explicit `--hwnd`
+  required; `--scopeHwnd` not allowed; `--focusMode`, if given, must be `none`). Put focus first,
+  for example with a coordinate click. `paste-text --hwnd <h> --text <...>` pastes text (newlines
+  allowed) with Ctrl+V and restores the previous clipboard after `--restoreDelayMs` (default 300;
+  a wait, not a guarantee). If the target reads the clipboard later than that, **it pastes the
+  restored previous clipboard instead of your text, possibly unrelated or confidential content,
+  while the call still reports success**: raise the delay for a slow target and always verify what
+  landed. Use it for multi-line or special-character text, because `send-keys` breaks on
+  `+ ^ % ~ { }`. Check both `clipboardRestored` (`false`: the user's clipboard was replaced and
+  could not be put back) and `clipboardSnapshotComplete` (`false`: the previous clipboard was not
+  preserved in full; an omitted `clipboardRestored` then does not mean it was empty). MCP:
+  `ui_send_keys` (selector optional) and `ui_paste_text`. Success means keys were sent, not that
+  the text landed: verify with a cropped screenshot.
+- **Older builds.** Without toolkit commit `3e63f7d` there is no coordinate click: use
+  `scripts\Invoke-ScreenClick.ps1` (dot-source; `Invoke-ScreenClick -X <x> -Y <y> [-Button
+  Left|Right] [-Double]`, DPI-aware, wrapped in the red cursor). The new CLI verbs also reach the
+  MCP tools (`ui_click` with `x`/`y`, `ui_paste_text`, `--region`/`--scale`) only after the MCP
+  server is rebuilt and restarted, which needs the sessions that use it closed.
+- **Still missing.** There is no supported mouse-wheel scroll; a direct wheel event was tried once
+  and its effect is unconfirmed.
+- **Data handling.** Screenshots can contain confidential content: capture only what the task
+  needs, and delete only screenshot files whose paths your own calls returned.
 
 ### Verifying typed input
 
@@ -340,7 +375,8 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   PowerShell 5.1 drops empty-string arguments to native programs, which is how `--text ''` used
   to type "true" (confirmed live). Use `--flag=value` for an empty value (`--text=`) or a value
   that starts with `--` (`--text=--foo`). The only flags that may be bare are `--screenshot`,
-  `--paste`, `--verify`, and `--clear`. This requires an `agentdebug-ui.exe` built from the
+  `--paste`, `--verify`, `--clear`, `--all`, `--includeUntitled`, and `--allowOutsideWindow`
+  (the last takes only `true` or `false` when given a value). This requires an `agentdebug-ui.exe` built from the
   2026-10-14 parsing fix; an older build still turns a bare flag into `"true"`. MCP tools already
   send empty and `--`-prefixed values in `--flag=value` form.
 - *(Resolved, kept for reference of the format above)* the toolkit's `send-keys` verb used to
