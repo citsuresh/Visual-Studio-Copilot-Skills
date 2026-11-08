@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 16`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 17`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -77,6 +77,9 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     is at depth 16; `read-visible-text` gave 6 lines at depth 8 and 272 at depth 30). The section now
     says to probe deep and filtered (`--maxDepth 30`) before calling a window opaque, and keeps the
     screenshot-first fallback and the accessibility-flag result for windows that stay frame-only.
+  - v17 — Documents the toolkit's depth-limit detection (commits `5b5923a`, `7ea546b`): `depthLimited`,
+    `maxDepth`, `nodesBeyondDepth`, `nodesBeyondDepthCapped` and `hint` on `inspect` and
+    `read-visible-text`, so a frame-only result at the default depth is recognisable as "look deeper".
 
 # UI Interaction
 
@@ -287,9 +290,12 @@ agent-orchestrator loads it from here.
   opaque; this exact mistake produced an earlier "UIA cannot read Claude" conclusion. First
   re-probe once, deep and filtered: `inspect --maxDepth 30 --controlType Edit` (or
   `--nameContains <label>`, or `--controlType Button`) and `read-visible-text --maxDepth 30`.
-  Filtered output is a pruned tree, so it stays small. Chromium builds its accessibility tree
-  lazily, so if a deep probe still shows only the frame, probe once more after a few seconds
-  before deciding.
+  Filtered output is a pruned tree, so it stays small. Toolkit builds from commit `5b5923a` on
+  say so themselves: when nodes at the depth limit still have children, `inspect` and
+  `read-visible-text` add `depthLimited: true`, `maxDepth`, `nodesBeyondDepth` (a lower bound when
+  `nodesBeyondDepthCapped` is true) and a `hint` that suggests a deeper `--maxDepth`; treat that as
+  "not opaque, look deeper". Chromium builds its accessibility tree lazily, so if a deep probe
+  still shows only the frame, probe once more after a few seconds before deciding.
 - **Only if a deep filtered probe still returns just the window frame** is the app opaque.
   Then stop UIA probing, tell the user immediately (“UIA cannot read this app; screenshot and
   coordinates only”), and continue screenshot-first without retrying selectors. Never relaunch
