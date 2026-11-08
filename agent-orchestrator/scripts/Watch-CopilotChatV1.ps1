@@ -54,6 +54,11 @@
 .PARAMETER Hwnd
     Target window handle, e.g. "0xCA18B2".
 
+.PARAMETER TitleContains
+    Resolve the target window by title substring instead of passing -Hwnd (via
+    Resolve-CopilotWindow.ps1). No match throws a plain message, several matches throw the
+    candidate list. Ignored when -Hwnd is also given.
+
 .PARAMETER ExePath
     Path to agentdebug-ui.exe. Defaults to the well-known build output path.
 
@@ -170,7 +175,6 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Hwnd,
 
     [string]$ExePath = 'C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe',
@@ -212,7 +216,9 @@ param(
 
     [switch]$NotifyOnDone,
 
-    [string]$QuestionPattern = '\?\s*[*_)"\s]*$|\b(please (approve|confirm|decline|choose|reply|answer)|approve or decline|do you (approve|want)|let me know (whether|if)|awaiting (your )?(approval|confirmation|reply))\b'
+    [string]$QuestionPattern = '\?\s*[*_)"\s]*$|\b(please (approve|confirm|decline|choose|reply|answer)|approve or decline|do you (approve|want)|let me know (whether|if)|awaiting (your )?(approval|confirmation|reply))\b',
+
+    [string]$TitleContains
 )
 
 # The inherited DOTNET_ROOT from VS breaks agentdebug-ui.exe; always clear it.
@@ -244,6 +250,12 @@ if ($MaxMessageLength -le 0) {
 
 if (-not (Test-Path $ExePath)) {
     throw "agentdebug-ui.exe not found at '$ExePath'. Pass -ExePath explicitly."
+}
+if (-not $Hwnd -and -not $TitleContains) { throw 'Pass -Hwnd or -TitleContains.' }
+if (-not $Hwnd) {
+    $resolved = & (Join-Path $PSScriptRoot 'Resolve-CopilotWindow.ps1') -TitleContains $TitleContains -ExePath $ExePath
+    if ($resolved.Error) { throw $resolved.Error }
+    $Hwnd = $resolved.Hwnd
 }
 
 function Get-AllNodes {

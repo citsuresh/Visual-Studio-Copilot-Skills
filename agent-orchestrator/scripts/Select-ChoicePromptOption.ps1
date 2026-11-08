@@ -40,8 +40,25 @@
     Cannot be combined with -Option.
 
 .PARAMETER AllowPersistent
-    Permit -Button to invoke a button that grants a lasting permission. Use only when the
-    user asked for it.
+    Permit -Button to invoke a button that grants a lasting permission, and required by
+    -MenuItem. Use only when the user asked for it.
+
+.PARAMETER MenuItem
+    Exact Name of an item in the permission prompt's "More confirmation options" dropdown
+    (the button with AutomationId ExtraActionsButton), e.g. "Always allow" or "Allow in this
+    session". These items are MenuItems, not buttons, so -Button cannot click them. The script
+    opens the dropdown, finds the MenuItem by exact Name, invokes it with InvokePattern and
+    confirms the prompt closed. Every item there grants a lasting permission, so it is refused
+    unless -AllowPersistent is given. If the item is not found it closes the dropdown again and
+    lists the items it saw in Options. Cannot be combined with -Option or -Button.
+
+.PARAMETER TitleContains
+    Resolve the target window by title substring instead of passing -Hwnd (via
+    Resolve-CopilotWindow.ps1). No match, or several matches, return Success false with a plain
+    message or the candidate list in Error. Ignored when -Hwnd is also given.
+
+.PARAMETER ExePath
+    Path to agentdebug-ui.exe; used only to resolve -TitleContains.
 
 .PARAMETER SubmitName
     UIA Name of the submit button. Default "Submit".
@@ -61,10 +78,12 @@
 
 .EXAMPLE
     .\Select-ChoicePromptOption.ps1 -Hwnd 0x60AAA -Button 'Allow this time'
+
+.EXAMPLE
+    .\Select-ChoicePromptOption.ps1 -Hwnd 0x60AAA -MenuItem 'Always allow' -AllowPersistent
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Hwnd,
 
     [string]$Option,
@@ -78,7 +97,13 @@ param(
     [ValidateRange(1, 120)]
     [int]$TimeoutSeconds = 10,
 
-    [switch]$AsJson
+    [switch]$AsJson,
+
+    [string]$MenuItem,
+
+    [string]$TitleContains,
+
+    [string]$ExePath = 'C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -117,6 +142,18 @@ function Write-Result {
         Error        = $ErrorText
     }
     if ($AsJson) { $result | ConvertTo-Json -Depth 3 } else { $result }
+}
+
+if (-not $Hwnd -and -not $TitleContains) {
+    return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText 'Pass -Hwnd or -TitleContains.'
+}
+if (-not $Hwnd) {
+    if (-not (Test-Path $ExePath)) { throw "agentdebug-ui.exe not found at '$ExePath'. Pass -ExePath explicitly." }
+    $resolved = & (Join-Path $PSScriptRoot 'Resolve-CopilotWindow.ps1') -TitleContains $TitleContains -ExePath $ExePath
+    if ($resolved.Error) {
+        return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText $resolved.Error
+    }
+    $Hwnd = $resolved.Hwnd
 }
 
 $handleText = $Hwnd -replace '^0x', ''
@@ -164,6 +201,72 @@ function Get-QuestionLabels {
 
 $radios = Get-RadioOptions
 $optionNames = @($radios | ForEach-Object { $_.Current.Name })
+
+if ($MenuItem) {
+    if ($Option -or $Button) {
+        return Write-Result -Success $false -Selected $null -Options $optionNames -CardClosed $null -Echo $null -ErrorText 'Use only one of -Option, -Button and -MenuItem.'
+    }
+    if (-not $AllowPersistent) {
+        return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText "-MenuItem choices in the 'More confirmation options' dropdown grant a lasting permission; pass -AllowPersistent only if the user asked for it. Nothing was clicked."
+    }
+    $extraCondition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'ExtraActionsButton')
+    $getExtraButtons = { @($window.FindAll($scope, $extraCondition) | Where-Object { $_.Current.IsEnabled }) }
+    $extraButtons = & $getExtraButtons
+    if ($extraButtons.Count -ne 1) {
+        return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText "Expected exactly one enabled 'More confirmation options' button (ExtraActionsButton); found $($extraButtons.Count). Is a permission prompt waiting? Nothing was clicked."
+    }
+    $agentCursor = Join-Path $PSScriptRoot '..\..\ui-interaction\scripts\AgentCursor.ps1'
+    if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not found at $agentCursor. Install the ui-interaction skill (Install-Skills.ps1)." }
+    . $agentCursor
+    $menuNames = @()
+    $menuHits = @()
+    $dropdownError = $null
+    Enable-AgentCursor
+    try {
+        if (-not (Set-AgentForegroundWindow -Handle $handle)) {
+            return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText 'Could not bring the target window to the foreground; nothing was clicked.'
+        }
+        $extraButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        # The dropdown is a popup that may sit outside the window's own tree, so search every
+        # top-level element, limited to this window's process.
+        $menuCondition = [System.Windows.Automation.AndCondition]::new(
+            [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::MenuItem),
+            [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $window.Current.ProcessId))
+        $menuDeadline = (Get-Date).AddSeconds(3)
+        while ((Get-Date) -lt $menuDeadline -and $menuHits.Count -eq 0) {
+            Start-Sleep -Milliseconds 400
+            $menus = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll($scope, $menuCondition))
+            $menuNames = @($menus | ForEach-Object { $_.Current.Name } | Where-Object { $_ })
+            $menuHits = @($menus | Where-Object { $_.Current.Name -eq $MenuItem -and $_.Current.IsEnabled })
+        }
+        if ($menuHits.Count -eq 1) {
+            $menuHits[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        }
+        else {
+            $dropdownError = "Expected exactly one enabled menu item named '$MenuItem' in the dropdown; found $($menuHits.Count)."
+            # Close the dropdown again so the prompt is left as it was.
+            try { $extraButtons[0].GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse() } catch { }
+        }
+    }
+    finally {
+        Restore-AgentCursor
+    }
+    if ($dropdownError) {
+        return Write-Result -Success $false -Selected $null -Options $menuNames -CardClosed $false -Echo $null -ErrorText "$dropdownError The dropdown may still be open; check the window."
+    }
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $closed = $false
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        if ((& $getExtraButtons).Count -eq 0) { $closed = $true; break }
+    }
+    $errorText = if ($closed) { $null } else { "The permission prompt did not close within $TimeoutSeconds seconds." }
+    return Write-Result -Success $closed -Selected $MenuItem -Options $menuNames -CardClosed $closed -Echo $null -ErrorText $errorText
+}
 
 if ($Button) {
     if ($Option) {

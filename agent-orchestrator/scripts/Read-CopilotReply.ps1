@@ -32,6 +32,11 @@
 .PARAMETER Hwnd
     Target window handle, e.g. "0x121B1A".
 
+.PARAMETER TitleContains
+    Resolve the target window by title substring instead of passing -Hwnd (via
+    Resolve-CopilotWindow.ps1). No match throws a plain message, several matches throw the
+    candidate list. Ignored when -Hwnd is also given.
+
 .PARAMETER AfterPrompt
     A distinctive phrase from the prompt whose reply you want (case-insensitive, matched as plain text).
 
@@ -54,7 +59,6 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Hwnd,
 
     [string]$AfterPrompt = '',
@@ -69,7 +73,9 @@ param(
     [string]$FooterPattern = '^The response (used the .+ model|cost [\d.]+ credits?\.?$)',
 
     # Tool-activity summaries and chrome that are not part of the answer text.
-    [string]$ChromePattern = '^(GitHub Copilot|Restore Checkpoint|\d+ tasks? done|Read \d+ items?|Run command.*|Used \d+ tools?.*|Searched .*|Thinking.*)$'
+    [string]$ChromePattern = '^(GitHub Copilot|Restore Checkpoint|\d+ tasks? done|Read \d+ items?|Run command.*|Used \d+ tools?.*|Searched .*|Thinking.*)$',
+
+    [string]$TitleContains
 )
 
 $ErrorActionPreference = 'Stop'
@@ -79,6 +85,12 @@ Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
 if (-not (Test-Path $ExePath)) { throw "agentdebug-ui.exe not found at '$ExePath'. Pass -ExePath explicitly." }
 $transcript = Join-Path $PSScriptRoot 'Get-CopilotChatTranscript.ps1'
 if (-not (Test-Path $transcript)) { throw "Get-CopilotChatTranscript.ps1 not found next to this script." }
+if (-not $Hwnd -and -not $TitleContains) { throw 'Pass -Hwnd or -TitleContains.' }
+if (-not $Hwnd) {
+    $resolved = & (Join-Path $PSScriptRoot 'Resolve-CopilotWindow.ps1') -TitleContains $TitleContains -ExePath $ExePath
+    if ($resolved.Error) { throw $resolved.Error }
+    $Hwnd = $resolved.Hwnd
+}
 
 # The CLI prints its fields at the top level; the MCP tools wrap them in "result". Accept both.
 function Invoke-Cli([string[]]$CliArgs) {

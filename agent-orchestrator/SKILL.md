@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 14`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 15`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
@@ -143,6 +143,21 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     `scripts\tests\Monitoring-cost.md` (a call costs about the same at a 400,000- and a 740,000-token context; a
     sub-agent adds about 50,000 tokens of start-up). Documentation only; no script changed. Not measured: a wait of
     10 minutes or more.
+  - v15 - Fixes from live testing. `Select-ChoicePromptOption.ps1 -MenuItem` answers the permission prompt's "More
+    confirmation options" dropdown ("Always allow", "Allow in this session"): those are MenuItems under the
+    `ExtraActionsButton`, which `-Button` cannot click even with `-AllowPersistent`; `-MenuItem` is refused without
+    `-AllowPersistent`. New `Set-ChatScroll.ps1` pages the chat list with `ScrollPattern.Scroll` (`SetScrollPercent`
+    did not move it) and reports `Moved`; Step 3's "Verify cheaply" now uses it and says to check that the scroll
+    moved. `Send-CopilotPrompt.ps1` retries the foreground step once and then tells the person to click the target
+    window and rerun. `-TitleContains` (via the new `Resolve-CopilotWindow.ps1`) is added to `Watch-CopilotChatV2.ps1`,
+    `Watch-CopilotChatV1.ps1`, `Select-ChoicePromptOption.ps1`, `Read-CopilotReply.ps1` and
+    `Get-CopilotChatTranscript.ps1`; `-Hwnd` works as before. Documentation: Step 3 long-wait pattern (one Copilot turn
+    runs `Start-Sleep` while one background watcher waits; measured 672 s, 135 polls, no tokens while waiting), the V2
+    `Upgraded` flag, how to produce a permission prompt for tests (touch a path outside the workspace), and the Stop
+    hook chime note. Tested 2026-11-02 without a live chat: parse checks, the no-match, no-argument and
+    lasting-permission refusal paths, and the shared title lookup with several matches. NOT tested live: `-MenuItem`
+    on a real prompt, `Set-ChatScroll.ps1` on a real chat, the foreground retry message, `-TitleContains` against a
+    live chat.
 
 # Agent Orchestrator
 
@@ -175,7 +190,9 @@ independent-verification discipline before approving any commit.
 All live in `scripts\` next to this SKILL.md. Each clears `DOTNET_ROOT` itself and accepts
 `-ExePath` (or uses .NET UIA directly) — run `Get-Help <script> -Full` for every parameter.
 The `.\<script>.ps1` examples in this file assume that `scripts\` folder is the current
-directory; otherwise use the full path.
+directory; otherwise use the full path. The watcher, reading and `Select-ChoicePromptOption.ps1`
+scripts also accept `-TitleContains '<project> - '` instead of `-Hwnd` (no match gives a plain
+message, several matches the candidate list); `-Hwnd` wins when both are given.
 
 | Script | Use it for | Changes anything? |
 | --- | --- | --- |
@@ -258,6 +275,9 @@ sessions reuse it instead of re-deriving it.
 - Only if the delegated task involves debugger automation: also set up `agentdebug-vs.exe` per
   the **vs-debug** skill.
 - Known limitations doc: `C:\MyFiles\Git\AgentDebugToolkit\docs\KNOWN_OPEN_FINDINGS.md`.
+- A Stop hook (if the user has one configured for a chime) fires at the end of every turn, so the
+  chime can also play when a turn ends while background work is still pending (for example a
+  background watcher). A chime is not proof that the whole task is finished.
 
 ## Step 0: Version Check
 
@@ -374,8 +394,9 @@ always available even if `C:\MyFiles\Git\AgentDebugToolkit` isn't cloned/up to d
   probe under a second), silent while polling, never activates the window. When the wait ends Pending
   or Idle it runs V1 once and merges the result, so it returns everything V1 does (`Question`,
   `Options`, `Recommended`, `MorePages`, `Banners`, `LastMessage`, `LastMessageTail`, `AwaitingReply`,
-  `CompletionFooter`) plus `NotVisible`, `ChatSwitched`, `WindowGone` and `ProbeError`. `-NoDetail` skips that final
-  step. It sees a card or prompt only in the last few messages while the list is near its end; run it
+  `CompletionFooter`) plus `NotVisible`, `ChatSwitched`, `WindowGone`, `ProbeError` and `Upgraded` (true when the
+  light probe said Idle but the detail step found an open prompt: the result is changed to Pending; read
+  `PromptKind` and answer it). `-NoDetail` skips that final step, and with it the upgrade. It sees a card or prompt only in the last few messages while the list is near its end; run it
   with `-CrossCheck` after a Visual Studio or Copilot update.
 - **`Watch-CopilotChatV1.ps1` — the full-tree watcher.** Heavy (about 70 % of a core), a full tree dump
   per poll. Use it directly only when you want live progress lines, `-ProgressFile`, `-NotifyOnDone`
@@ -419,6 +440,8 @@ that finish before the first poll (`WorkingSeen: false` in the result tells you 
 ```
 
 How to wait cheaply: the cost of a wait is the number of tool calls, not the minutes (measured, see `scripts\tests\Monitoring-cost.md`). Start ONE long watcher call as a background command (`Watch-CopilotChatV2.ps1 -TimeoutSeconds 1800` or more; it accepts up to 7200) and end your turn: its completion notice is the only other call. Do not poll with repeated short foreground calls, and do not start a monitoring sub-agent just to wait; a sub-agent costs about 50,000 tokens of start-up on top of the launch and report calls.
+
+**Long-wait pattern (when you need to wait for something that is not a Copilot reply, such as a build or a timer).** Send ONE Copilot turn that runs `Start-Sleep` for the wait, and keep ONE background `Watch-CopilotChatV2.ps1` waiting for that turn to end. Nothing of yours runs while it waits. Measured (see `scripts\tests\Monitoring-cost.md`): 672 s, 135 polls, zero tokens used while waiting. The only calls are the send, the background watcher, and its completion notice.
 
 **Idle is not always "done".** An agent can end its turn by asking for approval in plain text, with
 no card, and that looks exactly like a finished task. When the last message ends with a question
@@ -479,12 +502,14 @@ virtualization race — simply retry, don't treat as a real failure.
 **Verify cheaply.** Most of a supervised run is checking state, so use the cheapest check that
 answers the question, in this order: (1) the `Watch-CopilotChatV1.ps1 -Hwnd <h>` result (`State`,
 `PromptKind`, `Banners`); (2) `Get-CopilotChatTranscript.ps1 -Hwnd <h> -Last 0 -IncludeFooter
--AsText` for the reply text, after moving the chat list to its end with `scroll-container --hwnd
-<h> --strategy AutomationId --value session --verticalPercent 100` (the list is virtualized, so a
-reply below the visible area is not returned until the list is scrolled, and an unscrolled read
-can look like "no reply yet" while the reply is already there; check that the result shows
-`boundaryReached` true or `verticalScrollPercentAfter` 100 before trusting the read, otherwise
-scroll again and re-read); (3) `find-first --hwnd <h> --strategy Name --value "<element name>"`
+-AsText` for the reply text, after moving the chat list to its end with `Set-ChatScroll.ps1 -Hwnd <h>
+-ToEnd` (the list is virtualized, so a reply below the visible area is not returned until the list
+is scrolled, and an unscrolled read can look like "no reply yet" while the reply is already there).
+Check that the scroll actually moved: the helper returns `PercentBefore`, `PercentAfter` and
+`Moved`; `Moved` false with a percent short of 100 means the list did not scroll, so do not trust
+the read. `ScrollPattern.SetScrollPercent` does not move this list, and `scroll-container
+--verticalPercent 100` may not either, so do not rely on them alone; `Read-CopilotReply.ps1` does
+its own scroll and check; (3) `find-first --hwnd <h> --strategy Name --value "<element name>"`
 for a single element (`--value "Ask Copilot"` is found only while the input is empty, and
 `--value "Allow this time"` is found only while a permission prompt is waiting) or `inspect --hwnd
 <h> --nameContains <text> --maxDepth <small>`; (4) a screenshot only when layout or an unknown
@@ -562,6 +587,11 @@ landing while a card is still pending, `element-not-found`/`stale-context` error
    repo, network access, unexpected paths — stop and ask the user. Never pick a lasting
    permission (`always`, session- or solution-wide; refused unless `-AllowPersistent`) unless
    the user asked for it. Don't type into the chat box to answer it.
+
+   "Always allow" and "Allow in this session" are not buttons: they are MenuItems in the "More
+   confirmation options" dropdown (`ExtraActionsButton`). Use `-MenuItem '<exact name>'
+   -AllowPersistent`; the script opens the dropdown, invokes the item and checks the prompt closed.
+   Without `-AllowPersistent` it refuses. Only when the user asked for a lasting permission.
 
    A **workspace trust card** (`"Do you trust this folder?"`, `Trust once` / `Do not trust`) is
    answered the same way, with `-Button`. `Trust once` lets the agent read files and run tools in

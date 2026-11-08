@@ -23,6 +23,11 @@
 .PARAMETER MaxDepth
     --maxDepth passed to `inspect`. Default 30.
 
+.PARAMETER TitleContains
+    Resolve the target window by title substring instead of passing -Hwnd (via
+    Resolve-CopilotWindow.ps1). No match throws a plain message, several matches throw the
+    candidate list. Ignored when -Hwnd is also given.
+
 .PARAMETER ExePath
     Path to agentdebug-ui.exe.
 
@@ -38,7 +43,6 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Hwnd,
 
     [ValidateRange(0, 1000)]
@@ -57,7 +61,9 @@ param(
 
     [switch]$AsText,
 
-    [switch]$AsJson
+    [switch]$AsJson,
+
+    [string]$TitleContains
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,6 +72,12 @@ Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
 
 if (-not (Test-Path $ExePath)) {
     throw "agentdebug-ui.exe not found at '$ExePath'. Pass -ExePath explicitly."
+}
+if (-not $Hwnd -and -not $TitleContains) { throw 'Pass -Hwnd or -TitleContains.' }
+if (-not $Hwnd) {
+    $resolved = & (Join-Path $PSScriptRoot 'Resolve-CopilotWindow.ps1') -TitleContains $TitleContains -ExePath $ExePath
+    if ($resolved.Error) { throw $resolved.Error }
+    $Hwnd = $resolved.Hwnd
 }
 
 $scratch = Join-Path $env:TEMP ("copilot-transcript-{0}.json" -f [guid]::NewGuid().ToString('N'))

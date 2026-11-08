@@ -18,5 +18,6 @@ unless stated.
 | S-10 | `-NoNavigate` with the chat input missing | `Sent` false, "The chat input is not showing (-NoNavigate was given). Nothing was typed." | Pass 2026-11-01 (toolkit chat: session list showing, Sent false, "The chat input is not showing (-NoNavigate was given). Nothing was typed.", the prompt never appeared) |
 | S-11 | Workspace banner showing | `Sent` false, names the banner, nothing typed, unless `-IgnoreBanners` | Pass (v4 testing) |
 | S-12 | Another app holds the foreground and focus stealing is blocked | `Sent` false, "Could not bring the target window to the foreground ... Nothing was typed" after retries; never types into the wrong window | Pass: seen repeatedly, nothing typed in any failure |
+| S-15 | Same as S-12 on v15 | The foreground step is tried once more after a second; if it still fails, `Error` says to click the target Visual Studio window and run it again (nothing typed); no loop | Not run (needs another app holding the foreground; the wording is a code change only) |
 | S-13 | Input already holds a draft | Script clears the input first, destroying the draft: callers must check (Invoke-CopilotReview does) | Known behavior; guarded in the wrapper |
 | S-14 | Prompt with a newline | Throws "-Text must be a single line" | Pass |

@@ -11,6 +11,7 @@ a regression test.
 | `Watch-CopilotChatV2.ps1` (default watcher) | [Watch-CopilotChatV2.tests.md](Watch-CopilotChatV2.tests.md) |
 | `Watch-CopilotChatV1.ps1` (full-tree watcher) | [Watch-CopilotChatV1.tests.md](Watch-CopilotChatV1.tests.md) |
 | `Send-CopilotPrompt.ps1` | [Send-CopilotPrompt.tests.md](Send-CopilotPrompt.tests.md) |
+| `Set-ChatScroll.ps1`, `Resolve-CopilotWindow.ps1` | [Set-ChatScroll.tests.md](Set-ChatScroll.tests.md) |
 | `Select-ChoicePromptOption.ps1` | [Select-ChoicePromptOption.tests.md](Select-ChoicePromptOption.tests.md) |
 | `Read-CopilotReply.ps1`, `Get-CopilotChatTranscript.ps1`, `Invoke-CopilotReview.ps1` | [Reading-and-review-scripts.tests.md](Reading-and-review-scripts.tests.md) |
 | `AgentCursor.ps1` (owned by `ui-interaction`) | [AgentCursor.tests.md](../../../ui-interaction/scripts/tests/AgentCursor.tests.md) |
@@ -36,7 +37,15 @@ window) or `not run` with the reason. Never write "pass" for something that was 
 
 ## Scenarios that need setup you cannot always get
 
-- Tool permission prompts ("Do you allow Copilot to ...?"): need Copilot's tool approvals set to ask. A prompt appeared for listing a folder outside the workspace once approvals were set to ask; reads there and a plain `echo` were auto-approved before that. Choosing "Always allow" changes a lasting setting: do it only when the user asks.
+- Tool permission prompts ("Do you allow Copilot to ...?"): to produce one, the test prompt must make a tool touch a path OUTSIDE the workspace (for example list a folder outside it): tools that stay inside the workspace are auto-approved and never show a prompt. Copilot's tool approvals must also be set to ask. A prompt appeared for listing a folder outside the workspace once approvals were set to ask; reads there and a plain `echo` were auto-approved before that. Choosing "Always allow" changes a lasting setting: do it only when the user asks.
 - Workspace banners (folder mismatch / untrusted folder): need a window whose open folder differs from the session's. Run on 2026-11-01 with both the mismatch banner and the untrusted-folder banner (opened on a throwaway folder; the trust card was left for the user to answer).
 - A chat list scrolled up while a card is open. Run once on 2026-11-01 (the known limit was confirmed).
 Mark these `not run` with the reason until someone sets them up.
+
+## The `Upgraded` flag (Watch-CopilotChatV2.ps1)
+
+V2's light probe can say Idle while a prompt is open. When the wait ends Idle, V2 runs V1 once (the detail step); if the
+full tree shows an open prompt that the light probe missed, V2 changes the result to Pending and sets `Upgraded` true with
+a `Note` saying so. Seen once, 2026-11-01, on the workspace trust card (V2-17). `Upgraded` true means a prompt shape the
+light probe does not know exists: read `PromptKind` and `Question`, answer it, and tell the user so the probe can be taught
+the shape. `-NoDetail` turns the upgrade off, so an Idle from a `-NoDetail` run can still hide an open prompt.

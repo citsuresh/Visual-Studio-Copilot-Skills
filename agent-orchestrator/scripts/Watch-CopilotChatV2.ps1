@@ -107,6 +107,11 @@
 .PARAMETER TraceFile
     Optional file; one line per poll: time, probe duration, flags.
 
+.PARAMETER TitleContains
+    Resolve the target window by title substring instead of passing -Hwnd (via
+    Resolve-CopilotWindow.ps1, which needs agentdebug-ui.exe). No match throws a plain message,
+    several matches throw the candidate list. Ignored when -Hwnd is also given.
+
 .PARAMETER ExePath
     Path to agentdebug-ui.exe, used only by the detail step (V1). Default: the AgentDebugToolkit build output.
 
@@ -148,7 +153,6 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$Hwnd,
 
     [ValidateRange(2, 120)]
@@ -177,10 +181,18 @@ param(
     [int]$DetailTimeoutSeconds = 25,
 
     # One short beep when the wait ends (done or waiting for a person). -NoBeep silences it (the review wrapper does, and beeps once itself).
-    [switch]$NoBeep
+    [switch]$NoBeep,
+
+    [string]$TitleContains
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Hwnd -and -not $TitleContains) { throw 'Pass -Hwnd or -TitleContains.' }
+if (-not $Hwnd) {
+    $resolved = & (Join-Path $PSScriptRoot 'Resolve-CopilotWindow.ps1') -TitleContains $TitleContains -ExePath $ExePath
+    if ($resolved.Error) { throw $resolved.Error }
+    $Hwnd = $resolved.Hwnd
+}
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 
 $A = [System.Windows.Automation.AutomationElement]

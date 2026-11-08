@@ -56,7 +56,9 @@
 .OUTPUTS
     PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error. When the window
     cannot be brought to the foreground and it no longer exists, Error says so (typically
-    Visual Studio was restarted and the handle is stale).
+    Visual Studio was restarted and the handle is stale). When the window exists but still
+    cannot be brought forward after one retry, Error tells the person to click the target
+    window and run the script again; the script does not loop.
 
 .EXAMPLE
     .\Send-CopilotPrompt.ps1 -Hwnd 0x60AAA -NewSession -Text 'Run Bootstrap.'
@@ -150,7 +152,15 @@ function Get-ForegroundFailureText {
     if ($present.Count -eq 0) {
         return "Window $Hwnd no longer exists (the app may have been restarted, so the handle is stale). Look it up again, or pass -TitleContains."
     }
-    return 'Could not bring the target window to the foreground.'
+    return 'Could not bring the target window to the foreground, even after a second try (Windows can refuse to let a background process take focus). Click the target Visual Studio window yourself, then run this again.'
+}
+
+# Brings the target forward; on failure waits a moment and tries once more (not a loop).
+function Request-Foreground {
+    $h = [IntPtr][Convert]::ToInt64($Hwnd, 16)
+    if (Set-AgentForegroundWindow -Handle $h) { return $true }
+    Start-Sleep -Seconds 1
+    return [bool](Set-AgentForegroundWindow -Handle $h)
 }
 
 function Test-ChatInput {
@@ -205,7 +215,7 @@ if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not fou
 Enable-AgentCursor
 try {
     # Bring the target forward first; input verbs refuse to type into a background window.
-    if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
+    if (-not (Request-Foreground)) {
         return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
     }
     if (-not $NoNavigate) { Select-ChatTabIfHidden }

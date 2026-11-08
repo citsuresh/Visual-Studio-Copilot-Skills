@@ -60,6 +60,9 @@ for prompts that asked for other labels). Read the real options before answering
 4. 2026-10-31: the first audit compared V1's fields with V2's, not what each could SEE. Always run
    `-CrossCheck` against a real card (V2-01) before calling V2 equivalent to V1.
 5. 2026-10-31: the watcher follows whichever chat is visible, so clicking "New chat" mid-task ended with a false Idle while the first chat kept working (found by the supervising chat in VsChatHistoryToolkit). Fixed with a ChatSwitched state keyed on the session title in the pane header; fire only when the title changed, the stop button is gone and there is no footer (V2-21, V2-22).
+| V2-23 | `-TitleContains` that matches no window, and with neither `-Hwnd` nor `-TitleContains` | Throws "No window title contains '...'. Nothing was touched." / "Pass -Hwnd or -TitleContains." | Pass 2026-11-02 (temp copy of v15) |
+| V2-24 | `-TitleContains` that matches several windows | Throws the candidate list | Pass 2026-11-02 for the shared helper; not run through V2 |
+| V2-25 | `-TitleContains '<solution> - '` against a live chat, and `-Hwnd` given as well | Same result as with the hwnd; `-Hwnd` wins when both are given | Not run (needs a live chat) |
 
 ## Procedure after changing V2
 

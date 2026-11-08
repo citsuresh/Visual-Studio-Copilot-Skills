@@ -25,3 +25,6 @@ add a case here AND check that `Watch-CopilotChatV2.ps1` merges it (`Add-Detail`
 | V1-13 | `-AsJson` | JSON object on the output stream; per-poll lines go to the console stream (V2 drops them with `6>$null`) | Pass |
 | V1-14 | `-Hwnd` of a closed window | Defined behavior: today V1 loops on "no parseable data" until Timeout (V2 reports WindowGone at once) | Not run; known weakness |
 | V1-15 | Probe cost | About 4 s per poll and high CPU on a long chat | Observed earlier (about 70 % of a core at 5 s) |
+| V1-16 | `-TitleContains` that matches no window, and with neither `-Hwnd` nor `-TitleContains` | Throws "No window title contains '...'. Nothing was touched." / "Pass -Hwnd or -TitleContains." | Pass 2026-11-02 (temp copy of v15) |
+| V1-17 | `-TitleContains` that matches several windows | Throws the candidate list | Pass 2026-11-02 for the shared helper; not run through V1 |
+| V1-18 | `-TitleContains '<solution> - '` against a live chat | Same result as with the hwnd | Not run (needs a live chat) |
