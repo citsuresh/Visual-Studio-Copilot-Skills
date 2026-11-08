@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 11`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 12`. Compare this file's version against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
@@ -57,6 +57,8 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     `ui_cursor_session_start` / `ui_cursor_session_stop`. It shares `AgentCursor.ps1`'s flag file,
     so either can be used for the green (or blue) session. Use the MCP tools when no PowerShell
     is available, and always stop the session when monitoring or a multi-step run ends.
+  - v12 — Adds a screenshot-first fallback for opaque windows, restart-safe window rediscovery,
+    physical-pixel coordinate guidance, and the optional `Invoke-ScreenClick` helper.
 
 # UI Interaction
 
@@ -254,6 +256,40 @@ agent-orchestrator loads it from here.
   has no window; `element-not-found-after-scroll` means the element was not found or disappeared
   after scrolling. A dead or closed hwnd can return `window-not-responding` from the shared
   responsiveness check. Narrow ambiguous matches/scopes rather than choosing one silently.
+
+### Opaque windows: screenshot-first fallback
+
+- If one initial `inspect` or `find-all` probe returns only the window frame and no app content,
+  stop UIA probing after that result. Tell the user immediately: “UIA cannot read this app;
+  screenshot and coordinates only.” Continue screenshot-first; do not keep retrying selectors.
+  Never relaunch the app or enable accessibility without the user's approval, because that can
+  expose chat content. `--force-renderer-accessibility` is untested.
+- After an app restart, the old hwnd may return `window-not-responding` because the window was
+  replaced. Re-run `list-windows --processName <name>` to find the current hwnd and pid, then take
+  a fresh screenshot before any click. Do not reuse the old hwnd or an earlier screenshot.
+- Capture a fresh screenshot (for example, `inspect --screenshot true`) to identify targets,
+  then use the available absolute-coordinate actions: `activate`, `move-mouse --x/--y`,
+  `drag --targetX/--targetY`, `get-cursor-pos`, and `wait-for-window-change`. Selector-based
+  `click`, `type`, and `scroll-*` are not usable when app content is absent from UIA.
+  `send-keys` still requires a selector; using
+  `send-keys --focusMode none` with a window-name selector is untested.
+- **Coordinate recipe:** call `SetProcessDPIAware` before mapping screenshot pixels to screen
+  coordinates. Coordinates are physical pixels; for a screenshot of the whole window,
+  `screenX = windowLeft + screenshotPixelX` and
+  `screenY = windowTop + screenshotPixelY`. Use the window's current screen position, and do not
+  guess if the screenshot origin or scale is uncertain. Take a screenshot immediately before
+  each coordinate click and another immediately after it to verify the result; menus and lists
+  can move between captures.
+- The CLI has no coordinate-click verb. The optional helper
+  `scripts\Invoke-ScreenClick.ps1` can be dot-sourced and called as
+  `Invoke-ScreenClick -X <screenX> -Y <screenY> [-Button Left|Right] [-Double]`. It sets
+  process DPI awareness, moves to the absolute screen point, dispatches the click, and wraps
+  input in `Enable-AgentCursor` / `Restore-AgentCursor`. Dispatch is not proof the intended
+  target acted; verify from a fresh screenshot.
+- Capture only the screenshot content needed for the task. Delete only screenshot files whose
+  paths were returned by your own calls. There is no coordinate-click verb, `send-keys` requires
+  a selector, and mouse-wheel scrolling has no supported primitive; a direct wheel event was
+  tried once but its effect is unconfirmed.
 
 ### Verifying typed input
 
