@@ -79,3 +79,25 @@ carries the decision.
 **Out of scope:** the sub-agent planner is shelved on `poc/subagent-planner`.
 `agent-orchestrator/`, `ui-interaction/` and `ui-navigation-orchestrator/` have uncommitted changes
 that are not part of this work and were left alone.
+
+## 2026-11-13 — Read-aloud (TTS) rule goes in the regenerated memory section; the skill never sets a voice (v25)
+
+**Decision:** Bootstrap Step 7c writes one generic bullet into the regenerated "Persistent Project
+Memory" section, pointing at the installed `Speak-Text.ps1` by absolute per-user path (confirmed
+with `Test-Path`, like the GraphTools wrapper path; skipped if not installed). The script lives in
+`project-memory-management-graph/scripts/`, so `Install-Skills.ps1` ships it unchanged. It takes
+only `-Text`, speaks with the Windows default voice through System.Speech, and prints `NoVoice`
+(exit 2) when no voice is installed or the default voice cannot speak.
+
+**Rationale:** That section is overwritten every run, so a bullet put there by hand would be lost;
+Step 7c rewrites it every run instead. "Project Guidelines" is merge-safe/add-if-missing and would
+not be refreshed with the version. The user decided the skill must not set, select or prefer a
+voice, which also keeps voice names out of a committed file.
+
+**Alternatives considered:** a first version picked a voice by name (`-Voice`, else Andrew, else
+Guy) — rejected by the user. Falling back to another voice when `-Voice` matched nothing — rejected
+before that, as it would silently ignore an explicit request. A bullet in "Project Guidelines" —
+rejected as above.
+
+**Not tested:** a machine with no installed voice (the path was simulated with a fake synthesizer);
+PowerShell 7; whether a later chat obeys "enable tts" in practice.

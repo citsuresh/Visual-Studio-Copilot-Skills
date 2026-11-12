@@ -1,4 +1,4 @@
-<!-- project-memory-management-graph: skill-version=23 -->
+<!-- project-memory-management-graph: skill-version=25 -->
 ## Persistent Project Memory
 
 This section is fully regenerated (overwritten) on every Bootstrap run. It is NOT merge-safe,
@@ -73,12 +73,17 @@ solution would have `docs/full-graph.<slug>.json` and `docs/project-dependencies
   user explicitly asks. Read it when planning or adding a feature.
 - Reusable scripts: before writing code for a repeatable mechanical step (filtering a log, applying the same edit to many files, extracting data from several files), check `docs/SCRIPTS.md` if it exists and run a script that fits, as its index line says; if the index line says it modifies or deletes files, ask the user before each run, and check its output before relying on it. If you wrote working code for such a step that is likely to be reused with different inputs, is more than a one-liner, can take its inputs as parameters, and contains no credentials, tokens, customer data or personal details, save it as `scripts/agent/<verb-noun>.ps1` with a header comment (purpose, parameters, whether it modifies anything), add one line to `docs/SCRIPTS.md` (table: script | purpose | how to call | read-only or modifies | date; create the file with the table header if it is missing), and say so in your reply. Before saving, check whether an existing script in `scripts/agent/` can take the new case as a parameter. If one can, extend that script with a backward-compatible parameter (its default keeps the current behaviour, and existing parameter names, order and output format stay unchanged), update its header comment, index line and date, and say so, rather than saving a near-copy. If the task's file rules forbid changing the existing script, do not save a near-copy; say in your reply which parameter the existing script needs. Every part that varies between uses (paths, patterns, comment markers, row counts, exclusions) must be a parameter. For C# projects, skip `obj` and `bin` folders by default, with a switch to include them. Before finishing a task, check once whether you wrote any script worth saving. If a script fails or is out of date, fix it in place and update its date, or do the step normally; never loop on a broken script. When a task runs a listed script, set its date in `docs/SCRIPTS.md` to today if the task's file rules allow editing that file; otherwise leave the date unchanged and say so in your reply. The user curates these files: never delete scripts or index lines on your own.
 - At End Session, check only the context from the session for a qualifying unsaved reusable script and check script/index consistency when either exists. Respect any file restrictions given for tasks in the session; ask before prohibited changes, and never delete or rewrite scripts or existing index entries. If `docs/SCRIPTS.md` exists, ask which scripts older than 60 days to keep, archive, or delete; make only requested changes. Ask separately whether anything should be added to `docs/KNOWN_OPEN_FINDINGS.md`.
+- Read-aloud (TTS), off by default: when the user says "enable tts" or "start tts", after each reply run `C:\Users\sveluswa\.copilot\skills\project-memory-management-graph\scripts\Speak-Text.ps1 -Text "<summary>"` with a brief spoken summary of 1 to 3 sentences (no code, paths or long output); when the user says "disable tts" or "stop tts", stop doing so. This mode applies to the current chat only. The voice is the Windows default; do not set one. If the script reports no usable voice (output `NoVoice`, exit code 2), say so once and stay silent.
 
 ## Project Guidelines
 
 - Manual commit review before any commit.
 - Build/test verification after every change.
 - Do not commit or push automatically — wait for explicit user confirmation first.
+- If the `vs-chat-history` skill is installed, use it to search earlier Visual Studio Copilot Chat
+  conversations on this machine (for example "what did we decide about X", "which chat worked on Y").
+  It reads `session-store.db` only, and chat text is confidential: show short excerpts only. Ignore
+  this note if the skill is not installed.
 - Skill update workflow: when asked to change a skill's `SKILL.md` (or other skill file) in this
   repo, follow this sequence and do not skip or reorder steps:
   1. Make the change in a temporary copy of the file (not the real `SKILL.md`), and show a
