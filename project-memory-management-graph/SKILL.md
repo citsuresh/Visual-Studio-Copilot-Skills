@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 24`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 25`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -296,6 +296,23 @@ re-sync — without the user having to remember or manually redo anything per pr
     note mentioning `vs-chat-history`, case-insensitive, is left alone), and, like 7a, it needs
     no `ask_user` confirmation. Projects bootstrapped at v23 are flagged stale; re-run Bootstrap
     to pick up the note. Not yet validated live in Copilot/Visual Studio.
+  - v25 — Optional read-aloud (text-to-speech) rule. Bootstrap gains a new Step 7c that writes one
+    short, generic bullet into the regenerated "Persistent Project Memory" section (not into
+    "Project Guidelines"): after "enable tts" / "start tts" the agent runs `Speak-Text.ps1` with a
+    1-3 sentence spoken summary after each reply, until "disable tts" / "stop tts"; the mode applies
+    to the current chat only. The section is overwritten on every run, so Step 7c rewrites the
+    bullet every run (it is not an add-if-missing step like 7a/7b). The skill now ships
+    `scripts\Speak-Text.ps1` (System.Speech, 64-bit Windows PowerShell or PowerShell 7; takes only
+    `-Text`; it speaks with the system default voice configured in Windows and the skill never
+    sets, selects or prefers a voice; it writes `NoVoice` and exits 2 when no voice is installed or
+    the default voice cannot speak; it changes no registry, voice or setting), installed with the
+    skill folder by `Install-Skills.ps1`.
+    The bullet holds the script's absolute per-user installed path, confirmed with `Test-Path` like
+    the GraphTools wrapper path; if the script is not installed the step is skipped and reported.
+    No `ask_user` confirmation: nothing speaks until the user says "enable tts" or "start tts".
+    Projects bootstrapped at v24 are flagged stale; re-run Bootstrap to pick up the bullet. Script
+    tested with a spoken phrase and with the NoVoice paths simulated; the Bootstrap step is not yet
+    validated live in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -813,7 +830,8 @@ overwriting/duplicating content. This incremental/merge-safe rule applies ONLY t
 files — it does not apply to the "Persistent Project Memory" section of
 `.github/copilot-instructions.md` (see Step 6, which is fully regenerated every run) nor
 override the merge-safe handling separately specified for "Project Guidelines"/"Response
-Guidelines" in Steps 7, 7a, 7b, and 8.
+Guidelines" in Steps 7, 7a, 7b, and 8. Step 7c is the exception: it adds one bullet to the
+regenerated "Persistent Project Memory" section, so it runs on every Bootstrap.
 
 Some repos have no C# solution to build a graph from at all (e.g., a repo containing only
 documentation/markdown, no `.sln`/`.slnx` anywhere) — see Step 0a's "docs-only mode" detection,
@@ -1029,6 +1047,10 @@ other steps are unaffected.
      date in `docs/SCRIPTS.md` to today if the task's file rules allow editing that file; otherwise
      leave the date unchanged and say so in your reply. The user curates these files: never delete
      scripts or index lines on your own."
+   - Read-aloud (TTS) rule: the last bullet of this section, written by Step 7c after this step
+     (not by this step), only when `Speak-Text.ps1` is installed. Because this section is
+     overwritten on every run, Step 7c must run again each time or the bullet is lost. The voice
+     is the system default configured in Windows; the skill never sets it.
 
    After writing this section, verify the bullet with a command, not by reading it. Run an exact
    string comparison: the quoted text above (from "Reusable scripts: before writing" through "on
@@ -1080,6 +1102,31 @@ other steps are unaffected.
         confidential: show short excerpts only. Ignore this note if the skill is not installed.
     No `ask_user` confirmation needed, for the same reason as Step 7a: this is a passive
     informational pointer, not a change to Copilot's autonomous behavior.
+
+7c. Add the optional read-aloud (text-to-speech) rule. This applies to every target. Unlike
+    Steps 7a and 7b, the bullet goes into the "Persistent Project Memory" section written by
+    Step 6, as its last bullet, not into "Project Guidelines". That section is fully regenerated
+    every run, so write the bullet every run; do not skip it because a copy existed before Step 6
+    regenerated the section.
+    - Resolve the script path the way Step 6 resolves the GraphTools wrapper path: expand
+      `%USERPROFILE%\.copilot\skills\project-memory-management-graph\scripts\Speak-Text.ps1` to an
+      absolute path and confirm with `Test-Path` (or equivalent) that it exists. If it does not
+      exist, or you cannot check, skip this step and say so in the Bootstrap report (the script
+      is installed by `Install-Skills.ps1`). Use that confirmed absolute path inline in the
+      bullet, since a later session reading only `copilot-instructions.md` cannot resolve it.
+    - Append this bullet, replacing `<confirmed absolute script path>`; write nothing else into it.
+      The voice is the system default configured in Windows. The skill never sets, selects or
+      prefers a voice, and the bullet names none:
+      - Read-aloud (TTS), off by default: when the user says "enable tts" or "start tts", after
+        each reply run `<confirmed absolute script path> -Text "<summary>"` with a brief spoken
+        summary of 1 to 3 sentences (no code, paths or long output); when the user says "disable
+        tts" or "stop tts", stop doing so. This mode applies to the current chat only. The voice
+        is the Windows default; do not set one. If the script reports no usable voice (output
+        `NoVoice`, exit code 2), say so once and stay silent.
+    - Verify with a command (for example `Select-String`) that `Speak-Text.ps1` appears exactly
+      once in the file and that the bullet contains no voice name; quote the result in the report.
+    No `ask_user` confirmation needed: the bullet is inert until the user says "enable tts" or
+    "start tts".
 
 8. Ensure a "Response Guidelines" section exists in `.github/copilot-instructions.md`
    instructing concise, minimal replies by default (no filler, no restating the question, no
@@ -1133,7 +1180,7 @@ other steps are unaffected.
 	to `.github/copilot-instructions.md`: its "Persistent Project Memory" section (Step 6) must
 	always be force-checked and fully regenerated/overwritten this run even if
 	`copilot-instructions.md` already exists — never skip Step 6 on the grounds that the file
-	already exists. Its "Project Guidelines" (Step 7, plus the Step 7a UI-app pointer bullet and the Step 7b chat-history pointer bullet) and
+	already exists. Step 7c then adds the read-aloud bullet to that regenerated section. Its "Project Guidelines" (Step 7, plus the Step 7a UI-app pointer bullet and the Step 7b chat-history pointer bullet) and
 	"Response Guidelines" (Step 8) sections remain separately merge-safe/additive-only, as
 	specified in those steps.
 
