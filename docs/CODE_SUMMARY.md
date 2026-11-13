@@ -16,6 +16,15 @@ No C# solution detected in this repo; tracked in docs-only mode (no code graph).
 | `.githooks/pre-commit`, `.githooks/pre-push` | Regenerate and stage the index on commit; warn (never block) about a missing version bump over the whole push. Need `git config core.hooksPath .githooks` per clone; LF line endings (see `.gitattributes`). |
 | `Install-Skills.ps1 -Check` | Also prints `INDEX: UpToDate / OutOfDate / Missing`; does not change `RESULT:`. |
 
+## Toolkits and installer state
+
+| Item | Responsibility |
+|---|---|
+| `Install-Skills.ps1` (toolkit part) | Per toolkit used by a skill (GraphTools, AgentDebugToolkit, VsChatHistoryToolkit): clone from `<ToolkitBaseUrl>/<Name>` into `%USERPROFILE%\.copilot\toolkits\<Name>`, fast-forward with `-Remote` (never over uncommitted changes), build with the toolkit's `scripts\agent\Build-Toolkit.ps1`. One `TOOLKIT: <Name> <Status>` line each (`UpToDate`, `NotInstalled`, `NeedsBuild`, `Behind`, `Diverged`, `NotAClone`, `NoDotnetSdk`, `NoGit`, and after a real run `CloneFailed`, `PullFailed`, `NoBuildScript`, `BuildFailed`); exit 1 if a clone, pull or build failed. `-SkipToolkits`, `-ToolkitBaseUrl`. |
+| `%USERPROFILE%\.copilot\skills-source.json` | Written by every real installer run: `{"schema":1,"skillsRepo":"<clone path>"}`. Every skill's Step 0 reads `skillsRepo` instead of a path typed into its `SKILL.md`; `-Check` prints `SOURCE: Recorded / Differs / NotRecorded`. |
+| Toolkit repos (separate, public) | Each has an integer `VERSION` and `scripts\agent\Build-Toolkit.ps1`, which builds in place and writes `.built-version` (git-ignored) with the built commit. A toolkit is `NeedsBuild` when that commit differs from `HEAD`. |
+| Skills' toolkit check | Step 7 in `vs-debug`, `ui-interaction`, `vs-chat-history`; Step 6a in `agent-orchestrator`; Step 6 in `project-memory-management-graph`. Runs `Install-Skills.ps1 -Check -Remote -MaxAgeHours 6`, filtered to the skill's own `TOOLKIT:` line, and asks before running the installer. `ui-navigation-orchestrator` and `project-memory-management` have none. |
+
 ## Skills in this repo
 
 | Skill | Purpose |
@@ -27,4 +36,4 @@ No C# solution detected in this repo; tracked in docs-only mode (no code graph).
 | `ui-navigation-orchestrator` | Navigate WinForms/WPF apps with a per-target-repo navigation-tree cache; composes `ui-interaction` and `vs-debug`. |
 | `vs-debug` | Visual Studio debugger bridge through AgentDebugToolkit/EnvDTE: attach, breakpoints, stepping, call stacks, thread/frame selection and evaluation. |
 | `vs-chat-history` | Search and read local Visual Studio Copilot Chat history through the `chathistory` CLI; supports session lookup and capped excerpts, with rename only on request. |
-| `install-skills` | Lets Copilot install/update the repo's skills on request ("install skills from <url>", "check the repo and update all the skills"): `Install-Skills.ps1 -Check -Remote` (read-only, `REMOTE:` and `RESULT:` lines, companion-tool report), then `-Remote -Force` (pull + install), `-Prune` only after asking. Every other skill runs a once-per-session Step 0 that fetches GitHub and compares versions (local clone and upstream). |
+| `install-skills` | Lets Copilot install/update the repo's skills on request ("install skills from <url>", "check the repo and update all the skills"): `Install-Skills.ps1 -Check -Remote` (read-only, `REMOTE:`, `TOOLKIT:` and `RESULT:` lines), then `-Remote -Force` (pull + install + clone/update/build the toolkits), `-Prune` only after asking. Every other skill runs a once-per-session Step 0 that fetches GitHub and compares versions (local clone and upstream). |

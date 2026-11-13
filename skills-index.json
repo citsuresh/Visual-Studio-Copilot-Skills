@@ -2,32 +2,32 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 18,
-      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+      "version": 19,
+      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and AgentDebugToolkit through %USERPROFILE%\\.copilot\\toolkits\\AgentDebugToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit check as..."
     },
     "project-memory-management": {
-      "version": 2,
-      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+      "version": 3,
+      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json instead of a fixed C:\\MyFiles\\Git path."
     },
     "project-memory-management-graph": {
-      "version": 25,
-      "whatsNew": "Optional read-aloud (text-to-speech) rule."
+      "version": 26,
+      "whatsNew": "GraphTools is found at %USERPROFILE%\\.copilot\\toolkits\\GraphTools, where Install-Skills.ps1 clones and builds it, instead of the fixed C:\\MyFiles\\Git\\GraphTools, and the skills repo clone is found through..."
     },
     "ui-interaction": {
-      "version": 19,
-      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+      "version": 20,
+      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and AgentDebugToolkit through %USERPROFILE%\\.copilot\\toolkits\\AgentDebugToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit check..."
     },
     "ui-navigation-orchestrator": {
-      "version": 7,
-      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+      "version": 8,
+      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json instead of a fixed C:\\MyFiles\\Git path."
     },
     "vs-chat-history": {
-      "version": 10,
-      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+      "version": 11,
+      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and VsChatHistoryToolkit through %USERPROFILE%\\.copilot\\toolkits\\VsChatHistoryToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit..."
     },
     "vs-debug": {
-      "version": 8,
-      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+      "version": 9,
+      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and AgentDebugToolkit through %USERPROFILE%\\.copilot\\toolkits\\AgentDebugToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit check..."
     }
   }
 }

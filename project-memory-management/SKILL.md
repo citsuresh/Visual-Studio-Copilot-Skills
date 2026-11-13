@@ -21,8 +21,9 @@ to set up this skill / project memory prompts in a new project.
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 2`. Compare against the source-of-truth copy at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management\SKILL.md`, and against that
+- `CURRENT_SKILL_VERSION = 3`. Compare against the source-of-truth copy at
+  `<skills repo>\project-memory-management\SKILL.md` (the clone path is in
+  `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that
   clone's GitHub upstream, once at the start of a session. A copy installed before v1 has no version
   line; treat it as version 0.
 - Changelog:
@@ -32,31 +33,38 @@ to set up this skill / project memory prompts in a new project.
   - v2 — Step 0 reads this skill's version and what's new from the repo's small `skills-index.json`
     instead of the whole `SKILL.md`, so the update check costs about 2 KB, not up to 100 KB. If the
     index cannot be read it falls back to a filtered read of the version line.
+  - v3 — The skills repo clone is found through `%USERPROFILE%\.copilot\skills-source.json` instead of
+    a fixed `C:\MyFiles\Git` path. Needs the `Install-Skills.ps1` from the same change; no workflow
+    changed.
 
 ## Step 0: Skill Update Check
 
 Run this **once**, the first time any workflow of this skill is invoked in a session.
 
-1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. If it doesn't exist on this
-   machine, skip this check and say so in one line; do not guess a location.
-2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+1. Find the repo clone: read `skillsRepo` from `%USERPROFILE%\.copilot\skills-source.json`, which
+   `Install-Skills.ps1` writes:
+   `(Get-Content "$env:USERPROFILE\.copilot\skills-source.json" -Raw | ConvertFrom-Json).skillsRepo`.
+   Call it `<skills repo>` below. If the file or the folder does not exist on this machine, skip
+   this check and say so in one line; do not guess a location.
+2. Check GitHub: `git -C "<skills repo>" fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
 3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
    whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
    two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
    and `whatsNew`:
-   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'project-memory-management'`
-   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'project-memory-management'`
+   - GitHub's copy (skip if the fetch failed): `(git -C "<skills repo>" show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'project-memory-management'`
+   - The clone's copy: `(Get-Content "<skills repo>\skills-index.json" -Raw | ConvertFrom-Json).skills.'project-memory-management'`
    - If neither can be read (a repo from before the index existed), read only the version line,
-     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
+     never the whole file: `Select-String -Path "<skills repo>\project-memory-management\SKILL.md" -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`. If equal, continue silently.
 5. If the repo's version is higher: tell the user what's new (the index's `whatsNew` line; if more than one version behind, say how
    many and offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled
    yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
-   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
-   changed skill; tell the user the new text applies from a new chat session, and continue the
+   `& "<skills repo>\Install-Skills.ps1" -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes), installs every
+   changed skill, and clones, updates and builds the toolkits; tell the user the new text applies
+   from a new chat session, and continue the
    requested workflow with the current copy. On no, continue and do not ask again in this
    session.
 
@@ -66,7 +74,7 @@ Run this **once**, the first time any workflow of this skill is invoked in a ses
 - Never read from, write to, or delete any file or folder outside of: (a) the current
   project's own folder, or (b) this skill's own folder under the personal skills directory
   (`~/.copilot/skills/project-memory-management/`), or (c) the skills repo clone
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\`, only for Step 0 (`git fetch`, `git show`, and
+  `<skills repo>` (the clone path read from `%USERPROFILE%\.copilot\skills-source.json`), only for Step 0 (`git fetch`, `git show`, and
   running its `Install-Skills.ps1` after the user agrees) — never to edit files inside it.
 - If a step would require touching a path outside this scope, stop and ask the user first
   instead of proceeding.

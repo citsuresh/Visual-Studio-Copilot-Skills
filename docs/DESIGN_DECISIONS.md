@@ -127,3 +127,39 @@ user (false positives, bypassable). Version-only detection means an upstream cha
 not noticed by the check.
 
 **Not tested:** the new Step 0 in a real chat; hooks on a clone that did not run `git config core.hooksPath .githooks`.
+
+## 2026-11-13 — Toolkits are cloned and built per machine under `.copilot\toolkits`; `skills-source.json` replaces typed paths
+
+**Decision:** The three companion tools (GraphTools, AgentDebugToolkit, VsChatHistoryToolkit) are public
+repos. `Install-Skills.ps1` clones each into `%USERPROFILE%\.copilot\toolkits\<Name>`, fast-forwards it with
+`-Remote`, and builds it in place with the toolkit's own `scripts\agent\Build-Toolkit.ps1`, which writes the
+built commit to `.built-version`. Each toolkit carries an integer `VERSION`. The installer prints a
+`TOOLKIT: <Name> <Status>` line per toolkit, and the skills that use one run a read-only
+`Install-Skills.ps1 -Check -Remote -MaxAgeHours 6` in Step 0 and ask before running the installer. Every real
+installer run also writes `%USERPROFILE%\.copilot\skills-source.json` (`{"schema":1,"skillsRepo":"<path>"}`),
+which every skill reads to find the skills clone. The skills' hardcoded `C:\MyFiles\Git\...` paths are gone
+(skill versions: vs-debug 9, ui-interaction 20, agent-orchestrator 19, ui-navigation-orchestrator 8,
+vs-chat-history 11, project-memory-management 3, graph 26). Toolkit development stays in separate clones
+(here `C:\MyFiles\Git`).
+
+**Rationale:** Skills had to work on any machine, not only this one. Building on each machine needs a .NET SDK
+and about a minute on first install, but avoids a release/publish step on every toolkit bump and avoids
+downloading unsigned executables. A fresh clone beside the skills means the installer can fast-forward and
+rebuild without touching anyone's working tree. `skills-source.json` is one per-user file, so no clone path is
+typed into any `SKILL.md`. A toolkit counts as outdated when upstream has any newer commit or the built commit
+differs from `HEAD`, so a missing `VERSION` bump cannot leave a stale build in place. Failures never overwrite:
+uncommitted changes, local commits, and non-clone folders are reported and left alone.
+
+**Alternatives considered:** Publishing built binaries on each toolkit version bump: not chosen (needs a release
+pipeline per toolkit, and downloaded unsigned executables). Keeping fixed paths and asking the user to edit each
+`SKILL.md`: rejected, not portable and edits are lost on every update. Using the development clone as the
+toolkit: rejected, the installer would pull and build inside a working tree. Skills typing the clone path
+themselves: replaced by `skills-source.json`. A minimum toolkit version per skill in `skills-index.json`:
+skipped for now; any newer upstream commit already counts.
+
+**Consequences:** graph v26 changes the wrapper path that Bootstrap writes into each project's
+`copilot-instructions.md`, so bootstrapped projects are flagged stale and should re-run Bootstrap.
+
+**Not tested:** the skills' Step 0 toolkit checks in a real chat; `SOURCE: Differs` and `NotRecorded`; real
+Defender or SmartScreen behaviour on the locally built, unsigned executables. A review of the toolkit repos
+found no secrets or committed binaries (see `PROJECT_STATE.md`); the three toolkits now carry an MIT LICENSE.

@@ -5,10 +5,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 18`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 19`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md` or behind that clone's
+  `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
+  `%USERPROFILE%\.copilot\skills-source.json`, see Step 0) or behind that clone's
   GitHub upstream. Unlike
   `project-memory-management-graph` (which bootstraps many independent target projects and needs
   a per-project marker), this skill has only one installed copy and one source of truth, so no
@@ -170,6 +171,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
   - v18 — Step 0 reads this skill's version and what's new from the repo's small `skills-index.json`
     instead of the whole `SKILL.md`, so the update check costs about 2 KB, not up to 100 KB. If the
     index cannot be read it falls back to a filtered read of the version line.
+  - v19 — The skills repo clone is found through `%USERPROFILE%\.copilot\skills-source.json` and
+    AgentDebugToolkit through `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit`, instead of fixed
+    `C:\MyFiles\Git` paths, and Step 0 gains a toolkit check as step 6a (clone, update and build through
+    `Install-Skills.ps1`). The core scripts' default `-ExePath` now points into the toolkits folder.
+    Needs the `Install-Skills.ps1` from the same change; no other step changed.
 
 # Agent Orchestrator
 
@@ -254,7 +260,7 @@ orchestration step (handling Keep/Undo or a tool-permission prompt, typing a cus
 waiting for a build in the target, scrolling the transcript) is saved next to them, so later
 sessions reuse it instead of re-deriving it.
 
-- **Where:** the repo copy, `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\scripts\`
+- **Where:** the repo copy, `<skills repo>\agent-orchestrator\scripts\`
   (the source of truth; `Install-Skills.ps1` copies it to the installed skill). Index:
   `scripts\SCRIPTS.md`, a markdown table: script | purpose | how to call | read-only or
   sends input/modifies | date. Create it with the header the first time a script is saved; never
@@ -286,7 +292,7 @@ sessions reuse it instead of re-deriving it.
   **ui-interaction** skill — this skill assumes that's already in place and doesn't restate it.
 - Only if the delegated task involves debugger automation: also set up `agentdebug-vs.exe` per
   the **vs-debug** skill.
-- Known limitations doc: `C:\MyFiles\Git\AgentDebugToolkit\docs\KNOWN_OPEN_FINDINGS.md`.
+- Known limitations doc: `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit\docs\KNOWN_OPEN_FINDINGS.md`.
 - A Stop hook (if the user has one configured for a chime) fires at the end of every turn, so the
   chime can also play when a turn ends while background work is still pending (for example a
   background watcher). A chime is not proof that the whole task is finished.
@@ -298,31 +304,48 @@ individual verb call (click, inspect, poll, etc.) within that session; it must n
 Step 3's polling loop. This is a cheap check (one `git fetch` and one line read, no UIA calls
 involved), so do it every time a new session starts rather than skipping it to save time.
 
-1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. Use the same "ask, don't
-   guess" fallback documented in `ui-interaction` for the `AgentDebugToolkit` path if it doesn't
-   exist on the current machine — stop and ask the user where to find it rather than silently
-   skipping the check or assuming a different location.
-2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+1. Find the repo clone: read `skillsRepo` from `%USERPROFILE%\.copilot\skills-source.json`, which
+   `Install-Skills.ps1` writes:
+   `(Get-Content "$env:USERPROFILE\.copilot\skills-source.json" -Raw | ConvertFrom-Json).skillsRepo`.
+   Call it `<skills repo>` below. If the file or the folder does not exist, stop and ask the user
+   where the clone is rather than silently skipping the check or assuming a different location.
+2. Check GitHub: `git -C "<skills repo>" fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
 3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
    whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
    two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
    and `whatsNew`:
-   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'agent-orchestrator'`
-   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'agent-orchestrator'`
+   - GitHub's copy (skip if the fetch failed): `(git -C "<skills repo>" show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'agent-orchestrator'`
+   - The clone's copy: `(Get-Content "<skills repo>\skills-index.json" -Raw | ConvertFrom-Json).skills.'agent-orchestrator'`
    - If neither can be read (a repo from before the index existed), read only the version line,
-     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
+     never the whole file: `Select-String -Path "<skills repo>\agent-orchestrator\SKILL.md" -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION` (the version of whatever
    copy is currently loaded/running).
 5. If the repo's version is higher: tell the user what's new (the index's `whatsNew` line; if more than one version behind, say how
    many and offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled
    yet) or already in the clone. Ask via `ask_user` whether to pause and update now. On yes, run
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
-   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
-   changed skill; tell the user the new text applies from a new chat session. On no, proceed
-   with the current session and do not ask again in it.
+   `& "<skills repo>\Install-Skills.ps1" -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes), installs every
+   changed skill, and clones, updates and builds the toolkits; tell the user the new text applies
+   from a new chat session. On no, proceed with the current session and do not ask again in it.
 6. If versions match: proceed silently — no need to announce anything.
+6a. Toolkit check (also when the versions match). Skip it if step 5 just ran the installer
+   successfully. Run this read-only command, which changes nothing:
+   `& "<skills repo>\Install-Skills.ps1" -Check -Remote -MaxAgeHours 6 | Select-String '^TOOLKIT: AgentDebugToolkit '`
+   and act on the status word in the line:
+   - `UpToDate`: proceed silently.
+   - `NotInstalled`, `NeedsBuild` or `Behind`: tell the user what the line says and ask via
+     `ask_user` whether to run `& "<skills repo>\Install-Skills.ps1" -Remote -Force` (it clones or
+     fast-forwards the toolkit and builds it, about a minute, and also installs changed skills). On
+     yes, run it and check the exit code. On no, continue only if `agentdebug-ui.exe` exists
+     (`Behind` works with the installed build); otherwise stop, because this skill cannot work
+     without it.
+   - `Diverged`, `NotAClone`, `NoDotnetSdk` or `NoGit`: report the line once and change nothing;
+     continue only if `agentdebug-ui.exe` exists.
+   - No `TOOLKIT:` line (an older installer): continue only if `agentdebug-ui.exe` exists,
+     otherwise ask the user.
+   Do not ask again in this session.
 7. If the repo copy's `scripts\SCRIPTS.md` exists, read it so the learned scripts are in context,
    and mention the count in a few words (e.g. "2 learned scripts indexed").
 8. Start the hands-off indicator: `AgentCursor.ps1 -Session Start` (blue dot).
@@ -429,7 +452,7 @@ Then click Send:
 ## Step 3 — Poll for state (Working / Pending / Idle)
 
 Two reusable watcher scripts are bundled with this skill in `scripts\` (next to this SKILL.md —
-always available even if `C:\MyFiles\Git\AgentDebugToolkit` isn't cloned/up to date):
+always available even if the toolkit source isn't up to date; they still call the toolkit's `agentdebug-ui.exe`):
 
 - **`Watch-CopilotChatV2.ps1` — the default.** One small probe per poll (about 7 % of a core, median
   probe under a second), silent while polling, never activates the window. When the wait ends Pending

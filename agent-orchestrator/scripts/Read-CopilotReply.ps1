@@ -68,7 +68,7 @@ param(
 
     [switch]$NoScroll,
 
-    [string]$ExePath = 'C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe',
+    [string]$ExePath = "$env:USERPROFILE\.copilot\toolkits\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe",
 
     [string]$FooterPattern = '^The response (used the .+ model|cost [\d.]+ credits?\.?$)',
 

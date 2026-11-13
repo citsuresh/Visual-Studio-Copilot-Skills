@@ -5,8 +5,9 @@ description: 'Navigate a target WinForms/WPF application to a requested screen o
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 7`. Compare against the source-of-truth copy at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-navigation-orchestrator\SKILL.md`, and against
+- `CURRENT_SKILL_VERSION = 8`. Compare against the source-of-truth copy at
+  `<skills repo>\ui-navigation-orchestrator\SKILL.md` (the clone path is in
+  `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against
   that clone's GitHub upstream, once at the start of a session.
 - Changelog:
   - v1 — initial version, replacing `ui-debug-map`. Drops the per-feature `map.json`/folder
@@ -40,6 +41,9 @@ description: 'Navigate a target WinForms/WPF application to a requested screen o
   - v7 — Step 0 reads this skill's version and what's new from the repo's small `skills-index.json`
     instead of the whole `SKILL.md`, so the update check costs about 2 KB, not up to 100 KB. If the
     index cannot be read it falls back to a filtered read of the version line.
+  - v8 — The skills repo clone is found through `%USERPROFILE%\.copilot\skills-source.json` instead of
+    a fixed `C:\MyFiles\Git` path. The toolkit check stays in `ui-interaction` and `vs-debug`, which
+    this skill always goes through. Needs the `Install-Skills.ps1` from the same change.
 
 # UI Navigation Orchestrator
 
@@ -64,27 +68,30 @@ Run this **once**, at the very start of a navigate/debug/explore request — not
 individual navigation step, and it must never get pulled into the per-item loop during an
 "explore and map the app" sweep.
 
-1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. Use the same "ask, don't
-   guess" fallback as elsewhere if it doesn't exist.
-2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+1. Find the repo clone: read `skillsRepo` from `%USERPROFILE%\.copilot\skills-source.json`, which
+   `Install-Skills.ps1` writes:
+   `(Get-Content "$env:USERPROFILE\.copilot\skills-source.json" -Raw | ConvertFrom-Json).skillsRepo`.
+   Call it `<skills repo>` below. If the file or the folder does not exist, use the same "ask, don't
+   guess" fallback as elsewhere: ask the user where the clone is.
+2. Check GitHub: `git -C "<skills repo>" fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
 3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
    whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
    two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
    and `whatsNew`:
-   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'ui-navigation-orchestrator'`
-   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'ui-navigation-orchestrator'`
+   - GitHub's copy (skip if the fetch failed): `(git -C "<skills repo>" show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'ui-navigation-orchestrator'`
+   - The clone's copy: `(Get-Content "<skills repo>\skills-index.json" -Raw | ConvertFrom-Json).skills.'ui-navigation-orchestrator'`
    - If neither can be read (a repo from before the index existed), read only the version line,
-     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-navigation-orchestrator\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
+     never the whole file: `Select-String -Path "<skills repo>\ui-navigation-orchestrator\SKILL.md" -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`.
 5. If the repo's version is higher: tell the user what's new (the index's `whatsNew` line; if more than one version behind, say how
    many and offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled
    yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
-   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
-   changed skill; tell the user the new text applies from a new chat session. On no, proceed
-   with the current session and do not ask again in it.
+   `& "<skills repo>\Install-Skills.ps1" -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes), installs every
+   changed skill, and clones, updates and builds the toolkits; tell the user the new text applies
+   from a new chat session. On no, proceed with the current session and do not ask again in it.
 6. If versions match: proceed silently.
 
 ## Hands-off cursor indicator

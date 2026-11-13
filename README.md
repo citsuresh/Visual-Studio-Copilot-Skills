@@ -22,7 +22,7 @@ Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
 | `agent-orchestrator/` | Drives and supervises a Copilot chat agent running in a *different* Visual Studio window via AgentDebugToolkit's UIA CLI — attach, assign tasks, poll state, detect/answer prompts, run the Decomposition → implement → Audit → review → approve → commit loop. Ships helper scripts in `scripts/`: `Send-CopilotPrompt`, two chat watchers (`Watch-CopilotChatV2`, the light default, and `Watch-CopilotChatV1`, the full-tree one), `Select-ChoicePromptOption`, `Read-CopilotReply`, `Invoke-CopilotReview` and others, with manual test cases in `scripts/tests/`. |
 | `vs-chat-history/` | Searches and reads the Visual Studio Copilot Chat history stored on this machine through the `chathistory` CLI of [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit): word search, session lists and filters, capped excerpts of turns and checkpoints, counts, and (only on request) rename and undo. Read-only except rename and undo-rename; covers `session-store.db` only; chat text is treated as sensitive. |
 | `install-skills/` | Lets Copilot install or update all the skills in this repo for you ("install skills from `<repo url>`", "check the repo and update all the skills"): `Install-Skills.ps1 -Check -Remote`, then `-Remote -Force` (and `-Prune` only after asking you). Installed by `Install-Skills.ps1` like the others. |
-| `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
+| `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. Also records this clone's path in `%USERPROFILE%\.copilot\skills-source.json` and clones, updates and builds the companion toolkits under `%USERPROFILE%\.copilot\toolkits\` (see "Toolkits" below). |
 | `skills-index.json` | Generated, about 2 KB: each skill's current `version` and a one-line `whatsNew` (taken from its changelog). The skills' first-use update check reads this instead of the whole `SKILL.md` (up to 113 KB). Never edit it by hand. `install-skills` has no version and is not listed. |
 | `scripts/Update-SkillsIndex.ps1` | Regenerates `skills-index.json` from the `SKILL.md` files (no AI, no commit message). `-Check` only compares and exits 1 if the index is out of date; `-Stage` also runs `git add`. `Install-Skills.ps1 -Check` prints the result as an `INDEX:` line. |
 | `.githooks/` | `pre-commit` regenerates and stages `skills-index.json` whenever a `SKILL.md` is committed. `pre-push` warns (never blocks) if a `SKILL.md` in the pushed commits changed but its `CURRENT_SKILL_VERSION` did not, judged over the whole push so several commits before the final bump are fine. Enable once per clone: `git config core.hooksPath .githooks`. |
@@ -38,20 +38,21 @@ to use" below), and their helper scripts and test cases live in each skill's `sc
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free
   Community edition), version 18.5 or later.
-- For `project-memory-management-graph` specifically: [GraphTools](https://github.com/citsuresh/GraphTools)
-  cloned and built separately — this skill invokes `GraphTools.Builder.exe`/`GraphTools.Query.exe`
-  by absolute path, so confirm that repo is built before using this skill.
-  **`project-memory-management-graph/SKILL.md` hardcodes the GraphTools executable paths as
-  `C:\MyFiles\Git\GraphTools\... Before installing this skill, edit
-  the "GraphTools invocation" section of that `SKILL.md` to point at wherever you cloned/built
-  GraphTools on your own machine.** If the paths are wrong or GraphTools hasn't been built, the
-  skill will stop and tell you rather than silently failing or attempting to locate/build it itself.
+- **git** and the **.NET SDK 8 or later**: `Install-Skills.ps1` uses them to clone and build the
+  companion toolkits below. Without the SDK a toolkit that needs a build is reported as `NoDotnetSdk`
+  and left alone; the skills themselves still install.
+- For `project-memory-management-graph` specifically: [GraphTools](https://github.com/citsuresh/GraphTools).
+  `Install-Skills.ps1` clones and builds it at `%USERPROFILE%\.copilot\toolkits\GraphTools`, and the
+  skill calls `tools\Invoke-GraphTools.ps1` there. Nothing needs editing in the `SKILL.md`. If GraphTools
+  is missing or not built, the skill's Step 0 toolkit check says so and offers to run the installer.
 - For `ui-interaction`, `vs-debug`, `ui-navigation-orchestrator`, and `agent-orchestrator`:
-  [AgentDebugToolkit](https://github.com/citsuresh/AgentDebugToolkit) cloned and built separately
-  (`agentdebug-ui.exe` and, for `vs-debug`, the debugger-bridge CLI). These skills hardcode
-  `C:\MyFiles\Git\AgentDebugToolkit\...` paths and use an "ask, don't guess" fallback if that path
-  doesn't exist on your machine — edit the relevant SKILL.md path(s) to match your own clone
-  location before installing.
+  [AgentDebugToolkit](https://github.com/citsuresh/AgentDebugToolkit) (`agentdebug-ui.exe` and, for
+  `vs-debug`, the debugger-bridge CLI), cloned and built by the installer at
+  `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit`. `ui-interaction`, `vs-debug` and
+  `agent-orchestrator` check it in Step 0; `ui-navigation-orchestrator` relies on the checks of the
+  first two.
+- For `vs-chat-history`: [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit)
+  (`chathistory.exe`), at `%USERPROFILE%\.copilot\toolkits\VsChatHistoryToolkit`, checked in the skill's Step 0.
 
 ## Installing
 
@@ -63,8 +64,11 @@ anything automatically.
 **Option 0 — ask Copilot (new machine):** the `install-skills` skill is not installed yet on a new
 machine, so spell the first request out once, for example:
 
-> Clone `<this-repo-url>` to `C:\MyFiles\Git\Visual-Studio-Copilot-Skills` and run
+> Clone `<this-repo-url>` to `<a folder you choose>` and run
 > `.\Install-Skills.ps1 -Check`, show me the result, then run `.\Install-Skills.ps1 -Force`.
+
+The first real run records where the clone is (`%USERPROFILE%\.copilot\skills-source.json`), so the
+skills and `install-skills` find it afterwards, and builds the three toolkits (about a minute, once).
 
 After that, the short forms work in any chat: "install skills from `<repo url>`" and "check the repo
 and update all the skills" (also "are my skills up to date"). The skill clones the repo if needed, runs
@@ -81,9 +85,9 @@ Shows exactly what's changed per skill and asks for confirmation before copying 
 `-Force` to skip the prompts once you trust it. Files that were removed from the repo but remain in
 an installed skill are listed and left in place; add `-Prune` to delete them (same confirmation).
 `-Check` changes nothing: it lists what is new or outdated and ends with a `RESULT:` line
-(`UpToDate` or `UpdatesAvailable`). Every run also reports companion tool folders the skills refer to
-(`C:\MyFiles\Git\GraphTools`, `AgentDebugToolkit`, `VsChatHistoryToolkit`) that are missing, with the
-`git clone` command; it never clones or builds them.
+(`UpToDate` or `UpdatesAvailable`). Every run also prints one `TOOLKIT:` line per companion toolkit and
+an informational `SOURCE:` line for `skills-source.json`; see "Toolkits" below. `-SkipToolkits` leaves
+the toolkits out entirely.
 
 `-Remote` checks GitHub first (`git fetch`) and prints a `REMOTE:` line (`UpToDate`, `Behind N commit(s)`,
 `Pulled N commit(s)`, `Diverged`, `Unreachable`, ...) with the commit subjects and the skills they touch.
@@ -153,7 +157,48 @@ checks once per chat session, the first time it is used, whether a newer version
 clone's and the GitHub upstream's `skills-index.json` (a 2 KB read; it falls back to reading just the
 version line of `SKILL.md` if there is no index), and, if one is newer, tells you what's new and asks
 whether to run `Install-Skills.ps1 -Remote -Force`. It never updates without asking, and it is not
-periodic. The memory skills also keep their separate per-project marker check.
+periodic. The memory skills also keep their separate per-project marker check. The skills that use a
+toolkit run a second, read-only check in the same step (`Install-Skills.ps1 -Check -Remote
+-MaxAgeHours 6`, filtered to their own `TOOLKIT:` line), also when the skill version matches: a missing,
+unbuilt or outdated toolkit is reported and the skill asks before running the installer.
+
+## Toolkits
+
+Several skills call three companion command-line tools. Each is a public git repo; the installer
+clones it under `%USERPROFILE%\.copilot\toolkits\<Name>` and builds it there with the repo's own
+`scripts\agent\Build-Toolkit.ps1`. Nothing binary is shipped: every machine builds its own copy.
+
+| Toolkit | Used by | Entry point after the build |
+|---|---|---|
+| [GraphTools](https://github.com/citsuresh/GraphTools) | `project-memory-management-graph` | `tools\Invoke-GraphTools.ps1` |
+| [AgentDebugToolkit](https://github.com/citsuresh/AgentDebugToolkit) | `ui-interaction`, `vs-debug`, `agent-orchestrator`, `ui-navigation-orchestrator` | `src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe` and `src\AgentDebugToolkit.Debugger.VisualStudio\bin\Debug\net8.0-windows\agentdebug-vs.exe` |
+| [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit) | `vs-chat-history` | `src\VsChatHistoryToolkit.Cli\bin\Debug\net8.0\chathistory.exe` |
+
+Each toolkit repo has an integer `VERSION` file and a `scripts\agent\Build-Toolkit.ps1`. A successful
+build writes the built commit to `.built-version` (git-ignored). The installer prints one line per
+toolkit, `TOOLKIT: <Name> <Status> (...)`:
+
+| Status | Meaning | What the installer does |
+|---|---|---|
+| `UpToDate` | Cloned, built from the current commit, nothing newer upstream | nothing |
+| `NotInstalled` | No folder yet | clones it, then builds |
+| `NeedsBuild` | The built commit differs from the checked-out one | builds |
+| `Behind` | `-Remote` only: upstream has newer commits | fast-forwards, then builds |
+| `Diverged` | Local commits that upstream does not have | nothing; reported |
+| `NotAClone` | The folder exists but is not a git clone | nothing; reported |
+| `NoDotnetSdk` | A build is needed but no .NET SDK is installed | nothing; reported |
+| `CloneFailed`, `PullFailed`, `NoBuildScript`, `BuildFailed` | A step of a real run failed | reported; exit code 1 |
+
+`-Check` never changes anything; any status except `UpToDate` is added to the `RESULT:` line. A
+fast-forward never overwrites uncommitted changes to tracked files. Without `-Force` the installer asks
+before cloning or building. `-ToolkitBaseUrl` changes where the repos come from (default
+`https://github.com/citsuresh`; a folder path or a fork also works).
+
+To work on a toolkit, use a separate clone elsewhere (this machine uses `C:\MyFiles\Git`), not the
+folder under `.copilot\toolkits`, which belongs to the installer. A toolkit change reaches other
+machines when it is pushed; bump the toolkit's `VERSION` so the change is visible in its history. The
+locally built, unsigned executables may be flagged by antivirus software on some machines; this has not
+been verified.
 
 ## Design notes
 

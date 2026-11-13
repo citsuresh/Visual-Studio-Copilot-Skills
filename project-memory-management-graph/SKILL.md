@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 25`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 26`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -313,6 +313,15 @@ re-sync — without the user having to remember or manually redo anything per pr
     Projects bootstrapped at v24 are flagged stale; re-run Bootstrap to pick up the bullet. Script
     tested with a spoken phrase and with the NoVoice paths simulated; the Bootstrap step is not yet
     validated live in Copilot/Visual Studio.
+  - v26 — GraphTools is found at `%USERPROFILE%\.copilot\toolkits\GraphTools`, where
+    `Install-Skills.ps1` clones and builds it, instead of the fixed `C:\MyFiles\Git\GraphTools`, and the
+    skills repo clone is found through `%USERPROFILE%\.copilot\skills-source.json`. Every wrapper command
+    template and the wrapper path Bootstrap Step 6 writes into the Persistent Project Memory section
+    change accordingly, so projects bootstrapped at v25 (which hold the old path) are flagged stale;
+    re-run Bootstrap to pick up the new path. Workflow 0's installed-skill update check gains a toolkit
+    check (a missing, unbuilt or outdated GraphTools is reported and can be fixed through
+    `Install-Skills.ps1`). Needs the `Install-Skills.ps1` from the same change. Not yet validated live
+    in Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -332,29 +341,49 @@ skill is invoked in a session, not again for later workflows in the same session
 section does not by itself require a `CURRENT_SKILL_VERSION` bump: it does not change what a
 project's docs or `copilot-instructions.md` contain.
 
-1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. If it doesn't exist on this
-   machine, skip this check and say so in one line; do not guess a location.
-2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+1. Find the repo clone: read `skillsRepo` from `%USERPROFILE%\.copilot\skills-source.json`, which
+   `Install-Skills.ps1` writes:
+   `(Get-Content "$env:USERPROFILE\.copilot\skills-source.json" -Raw | ConvertFrom-Json).skillsRepo`.
+   Call it `<skills repo>` below. If the file or the folder does not exist on this machine, skip
+   this check (including step 6) and say so in one line; do not guess a location.
+2. Check GitHub: `git -C "<skills repo>" fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
 3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
    whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
    two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
    and `whatsNew`:
-   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'project-memory-management-graph'`
-   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'project-memory-management-graph'`
+   - GitHub's copy (skip if the fetch failed): `(git -C "<skills repo>" show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'project-memory-management-graph'`
+   - The clone's copy: `(Get-Content "<skills repo>\skills-index.json" -Raw | ConvertFrom-Json).skills.'project-memory-management-graph'`
    - If neither can be read (a repo from before the index existed), read only the version line,
-     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management-graph\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
+     never the whole file: `Select-String -Path "<skills repo>\project-memory-management-graph\SKILL.md" -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`. If equal, continue
    silently.
 5. If the repo's version is higher: tell the user what's new (the index's `whatsNew` line; if more than one version behind, say how
    many and offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled
    yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
-   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
-   changed skill; tell the user the new text applies from a new chat session, and continue the
+   `& "<skills repo>\Install-Skills.ps1" -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes), installs every
+   changed skill, and clones, updates and builds the toolkits; tell the user the new text applies
+   from a new chat session, and continue the
    requested workflow with the current copy. On no, continue and do not ask again in this
    session.
+6. Toolkit check (also when the versions match). Skip it if step 5 just ran the installer
+   successfully. Run this read-only command, which changes nothing:
+   `& "<skills repo>\Install-Skills.ps1" -Check -Remote -MaxAgeHours 6 | Select-String '^TOOLKIT: GraphTools '`
+   and act on the status word in the line:
+   - `UpToDate`: continue silently.
+   - `NotInstalled`, `NeedsBuild` or `Behind`: tell the user what the line says and ask via
+     `ask_user` whether to run `& "<skills repo>\Install-Skills.ps1" -Remote -Force` (it clones or
+     fast-forwards GraphTools and builds it, about a minute, and also installs changed skills). On
+     yes, run it and check the exit code. On no, continue only if the wrapper exists
+     (`Behind` works with the installed build); otherwise a workflow that needs the graph cannot
+     run (Begin Session's file checks still can).
+   - `Diverged`, `NotAClone`, `NoDotnetSdk` or `NoGit`: report the line once and change nothing;
+     continue only if the wrapper exists.
+   - No `TOOLKIT:` line (an older installer): continue only if the wrapper exists, otherwise tell
+     the user.
+   Do not ask again in this session.
 
 ### Steps (per-project marker check)
 
@@ -405,8 +434,8 @@ project's docs or `copilot-instructions.md` contain.
 - Never read from, write to, or delete any file or folder outside of: (a) the current
   project's own folder, or (b) this skill's own folder under the personal skills directory
   (`~/.copilot/skills/project-memory-management-graph/`), or (c) the GraphTools install
-  location (`C:\MyFiles\Git\GraphTools\`), and only to invoke its executables — never to modify
-  files inside it, or (d) the skills repo clone `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\`,
+  location (`%USERPROFILE%\.copilot\toolkits\GraphTools\`), and only to invoke its executables — never to modify
+  files inside it, or (d) the skills repo clone `<skills repo>` (read from `%USERPROFILE%\.copilot\skills-source.json`),
   only for the installed-skill update check in Workflow 0 (`git fetch`, `git show`, and running
   its `Install-Skills.ps1` after the user agrees) — never to edit files inside it.
 - If a step would require touching a path outside this scope, stop and ask the user first
@@ -433,9 +462,13 @@ project's docs or `copilot-instructions.md` contain.
 
 ## GraphTools invocation (applies to Bootstrap and End Session)
 
+- GraphTools is installed on this machine by `Install-Skills.ps1`, which clones and builds it at
+  `%USERPROFILE%\.copilot\toolkits\GraphTools`. In PowerShell commands write the folder as
+  `$env:USERPROFILE\.copilot\toolkits\GraphTools`; when a path is written into a file (Bootstrap
+  Step 6), expand it to an absolute path first.
 - GraphTools must be invoked through its wrapper script, not the raw executables directly:
-  - `C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Builder -- <args>`
-  - `C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- <args>`
+  - `& "$env:USERPROFILE\.copilot\toolkits\GraphTools\tools\Invoke-GraphTools.ps1" -Tool Builder -- <args>`
+  - `& "$env:USERPROFILE\.copilot\toolkits\GraphTools\tools\Invoke-GraphTools.ps1" -Tool Query -- <args>`
   - The wrapper clears any inherited `DOTNET_ROOT` environment variable before invoking the
     real exe underneath (`GraphTools.Builder\bin\Debug\net8.0\GraphTools.Builder.exe` /
     `GraphTools.Query\bin\Debug\net8.0\GraphTools.Query.exe`). This works around a real failure
@@ -467,7 +500,7 @@ project's docs or `copilot-instructions.md` contain.
   files — this keeps all Copilot inputs in one place.
 - Before running the wrapper, confirm both it and the underlying exe it targets exist at the
   paths above; if either is missing, stop and tell the user rather than attempting to build or
-  locate it yourself.
+  locate it yourself (the toolkit check in Workflow 0 explains how `Install-Skills.ps1` repairs it).
 - Print the exact command being run (with resolved absolute paths) before executing it, and
   report the wall-clock time taken and the resulting node/edge counts afterward.
 - If the wrapper/exe exits with a non-zero exit code or prints an error, stop and report the
@@ -490,10 +523,10 @@ Use these whenever the Persistent Project Memory rule above says to prefer the g
 general search tool:
 
 ```
-C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<repo root>\docs\full-graph.<slug>.json" --symbol "<fully-qualified-id>"
-C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --symbol "<id>" --direction callers
-C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --symbol "<id>" --direction callees
-C:\MyFiles\Git\GraphTools\tools\Invoke-GraphTools.ps1 -Tool Query -- --graph "<path>" --list-symbols --project "<project name>"
+& "$env:USERPROFILE\.copilot\toolkits\GraphTools\tools\Invoke-GraphTools.ps1" -Tool Query -- --graph "<repo root>\docs\full-graph.<slug>.json" --symbol "<fully-qualified-id>"
+& "$env:USERPROFILE\.copilot\toolkits\GraphTools\tools\Invoke-GraphTools.ps1" -Tool Query -- --graph "<path>" --symbol "<id>" --direction callers
+& "$env:USERPROFILE\.copilot\toolkits\GraphTools\tools\Invoke-GraphTools.ps1" -Tool Query -- --graph "<path>" --symbol "<id>" --direction callees
+& "$env:USERPROFILE\.copilot\toolkits\GraphTools\tools\Invoke-GraphTools.ps1" -Tool Query -- --graph "<path>" --list-symbols --project "<project name>"
 ```
 
 - Use `--list-symbols --project` first if the exact symbol ID isn't already known, to discover

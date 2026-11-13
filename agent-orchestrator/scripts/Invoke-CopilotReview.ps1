@@ -86,7 +86,7 @@ param(
     [ValidateRange(200, 100000)]
     [int]$MaxReplyChars = 6000,
 
-    [string]$ExePath = 'C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe'
+    [string]$ExePath = "$env:USERPROFILE\.copilot\toolkits\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe"
 )
 
 $ErrorActionPreference = 'Stop'

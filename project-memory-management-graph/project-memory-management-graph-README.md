@@ -30,10 +30,13 @@ deliberately keep using the plain skill for a non-.NET project instead (this ski
 `.sln`/`.slnx`, since Bootstrap's graph step needs one to hand to GraphTools).
 
 ## Companion tool: GraphTools
-Standalone solution at `C:\MyFiles\Git\GraphTools\GraphTools.sln`, built independently, NOT
-copied into the skill folder (deliberately — avoids the same version-drift problem the
-original sync-tool project existed to solve; the skill just references the built exe by
-absolute path, so rebuilding GraphTools automatically updates what the skill uses next run).
+Standalone solution, cloned from [github.com/citsuresh/GraphTools](https://github.com/citsuresh/GraphTools)
+and built by `Install-Skills.ps1` at `%USERPROFILE%\.copilot\toolkits\GraphTools` (since skill v26;
+before that a hardcoded `C:\MyFiles\Git\GraphTools`). It is NOT copied into the skill folder
+(deliberately — avoids the same version-drift problem the original sync-tool project existed to
+solve). The skill calls `tools\Invoke-GraphTools.ps1` there, and Workflow 0 step 6 checks that the
+toolkit is built and current (`TOOLKIT: GraphTools ...` from `Install-Skills.ps1 -Check`), offering to
+run the installer when it is missing or behind. Developing GraphTools itself happens in a separate clone.
 
 - `GraphTools.Core` — shared models, JSON serialization, Roslyn workspace-loading logic.
 - `GraphTools.Builder.exe` (`GraphTools.Builder\bin\Debug\net8.0\`) — builds/updates the graph.

@@ -5,10 +5,15 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 10`. Compare against the source-of-truth copy at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md`, and against that clone's
+- `CURRENT_SKILL_VERSION = 11`. Compare against the source-of-truth copy at
+  `<skills repo>\vs-chat-history\SKILL.md` (the clone path is in
+  `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a session (Step 0).
 - Changelog:
+  - v11 — The skills repo clone is found through `%USERPROFILE%\.copilot\skills-source.json` and
+    VsChatHistoryToolkit through `%USERPROFILE%\.copilot\toolkits\VsChatHistoryToolkit`, instead of
+    fixed `C:\MyFiles\Git` paths, and Step 0 gains a toolkit check (clone, update and build through
+    `Install-Skills.ps1`). Needs the `Install-Skills.ps1` from the same change; no command changed.
   - v10 — Step 0 reads this skill's version and what's new from the repo's small `skills-index.json`
     instead of the whole `SKILL.md`, so the update check costs about 2 KB, not up to 100 KB. If the
     index cannot be read it falls back to a filtered read of the version line. No other step
@@ -69,45 +74,65 @@ it, how to read its output, and what to keep private.
 
 ## Prerequisites / environment
 
-- Tool: `chathistory.exe`, built from `C:\MyFiles\Git\VsChatHistoryToolkit`
-  (`src\VsChatHistoryToolkit.Cli`). Expected at
-  `C:\MyFiles\Git\VsChatHistoryToolkit\src\VsChatHistoryToolkit.Cli\bin\Debug\net8.0\chathistory.exe`.
-  If the folder does not exist, stop and ask the user where the toolkit is; do not guess.
-- If the exe is missing or older than the source, build it:
-  `dotnet build C:\MyFiles\Git\VsChatHistoryToolkit\VsChatHistoryToolkit.slnx` (needs the .NET 8
-  runtime; the machine's default SDK may be newer, which is fine).
+- Tool: `chathistory.exe`, from VsChatHistoryToolkit, which `Install-Skills.ps1` clones and builds on
+  this machine at `%USERPROFILE%\.copilot\toolkits\VsChatHistoryToolkit` (expand `%USERPROFILE%` to an
+  absolute path before using it). Expected at
+  `%USERPROFILE%\.copilot\toolkits\VsChatHistoryToolkit\src\VsChatHistoryToolkit.Cli\bin\Debug\net8.0\chathistory.exe`.
+  If the folder or the exe does not exist, Step 0's toolkit check says what to do; do not guess a
+  path or use a different clone.
+- The exe is built by the toolkit's `scripts\agent\Build-Toolkit.ps1`, which `Install-Skills.ps1`
+  runs (needs a .NET 8 or later SDK). Do not build it by hand.
 - Clear `DOTNET_ROOT` first (`Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue`), as with
   the other skills here.
 - Visual Studio may be running; reads work while it is open. Each call takes about 0.3 to 0.8
   seconds, `show` can take a few seconds for a session with a very large event log.
-- Full contract: `C:\MyFiles\Git\VsChatHistoryToolkit\docs\CLI_CONTRACT.md`.
+- Full contract: `%USERPROFILE%\.copilot\toolkits\VsChatHistoryToolkit\docs\CLI_CONTRACT.md`.
 
 ## Step 0: Version Check
 
 Run this **once**, the first time this skill is used in a session, not on every command.
 
-1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. If it does not exist, ask the
-   user rather than guessing.
-2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+1. Find the repo clone: read `skillsRepo` from `%USERPROFILE%\.copilot\skills-source.json`, which
+   `Install-Skills.ps1` writes:
+   `(Get-Content "$env:USERPROFILE\.copilot\skills-source.json" -Raw | ConvertFrom-Json).skillsRepo`.
+   Call it `<skills repo>` below. If the file or the folder does not exist, ask the user rather than
+   guessing.
+2. Check GitHub: `git -C "<skills repo>" fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
 3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
    whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
    two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
    and `whatsNew`:
-   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'vs-chat-history'`
-   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'vs-chat-history'`
+   - GitHub's copy (skip if the fetch failed): `(git -C "<skills repo>" show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'vs-chat-history'`
+   - The clone's copy: `(Get-Content "<skills repo>\skills-index.json" -Raw | ConvertFrom-Json).skills.'vs-chat-history'`
    - If neither can be read (a repo from before the index existed), read only the version line,
-     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
+     never the whole file: `Select-String -Path "<skills repo>\vs-chat-history\SKILL.md" -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version with this file's own `CURRENT_SKILL_VERSION`.
 5. If the repo version is higher, say what's new (the index's `whatsNew` line; if more than one version behind, say how many and
    offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled yet) or already in
    the clone. Ask via `ask_user` whether to update now. On yes, run
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
-   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
-   changed skill; tell the user the new text applies from a new chat session. On no, continue and
-   do not ask again in this session.
+   `& "<skills repo>\Install-Skills.ps1" -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes), installs every
+   changed skill, and clones, updates and builds the toolkits; tell the user the new text applies
+   from a new chat session. On no, continue and do not ask again in this session.
 6. If the versions match, continue silently.
+7. Toolkit check (also when the versions match). Skip it if step 5 just ran the installer
+   successfully. Run this read-only command, which changes nothing:
+   `& "<skills repo>\Install-Skills.ps1" -Check -Remote -MaxAgeHours 6 | Select-String '^TOOLKIT: VsChatHistoryToolkit '`
+   and act on the status word in the line:
+   - `UpToDate`: continue silently.
+   - `NotInstalled`, `NeedsBuild` or `Behind`: tell the user what the line says and ask via
+     `ask_user` whether to run `& "<skills repo>\Install-Skills.ps1" -Remote -Force` (it clones or
+     fast-forwards the toolkit and builds it, about a minute, and also installs changed skills). On
+     yes, run it and check the exit code. On no, continue only if `chathistory.exe` exists
+     (`Behind` works with the installed build); otherwise stop, because this skill cannot work
+     without it.
+   - `Diverged`, `NotAClone`, `NoDotnetSdk` or `NoGit`: report the line once and change nothing;
+     continue only if `chathistory.exe` exists.
+   - No `TOOLKIT:` line (an older installer): continue only if `chathistory.exe` exists, otherwise
+     ask the user.
+   Do not ask again in this session.
 
 ## Commands
 

@@ -5,8 +5,9 @@ description: 'Attach the Visual Studio debugger to a running application via Age
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 8`. Compare against the source-of-truth copy at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-debug\SKILL.md`, and against that clone's GitHub
+- `CURRENT_SKILL_VERSION = 9`. Compare against the source-of-truth copy at
+  `<skills repo>\vs-debug\SKILL.md` (the clone path is in
+  `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's GitHub
   upstream, once at the start of a session.
 - Changelog:
   - v1 — initial version. Extracted from `ui-debug-map`, which mixed this debugger-bridge
@@ -54,6 +55,10 @@ description: 'Attach the Visual Studio debugger to a running application via Age
   - v8 — Step 0 reads this skill's version and what's new from the repo's small `skills-index.json`
     instead of the whole `SKILL.md`, so the update check costs about 2 KB, not up to 100 KB. If the
     index cannot be read it falls back to a filtered read of the version line.
+  - v9 — The skills repo clone is found through `%USERPROFILE%\.copilot\skills-source.json` and
+    AgentDebugToolkit through `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit`, instead of fixed
+    `C:\MyFiles\Git` paths, and Step 0 gains a toolkit check (clone, update and build through
+    `Install-Skills.ps1`). Needs the `Install-Skills.ps1` from the same change; no verb changed.
 
 # VS Debug
 
@@ -66,17 +71,20 @@ record of it.
 
 ## Prerequisites / environment
 
-- **Portability note:** same as `ui-interaction` — this skill assumes
-  `C:\MyFiles\Git\AgentDebugToolkit` is a specific, hardcoded local clone. If it doesn't exist,
-  stop and ask the user where to find or clone it rather than guessing.
+- **Toolkit location:** same as `ui-interaction` — AgentDebugToolkit is cloned and built by
+  `Install-Skills.ps1` at `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit` (expand
+  `%USERPROFILE%` to an absolute path before using it). If that folder or the exe is missing,
+  Step 0's toolkit check says what to do; never guess another path or use a different clone.
 - Tool: `agentdebug-vs.exe`, built from
-  `C:\MyFiles\Git\AgentDebugToolkit\src\AgentDebugToolkit.Debugger.VisualStudio`. This is a
+  `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit\src\AgentDebugToolkit.Debugger.VisualStudio`
+  (exe under `bin\Debug\net8.0-windows\`; built by the toolkit's `scripts\agent\Build-Toolkit.ps1`,
+  which `Install-Skills.ps1` runs, so do not build it by hand). This is a
   separate CLI/process from `agentdebug-ui.exe` — it drives Visual Studio's debugger via EnvDTE
   COM, not the UI via UIA.
 - **CRITICAL environment gotcha:** clear `DOTNET_ROOT`
   (`Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue`) before invoking `agentdebug-vs.exe`
   or `dotnet build`/`restore`, same as `ui-interaction`.
-- Full verb contract: `C:\MyFiles\Git\AgentDebugToolkit\docs\CLI_CONTRACT.md`.
+- Full verb contract: `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit\docs\CLI_CONTRACT.md`.
 - **UI automation is a fallback, not a default.** As of Phase 21/22, `agentdebug-vs.exe` itself
   covers PID-targeted attach/break/detach, reliable state reporting, and thread/frame/locals/
   evaluate inspection entirely via EnvDTE/COM — no UI automation/SendKeys involved. Only reach for
@@ -90,28 +98,47 @@ record of it.
 Run this **once**, the first time this skill is used in a session — not on every individual
 attach/breakpoint/step/read-call-stack call.
 
-1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. Use the same "ask, don't
-   guess" fallback as the `AgentDebugToolkit` path above if it doesn't exist.
-2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+1. Find the repo clone: read `skillsRepo` from `%USERPROFILE%\.copilot\skills-source.json`, which
+   `Install-Skills.ps1` writes:
+   `(Get-Content "$env:USERPROFILE\.copilot\skills-source.json" -Raw | ConvertFrom-Json).skillsRepo`.
+   Call it `<skills repo>` below. If the file or the folder does not exist, use the same "ask, don't
+   guess" fallback as the toolkit above: ask the user where the clone is.
+2. Check GitHub: `git -C "<skills repo>" fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
 3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
    whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
    two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
    and `whatsNew`:
-   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'vs-debug'`
-   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'vs-debug'`
+   - GitHub's copy (skip if the fetch failed): `(git -C "<skills repo>" show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'vs-debug'`
+   - The clone's copy: `(Get-Content "<skills repo>\skills-index.json" -Raw | ConvertFrom-Json).skills.'vs-debug'`
    - If neither can be read (a repo from before the index existed), read only the version line,
-     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-debug\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
+     never the whole file: `Select-String -Path "<skills repo>\vs-debug\SKILL.md" -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`.
 5. If the repo's version is higher: tell the user what's new (the index's `whatsNew` line; if more than one version behind, say how
    many and offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled
    yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
-   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
-   changed skill; tell the user the new text applies from a new chat session. On no, proceed
-   with the current session and do not ask again in it.
+   `& "<skills repo>\Install-Skills.ps1" -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes), installs every
+   changed skill, and clones, updates and builds the toolkits; tell the user the new text applies
+   from a new chat session. On no, proceed with the current session and do not ask again in it.
 6. If versions match: proceed silently.
+7. Toolkit check (also when the versions match). Skip it if step 5 just ran the installer
+   successfully. Run this read-only command, which changes nothing:
+   `& "<skills repo>\Install-Skills.ps1" -Check -Remote -MaxAgeHours 6 | Select-String '^TOOLKIT: AgentDebugToolkit '`
+   and act on the status word in the line:
+   - `UpToDate`: proceed silently.
+   - `NotInstalled`, `NeedsBuild` or `Behind`: tell the user what the line says and ask via
+     `ask_user` whether to run `& "<skills repo>\Install-Skills.ps1" -Remote -Force` (it clones or
+     fast-forwards the toolkit and builds it, about a minute, and also installs changed skills). On
+     yes, run it and check the exit code. On no, continue only if `agentdebug-vs.exe` exists
+     (`Behind` works with the installed build); otherwise stop, because this skill cannot work
+     without it.
+   - `Diverged`, `NotAClone`, `NoDotnetSdk` or `NoGit`: report the line once and change nothing;
+     continue only if `agentdebug-vs.exe` exists.
+   - No `TOOLKIT:` line (an older installer): continue only if `agentdebug-vs.exe` exists,
+     otherwise ask the user.
+   Do not ask again in this session.
 
 ## Core operations
 
