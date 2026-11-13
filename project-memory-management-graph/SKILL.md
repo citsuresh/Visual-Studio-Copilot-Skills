@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 26`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 27`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -322,6 +322,16 @@ re-sync — without the user having to remember or manually redo anything per pr
     check (a missing, unbuilt or outdated GraphTools is reported and can be fixed through
     `Install-Skills.ps1`). Needs the `Install-Skills.ps1` from the same change. Not yet validated live
     in Copilot/Visual Studio.
+  - v27 — The read-aloud (TTS) rules moved into their own small skill, `read-aloud`, which owns
+    `Speak-Text.ps1` (now with optional ducking of other applications' audio) and is triggered by the
+    phrases "enable tts" / "start tts" in any project, bootstrapped or not. Bootstrap Step 7c no
+    longer writes the rules or the script's absolute path into the Persistent Project Memory section:
+    it writes one short pointer bullet telling the agent to invoke the `read-aloud` skill on those
+    phrases, and only when `%USERPROFILE%\.copilot\skills\read-aloud\SKILL.md` exists. This skill's own
+    `scripts\Speak-Text.ps1` is now a thin forwarder to the `read-aloud` copy, so bullets written by
+    v25 and v26 keep working until the project is re-bootstrapped. Projects bootstrapped at v26 are
+    flagged stale; re-run Bootstrap to pick up the pointer bullet. Not yet validated live in
+    Copilot/Visual Studio.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -1116,9 +1126,9 @@ other steps are unaffected.
      leave the date unchanged and say so in your reply. The user curates these files: never delete
      scripts or index lines on your own."
    - Read-aloud (TTS) rule: the last bullet of this section, written by Step 7c after this step
-     (not by this step), only when `Speak-Text.ps1` is installed. Because this section is
-     overwritten on every run, Step 7c must run again each time or the bullet is lost. The voice
-     is the system default configured in Windows; the skill never sets it.
+     (not by this step), only when the `read-aloud` skill is installed. Because this section is
+     overwritten on every run, Step 7c must run again each time or the bullet is lost. The rules and
+     the voice handling live in the `read-aloud` skill, not in this bullet.
 
    After writing this section, verify the bullet with a command, not by reading it. Run an exact
    string comparison: the quoted text above (from "Reusable scripts: before writing" through "on
@@ -1176,23 +1186,20 @@ other steps are unaffected.
     Step 6, as its last bullet, not into "Project Guidelines". That section is fully regenerated
     every run, so write the bullet every run; do not skip it because a copy existed before Step 6
     regenerated the section.
-    - Resolve the script path the way Step 6 resolves the GraphTools wrapper path: expand
-      `%USERPROFILE%\.copilot\skills\project-memory-management-graph\scripts\Speak-Text.ps1` to an
-      absolute path and confirm with `Test-Path` (or equivalent) that it exists. If it does not
-      exist, or you cannot check, skip this step and say so in the Bootstrap report (the script
-      is installed by `Install-Skills.ps1`). Use that confirmed absolute path inline in the
-      bullet, since a later session reading only `copilot-instructions.md` cannot resolve it.
-    - Append this bullet, replacing `<confirmed absolute script path>`; write nothing else into it.
-      The voice is the system default configured in Windows. The skill never sets, selects or
-      prefers a voice, and the bullet names none:
-      - Read-aloud (TTS), off by default: when the user says "enable tts" or "start tts", after
-        each reply run `<confirmed absolute script path> -Text "<summary>"` with a brief spoken
-        summary of 1 to 3 sentences (no code, paths or long output); when the user says "disable
-        tts" or "stop tts", stop doing so. This mode applies to the current chat only. The voice
-        is the Windows default; do not set one. If the script reports no usable voice (output
-        `NoVoice`, exit code 2), say so once and stay silent.
-    - Verify with a command (for example `Select-String`) that `Speak-Text.ps1` appears exactly
-      once in the file and that the bullet contains no voice name; quote the result in the report.
+    - Skip this step unless the `read-aloud` skill is installed on this machine: confirm with
+      `Test-Path` (or equivalent) that `%USERPROFILE%\.copilot\skills\read-aloud\SKILL.md` exists. If
+      it does not exist, or you cannot check, skip this step and say so in the Bootstrap report (the
+      skill is installed by `Install-Skills.ps1`). The skill is also triggered directly by the
+      phrases in the bullet below, so projects without the bullet still work where it is installed.
+    - Append this bullet; write nothing else into it. It holds no script path, because the
+      `read-aloud` skill owns the script, the spoken-summary rules and the voice handling (the
+      system default voice configured in Windows; this skill never sets, selects or prefers one):
+      - Read-aloud (TTS), off by default: when the user says "enable tts" or "start tts", invoke the
+        `read-aloud` skill and follow it, speaking after each reply, until the user says "disable
+        tts" or "stop tts". This mode applies to the current chat only.
+    - Verify with a command (for example `Select-String`) that the file has exactly one line
+      starting with `- Read-aloud (TTS)`, that it names the `read-aloud` skill, and that it contains
+      no path and no voice name; quote the result in the report.
     No `ask_user` confirmation needed: the bullet is inert until the user says "enable tts" or
     "start tts".
 

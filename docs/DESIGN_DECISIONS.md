@@ -163,3 +163,34 @@ skipped for now; any newer upstream commit already counts.
 **Not tested:** the skills' Step 0 toolkit checks in a real chat; `SOURCE: Differs` and `NotRecorded`; real
 Defender or SmartScreen behaviour on the locally built, unsigned executables. A review of the toolkit repos
 found no secrets or committed binaries (see `PROJECT_STATE.md`); the three toolkits now carry an MIT LICENSE.
+
+## 2026-11-13 — Read-aloud became its own small skill; ducking is opt-in and compiled in memory
+
+**Decision:** The "enable tts" / "start tts" rules moved out of the graph skill into a new `read-aloud`
+skill (about 2.5 KB) that owns `scripts\Speak-Text.ps1` and `scripts\AudioDucker.cs`. Its description names
+the trigger phrases, so it works in any project without Bootstrap. Graph v27 turns Step 7c into one pointer
+bullet (no path) and leaves `project-memory-management-graph\scripts\Speak-Text.ps1` as a forwarder, so the
+absolute path written by v25 and v26 keeps working. Ducking lowers other applications' audio sessions on the
+default output device to `duckPercent` (default 25) of their volume while speaking, only when
+`%USERPROFILE%\.copilot\tts-settings.json` has `"duck":true`. The helper is C# compiled in memory by
+`Add-Type` (no build, no toolkit), only when ducking is on or a leftover state file has to be undone. The
+original volumes are written to `tts-duck-state.txt` before lowering, restored in `finally`, and restored by
+the next run if a run was killed. A session whose volume no longer equals the value that was set is left
+alone. Any ducking failure means speech at normal volume.
+
+**Rationale:** The v25 bullet only existed in bootstrapped projects, so "enable tts" silently failed
+elsewhere. Putting the rules in the 113 KB graph skill would have loaded all of it for ten lines of rules and
+tied TTS to the graph skill's version and install. Ducking needs the Core Audio session API, which is awkward
+from pure PowerShell and simple from C#. Compiled in memory keeps it a script, not a toolkit. The C# is kept to
+C# 5 syntax because Windows PowerShell 5.1 compiles with the old compiler.
+
+**Alternatives considered:** TTS rules inside the graph skill (cost and coupling above). A toolkit with a built
+executable (a build step and a repo for about 200 lines). Always-on ducking (changes behaviour for everyone).
+Lowering the master volume (affects everything, including the speech). A named mutex for two overlapping
+speaks: not added; the changed-volume check keeps the worst case harmless.
+
+**Found while testing:** session instance identifiers contain `|`, so the first state-file delimiter broke;
+the file now uses tabs.
+
+**Not tested:** `NoVoice` with ducking on (the duck call comes after the voice check, by reading); PowerShell 7;
+exclusive-mode audio apps; a real chat triggering the skill from "enable tts".

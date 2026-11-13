@@ -6,8 +6,6 @@ Edited deliberately when priorities change — not automatically overwritten eac
 
 - (none currently planned)
 
-- Optional TTS audio ducking in `Speak-Text.ps1`: an `Add-Type` C# helper beside the script, opt-in through
-  `%USERPROFILE%\.copilot\tts-settings.json`, restoring the volume in `finally` (decided 2026-11-13, not started).
 
 ## Backlog
 

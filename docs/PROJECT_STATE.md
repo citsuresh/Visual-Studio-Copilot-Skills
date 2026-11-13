@@ -39,7 +39,12 @@ In this repo only `.github/copilot-instructions.md` (Bootstrap-generated) holds 
 - Not run: I-38 (a skill's new Step 0 toolkit check in a real chat), I-39 (missing `skills-source.json`),
   `SOURCE: Differs` / `NotRecorded`. Not observed: Defender/SmartScreen on locally built unsigned
   executables; PowerShell 7 (only 5.1 installed).
-- Next planned: TTS audio ducking in `Speak-Text.ps1` (`Add-Type` C#, opt-in settings file); see ROADMAP.
+- TTS: new `read-aloud` skill (committed, installed, hashes verified) with `Speak-Text.ps1` plus
+  opt-in ducking (`AudioDucker.cs`); graph skill v27 (Step 7c is now a pointer bullet; its `Speak-Text.ps1`
+  is a forwarder). Tested in a temp folder: helper round trip, manual-change case, ducking during speech,
+  kill mid-speech then recovery, stub installed and not installed; live ducking heard and accepted at
+  `duckPercent` 10 (user's machine setting, not in the repo). Not tested: NoVoice with ducking on,
+  PowerShell 7, a real chat triggering the skill from "enable tts".
 - Hooks need `git config core.hooksPath .githooks` once per clone (set here); web-UI edits and
   `--no-verify` bypass them. No GitHub Action exists.
 - The `install-skills` skill itself has not been run in a real chat (only the script was tested).

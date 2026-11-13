@@ -10,8 +10,8 @@
       "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json instead of a fixed C:\\MyFiles\\Git path."
     },
     "project-memory-management-graph": {
-      "version": 26,
-      "whatsNew": "GraphTools is found at %USERPROFILE%\\.copilot\\toolkits\\GraphTools, where Install-Skills.ps1 clones and builds it, instead of the fixed C:\\MyFiles\\Git\\GraphTools, and the skills repo clone is found through..."
+      "version": 27,
+      "whatsNew": "The read-aloud (TTS) rules moved into their own small skill, read-aloud, which owns Speak-Text.ps1 (now with optional ducking of other applications' audio) and is triggered by the phrases \"enable tts\" / \"start tts\" in any project,..."
     },
     "ui-interaction": {
       "version": 20,
