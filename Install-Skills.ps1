@@ -7,13 +7,21 @@
 .PARAMETER Force
     Skip the per-skill confirmation prompt and copy/update everything automatically.
 
+.PARAMETER Prune
+    Also delete files that exist in an installed skill folder but no longer exist in the repo copy
+    (for example a script that was removed from the repo). Without -Prune such files are only
+    reported and left in place. The deletion is covered by the same per-skill confirmation as the
+    copy (skipped with -Force), and only touches files inside that skill's own destination folder.
+
 .EXAMPLE
     .\Install-Skills.ps1
     .\Install-Skills.ps1 -Force
+    .\Install-Skills.ps1 -Prune
 #>
 
 param(
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Prune
 )
 
 $repoRoot = $PSScriptRoot
@@ -57,16 +65,37 @@ foreach ($skill in $skillFolders) {
         }
     }
 
-    if ($changedFiles.Count -eq 0) {
+    # Files present in the installed copy but not in the repo copy (e.g. a script removed from the repo).
+    $orphanFiles = @()
+    if (Test-Path $dest) {
+        $srcRel = @($srcFiles | ForEach-Object { $_.FullName.Substring($skill.FullName.Length).TrimStart('\', '/') })
+        $orphanFiles = @(Get-ChildItem -Path $dest -Recurse -File | ForEach-Object {
+                $rel = $_.FullName.Substring($dest.Length).TrimStart('\', '/')
+                if ($srcRel -notcontains $rel) { $rel }
+            })
+    }
+    if (-not $Prune -and $orphanFiles.Count -gt 0) {
+        Write-Host "  $($orphanFiles.Count) installed file(s) no longer in the repo (left in place; use -Prune to remove):" -ForegroundColor DarkYellow
+        $orphanFiles | ForEach-Object { Write-Host "    - $_" }
+        $orphanFiles = @()
+    }
+
+    if ($changedFiles.Count -eq 0 -and $orphanFiles.Count -eq 0) {
         Write-Host "  Already up to date. Skipping." -ForegroundColor DarkGray
         continue
     }
 
-    Write-Host "  Changed/new file(s):" -ForegroundColor Yellow
-    $changedFiles | ForEach-Object { Write-Host "    - $_" }
+    if ($changedFiles.Count -gt 0) {
+        Write-Host "  Changed/new file(s):" -ForegroundColor Yellow
+        $changedFiles | ForEach-Object { Write-Host "    - $_" }
+    }
+    if ($orphanFiles.Count -gt 0) {
+        Write-Host "  File(s) to remove (not in the repo copy):" -ForegroundColor Yellow
+        $orphanFiles | ForEach-Object { Write-Host "    - $_" }
+    }
 
     if (-not $Force) {
-        $answer = Read-Host "  Copy these changes into $dest ? (y/N)"
+        $answer = Read-Host "  Apply these changes to $dest ? (y/N)"
         if ($answer -notmatch '^[Yy]$') {
             Write-Host "  Skipped." -ForegroundColor DarkGray
             continue
@@ -75,6 +104,20 @@ foreach ($skill in $skillFolders) {
 
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
     Copy-Item -Path (Join-Path $skill.FullName "*") -Destination $dest -Recurse -Force
+
+    $destFull = [System.IO.Path]::GetFullPath($dest).TrimEnd('\') + '\'
+    foreach ($rel in $orphanFiles) {
+        $target = [System.IO.Path]::GetFullPath((Join-Path $dest $rel))
+        if ($target.StartsWith($destFull, [StringComparison]::OrdinalIgnoreCase)) {
+            Remove-Item -LiteralPath $target -Force
+            # Remove folders the deletion left empty, never the skill folder itself.
+            $dir = Split-Path $target -Parent
+            while ($dir.TrimEnd('\') + '\' -ne $destFull -and $dir.StartsWith($destFull, [StringComparison]::OrdinalIgnoreCase) -and -not (Get-ChildItem -LiteralPath $dir -Force)) {
+                Remove-Item -LiteralPath $dir -Force
+                $dir = Split-Path $dir -Parent
+            }
+        }
+    }
     Write-Host "  Done." -ForegroundColor Green
 }
 

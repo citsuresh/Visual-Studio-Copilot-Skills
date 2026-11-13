@@ -63,7 +63,8 @@ cd visual-studio-copilot-skills
 .\Install-Skills.ps1
 ```
 Shows exactly what's changed per skill and asks for confirmation before copying anything. Use
-`-Force` to skip the prompts once you trust it.
+`-Force` to skip the prompts once you trust it. Files that were removed from the repo but remain in
+an installed skill are listed and left in place; add `-Prune` to delete them (same confirmation).
 
 **Option 2 — manual:**
 Copy each folder's contents into the matching path under `%USERPROFILE%\.copilot\skills\`.
