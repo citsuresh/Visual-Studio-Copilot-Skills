@@ -30,11 +30,32 @@
 .PARAMETER MaxAgeHours
     With -Remote: skip the git fetch when the clone was fetched less than this many hours ago (the
     time of .git\FETCH_HEAD); the already-fetched state is still compared. 0 (default) always fetches.
+    It applies to the toolkit clones as well as this repo.
+
+.PARAMETER SkipToolkits
+    Do not look at the toolkits (GraphTools, AgentDebugToolkit, VsChatHistoryToolkit) at all: no TOOLKIT:
+    lines, no clone, no build.
+
+.PARAMETER ToolkitBaseUrl
+    Where the toolkit repos are cloned from: <ToolkitBaseUrl>/<Name>. Defaults to https://github.com/citsuresh.
+    A folder path also works (used by the tests, or for a fork).
 
 .NOTES
-    At the end of every run the script also looks for companion tool folders that the skills refer to by
-    absolute path (for example C:\MyFiles\Git\GraphTools) and reports any that are missing, with the
-    git clone command for the known ones. This is a report only: the script never clones or builds them.
+    Every real (non -Check) run records this clone's absolute path in %USERPROFILE%\.copilot\skills-source.json
+    ({"schema":1,"skillsRepo":"<path>"}), so the skills' first-use update check finds the clone without a path
+    typed into each SKILL.md. With -Check it only prints one SOURCE: line (Recorded, Differs or NotRecorded;
+    informational, RESULT: ignores it).
+
+    Toolkits: the skills call three companion tools, each a git clone of its own public repo under
+    %USERPROFILE%\.copilot\toolkits\<Name> and built in place by its scripts\agent\Build-Toolkit.ps1 (which
+    writes .built-version after a successful build). Only toolkits used by a skill in this repo are looked at.
+    Every run prints one TOOLKIT: line per toolkit: UpToDate, NotInstalled, NeedsBuild (source and build
+    differ), Behind (-Remote only: upstream has newer commits), Diverged, NotAClone (a folder that is not a
+    git clone; left alone), NoDotnetSdk (a build is needed but no .NET SDK is installed), or after a real run
+    CloneFailed, PullFailed, NoBuildScript, BuildFailed. With -Check nothing changes and any state other than
+    UpToDate is added to the RESULT: line. Without -Check the script clones missing toolkits, with -Remote
+    also fast-forwards a toolkit that is only behind (never over uncommitted changes to tracked files), and
+    builds whatever needs it; it asks first unless -Force. Exit code 1 if a clone, pull or build failed.
 
 .EXAMPLE
     .\Install-Skills.ps1
@@ -50,15 +71,11 @@ param(
     [switch]$Prune,
     [switch]$Check,
     [switch]$Remote,
-    [int]$MaxAgeHours = 0
+    [int]$MaxAgeHours = 0,
+    [switch]$SkipToolkits,
+    [string]$ToolkitBaseUrl = 'https://github.com/citsuresh'
 )
 
-# Companion repos the skills depend on, with where to get them (used only to print a clone command).
-$knownCompanions = @{
-    'GraphTools'            = 'https://github.com/citsuresh/GraphTools'
-    'AgentDebugToolkit'     = 'https://github.com/citsuresh/AgentDebugToolkit'
-    'VsChatHistoryToolkit'  = 'https://github.com/citsuresh/VsChatHistoryToolkit'
-}
 $skillsNeedingUpdate = @()
 
 $repoRoot = $PSScriptRoot
@@ -111,8 +128,8 @@ if ($Remote) {
                                 $remoteStatus = "Pulled $behind commit(s)"
                                 if ($installerChanged) {
                                     Write-Host "REMOTE: $remoteStatus (Install-Skills.ps1 changed; continuing with the new copy)"
+                                    # -Remote stays on so the new copy also updates the toolkits; behind is 0 now, so it cannot loop.
                                     $rerun = @{} + $PSBoundParameters
-                                    [void]$rerun.Remove('Remote'); [void]$rerun.Remove('MaxAgeHours')
                                     & (Join-Path $repoRoot 'Install-Skills.ps1') @rerun
                                     exit $LASTEXITCODE
                                 }
@@ -248,46 +265,161 @@ else {
     Write-Host "All skills processed." -ForegroundColor Cyan
 }
 
-# Companion tools: find absolute paths of the form C:\...\Git\<Name> in the skills' text and scripts.
-$companionPaths = @{}
-foreach ($skill in $skillFolders) {
-    Get-ChildItem -Path $skill.FullName -Recurse -File -Include *.md, *.ps1 | ForEach-Object {
-        $file = $_
-        Select-String -Path $file.FullName -Pattern 'C:\\MyFiles\\Git\\([A-Za-z0-9_.-]+)' -AllMatches | ForEach-Object {
-            foreach ($m in $_.Matches) {
-                $name = $m.Groups[1].Value
-                if ($name -ne (Split-Path $repoRoot -Leaf)) {
-                    if (-not $companionPaths.ContainsKey($name)) { $companionPaths[$name] = New-Object System.Collections.Generic.HashSet[string] }
-                    [void]$companionPaths[$name].Add($skill.Name)
+# Where this clone lives, for the skills' first-use update check (read from skills-source.json).
+$sourceFile = Join-Path (Split-Path $destRoot -Parent) 'skills-source.json'
+$recordedRepo = $null
+if (Test-Path -LiteralPath $sourceFile) {
+    try { $recordedRepo = (Get-Content -LiteralPath $sourceFile -Raw | ConvertFrom-Json).skillsRepo } catch { $recordedRepo = $null }
+}
+if (-not $Check -and $recordedRepo -ne $repoRoot) {
+    New-Item -ItemType Directory -Path (Split-Path $sourceFile -Parent) -Force | Out-Null
+    $sourceJson = "{`r`n  `"schema`": 1,`r`n  `"skillsRepo`": `"" + $repoRoot.Replace('\', '\\') + "`"`r`n}`r`n"
+    [IO.File]::WriteAllText($sourceFile, $sourceJson, (New-Object Text.UTF8Encoding($false)))
+    if ($recordedRepo) { Write-Host "Recorded this clone's path in $sourceFile (was: $recordedRepo)." -ForegroundColor DarkGray }
+    else { Write-Host "Recorded this clone's path in $sourceFile." -ForegroundColor DarkGray }
+}
+
+# Toolkits: companion tools the skills call. Each is a git clone of its own repo under
+# %USERPROFILE%\.copilot\toolkits\<Name>, built in place by its scripts\agent\Build-Toolkit.ps1.
+$toolkitDefs = @(
+    @{ Name = 'GraphTools'; Skills = @('project-memory-management-graph') },
+    @{ Name = 'AgentDebugToolkit'; Skills = @('ui-interaction', 'vs-debug', 'agent-orchestrator', 'ui-navigation-orchestrator') },
+    @{ Name = 'VsChatHistoryToolkit'; Skills = @('vs-chat-history') }
+)
+$toolkitsRoot = Join-Path (Split-Path $destRoot -Parent) 'toolkits'
+$toolkitResults = @()
+$toolkitFailed = $false
+
+function Read-ToolkitMarker([string]$dir) {
+    $f = Join-Path $dir '.built-version'
+    if (Test-Path -LiteralPath $f) { try { return (Get-Content -LiteralPath $f -Raw | ConvertFrom-Json) } catch { } }
+    return $null
+}
+function Read-TrimmedFile([string]$path) {
+    if (Test-Path -LiteralPath $path) { return (Get-Content -LiteralPath $path -Raw).Trim() }
+    return $null
+}
+function Get-GitText([string]$dir, [string[]]$gitArgs) {
+    $o = & git -C $dir @gitArgs 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ($o | Out-String).Trim()
+}
+
+if ($SkipToolkits) {
+    Write-Host "Toolkits: skipped (-SkipToolkits)." -ForegroundColor DarkGray
+}
+else {
+    $hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
+    $hasSdk = $false
+    if (Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue) { $hasSdk = @(& dotnet --list-sdks 2>$null).Count -gt 0 }
+    $savedPrompt = $env:GIT_TERMINAL_PROMPT
+    $env:GIT_TERMINAL_PROMPT = '0'   # never wait for a password: these runs can be unattended
+    Write-Host ""
+    Write-Host "Toolkits (under $toolkitsRoot):" -ForegroundColor Cyan
+
+    foreach ($tk in $toolkitDefs) {
+        $name = $tk.Name
+        $usedBy = @($tk.Skills | Where-Object { $skillFolders.Name -contains $_ })
+        if ($usedBy.Count -eq 0) { continue }
+        $dir = Join-Path $toolkitsRoot $name
+        $url = $ToolkitBaseUrl.TrimEnd('/', '\') + '/' + $name
+        $status = $null; $detail = $null; $action = 'None'; $behind = 0
+
+        if (-not $hasGit) { $status = 'NoGit'; $detail = 'git was not found on PATH' }
+        elseif (-not (Test-Path -LiteralPath $dir)) { $status = 'NotInstalled'; $action = 'Clone' }
+        elseif (-not (Test-Path -LiteralPath (Join-Path $dir '.git'))) { $status = 'NotAClone'; $detail = "$dir is not a git clone; left alone" }
+        else {
+            $marker = Read-ToolkitMarker $dir
+            $head = Get-GitText $dir @('rev-parse', 'HEAD')
+            $ahead = 0
+            if ($Remote) {
+                $fetchHead = Join-Path $dir '.git\FETCH_HEAD'
+                $recent = $MaxAgeHours -gt 0 -and (Test-Path -LiteralPath $fetchHead) -and ((Get-Date) - (Get-Item -LiteralPath $fetchHead).LastWriteTime).TotalHours -lt $MaxAgeHours
+                $fetchOk = $true
+                if (-not $recent) {
+                    & git -C $dir fetch --quiet origin 2>$null
+                    if ($LASTEXITCODE -ne 0) { $fetchOk = $false; $detail = 'GitHub not reachable; compared with the local clone only' }
+                }
+                if ($fetchOk -and (Get-GitText $dir @('rev-parse', '--abbrev-ref', '@{u}'))) {
+                    $behind = [int](Get-GitText $dir @('rev-list', '--count', 'HEAD..@{u}'))
+                    $ahead = [int](Get-GitText $dir @('rev-list', '--count', '@{u}..HEAD'))
+                }
+            }
+            if ($behind -gt 0) {
+                $status = 'Behind'
+                $upVersion = Get-GitText $dir @('show', '@{u}:VERSION')
+                $myVersion = Read-TrimmedFile (Join-Path $dir 'VERSION')
+                $detail = "behind $behind commit(s); installed version $myVersion, upstream version $upVersion"
+                Write-Host "  $name - commits not installed yet:" -ForegroundColor Yellow
+                & git -C $dir log --oneline --max-count=10 'HEAD..@{u}' 2>$null | ForEach-Object { Write-Host "      $_" }
+                if ($ahead -gt 0) { $status = 'Diverged'; $detail = "behind $behind, ahead $ahead; not pulled" }
+                elseif ((Get-GitText $dir @('status', '--porcelain', '--untracked-files=no'))) { $detail += '; NOT updated: uncommitted changes to tracked files' }
+                else { $action = 'Pull' }
+            }
+            elseif (-not $marker -or -not $head -or $marker.commit -ne $head) { $status = 'NeedsBuild'; $action = 'Build'; if (-not $detail) { $detail = 'the built files do not match this source' } }
+            else { $status = 'UpToDate'; $detail = "version $($marker.version), commit $($head.Substring(0, 7))" }
+        }
+
+        if ($action -ne 'None' -and -not $hasSdk) {
+            $detail = "would be $status; a .NET SDK 8 or later is needed to build it (install one, then run this script again)"
+            $status = 'NoDotnetSdk'; $action = 'None'
+        }
+
+        if (-not $Check -and $action -ne 'None') {
+            $go = $true
+            if (-not $Force) {
+                $what = if ($action -eq 'Clone') { "Clone $url and build it" } elseif ($action -eq 'Pull') { "Update $name (git pull, then build)" } else { "Build $name" }
+                $answer = Read-Host "  $what in $dir ? (y/N)"
+                $go = $answer -match '^[Yy]$'
+            }
+            if (-not $go) { $detail = 'skipped by you' }
+            else {
+                $ok = $true
+                if ($action -eq 'Clone') {
+                    New-Item -ItemType Directory -Path $toolkitsRoot -Force | Out-Null
+                    $out = & git clone --quiet $url $dir 2>&1 | ForEach-Object { "$_" } | Out-String
+                    if ($LASTEXITCODE -ne 0) { $ok = $false; $status = 'CloneFailed'; $detail = $out.Trim() }
+                }
+                elseif ($action -eq 'Pull') {
+                    $out = & git -C $dir pull --ff-only --quiet 2>&1 | ForEach-Object { "$_" } | Out-String
+                    if ($LASTEXITCODE -ne 0) { $ok = $false; $status = 'PullFailed'; $detail = $out.Trim() }
+                }
+                if ($ok) {
+                    $buildScript = Join-Path $dir 'scripts\agent\Build-Toolkit.ps1'
+                    if (-not (Test-Path -LiteralPath $buildScript)) { $status = 'NoBuildScript'; $detail = "$buildScript not found" }
+                    else {
+                        Write-Host "  Building $name ..." -ForegroundColor Cyan
+                        & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File $buildScript 2>&1 | ForEach-Object { Write-Host "      $_" }
+                        $buildExit = $LASTEXITCODE
+                        $marker = Read-ToolkitMarker $dir
+                        if ($buildExit -ne 0 -or -not $marker) { $status = 'BuildFailed'; $detail = "Build-Toolkit.ps1 exited with code $buildExit; see the output above" }
+                        else { $status = 'UpToDate'; $detail = "version $($marker.version), commit $($marker.commit.Substring(0, 7))" }
+                    }
                 }
             }
         }
+
+        if ($status -in 'CloneFailed', 'PullFailed', 'NoBuildScript', 'BuildFailed') { $toolkitFailed = $true }
+        $toolkitResults += [pscustomobject]@{ Name = $name; Status = $status }
+        $line = "TOOLKIT: $name $status"
+        if ($detail) { $line += " ($detail; used by $($usedBy -join ', '))" } else { $line += " (used by $($usedBy -join ', '))" }
+        Write-Host $line
     }
-}
-$missingCompanions = @($companionPaths.Keys | Where-Object { -not (Test-Path (Join-Path 'C:\MyFiles\Git' $_)) } | Sort-Object)
-if ($missingCompanions.Count -gt 0) {
-    Write-Host ""
-    Write-Host "Companion tool folder(s) the skills refer to but that were not found:" -ForegroundColor Yellow
-    foreach ($name in $missingCompanions) {
-        $used = ($companionPaths[$name] | Sort-Object) -join ', '
-        Write-Host "  - C:\MyFiles\Git\$name  (used by: $used)"
-        if ($knownCompanions.ContainsKey($name)) {
-            Write-Host "      git clone $($knownCompanions[$name]) C:\MyFiles\Git\$name" -ForegroundColor DarkGray
-        }
-    }
-    Write-Host "  Those skills will not work until the folders exist (and are built, where the skill says so)." -ForegroundColor DarkYellow
-}
-else {
-    Write-Host "Companion tool folders referenced by the skills: all found." -ForegroundColor DarkGray
+    if ($null -eq $savedPrompt) { Remove-Item Env:\GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue } else { $env:GIT_TERMINAL_PROMPT = $savedPrompt }
 }
 
 if ($Check) {
     # Maintainer aid: is skills-index.json in step with the SKILL.md files? Does not change RESULT.
     $indexScript = Join-Path $repoRoot 'scripts\Update-SkillsIndex.ps1'
     if (Test-Path -LiteralPath $indexScript) { & $indexScript -Check | Out-Null }
+    if ($recordedRepo -eq $repoRoot) { Write-Host "SOURCE: Recorded ($repoRoot)" }
+    elseif ($recordedRepo) { Write-Host "SOURCE: Differs (recorded $recordedRepo; this clone is $repoRoot; run the installer to update it)" }
+    else { Write-Host "SOURCE: NotRecorded (run the installer once to record this clone's path)" }
     $parts = @()
     if ($skillsNeedingUpdate.Count -gt 0) { $parts += "local: $($skillsNeedingUpdate.Count) skill(s): $($skillsNeedingUpdate -join ', ')" }
     if ($remoteTouched.Count -gt 0) { $parts += "remote: not pulled yet, touches $($remoteTouched -join ', ')" }
+    $toolkitsPending = @($toolkitResults | Where-Object { $_.Status -ne 'UpToDate' })
+    if ($toolkitsPending.Count -gt 0) { $parts += "toolkits: $(($toolkitsPending | ForEach-Object { "$($_.Name) $($_.Status)" }) -join ', ')" }
     $notChecked = $Remote -and ($remoteStatus -in 'Unreachable', 'NoUpstream', 'NotAGitClone', 'NoGit')
     if ($parts.Count -gt 0) {
         if ($notChecked) { $parts += "GitHub not checked: $remoteStatus" }
@@ -301,6 +433,8 @@ if ($Check) {
     }
 }
 else {
-    Write-Host "Reminder: after installing/updating the graph-enabled skill, confirm that" -ForegroundColor DarkGray
-    Write-Host "GraphTools itself is built at the path referenced inside its SKILL.md." -ForegroundColor DarkGray
+    if ($toolkitFailed) {
+        Write-Host "A toolkit could not be installed or built; see the TOOLKIT: lines above." -ForegroundColor Red
+        exit 1
+    }
 }
