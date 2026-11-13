@@ -13,16 +13,36 @@
     reported and left in place. The deletion is covered by the same per-skill confirmation as the
     copy (skipped with -Force), and only touches files inside that skill's own destination folder.
 
+.PARAMETER Check
+    Read-only: list, per skill, which files are new or changed (and which installed files are no longer
+    in the repo), print a final line starting with RESULT:, and change nothing. No prompts. Use it to
+    see whether an update is needed before running the installer for real.
+
+.NOTES
+    At the end of every run the script also looks for companion tool folders that the skills refer to by
+    absolute path (for example C:\MyFiles\Git\GraphTools) and reports any that are missing, with the
+    git clone command for the known ones. This is a report only: the script never clones or builds them.
+
 .EXAMPLE
     .\Install-Skills.ps1
     .\Install-Skills.ps1 -Force
     .\Install-Skills.ps1 -Prune
+    .\Install-Skills.ps1 -Check
 #>
 
 param(
     [switch]$Force,
-    [switch]$Prune
+    [switch]$Prune,
+    [switch]$Check
 )
+
+# Companion repos the skills depend on, with where to get them (used only to print a clone command).
+$knownCompanions = @{
+    'GraphTools'            = 'https://github.com/citsuresh/GraphTools'
+    'AgentDebugToolkit'     = 'https://github.com/citsuresh/AgentDebugToolkit'
+    'VsChatHistoryToolkit'  = 'https://github.com/citsuresh/VsChatHistoryToolkit'
+}
+$skillsNeedingUpdate = @()
 
 $repoRoot = $PSScriptRoot
 $destRoot = Join-Path $env:USERPROFILE ".copilot\skills"
@@ -74,6 +94,24 @@ foreach ($skill in $skillFolders) {
                 if ($srcRel -notcontains $rel) { $rel }
             })
     }
+    if ($Check) {
+        if ($changedFiles.Count -eq 0 -and $orphanFiles.Count -eq 0) {
+            Write-Host "  Up to date." -ForegroundColor DarkGray
+            continue
+        }
+        $skillsNeedingUpdate += $skill.Name
+        if (-not (Test-Path $dest)) { Write-Host "  Not installed yet." -ForegroundColor Yellow }
+        if ($changedFiles.Count -gt 0) {
+            Write-Host "  New/changed file(s):" -ForegroundColor Yellow
+            $changedFiles | ForEach-Object { Write-Host "    - $_" }
+        }
+        if ($orphanFiles.Count -gt 0) {
+            Write-Host "  Installed file(s) no longer in the repo (removed only with -Prune):" -ForegroundColor Yellow
+            $orphanFiles | ForEach-Object { Write-Host "    - $_" }
+        }
+        continue
+    }
+
     if (-not $Prune -and $orphanFiles.Count -gt 0) {
         Write-Host "  $($orphanFiles.Count) installed file(s) no longer in the repo (left in place; use -Prune to remove):" -ForegroundColor DarkYellow
         $orphanFiles | ForEach-Object { Write-Host "    - $_" }
@@ -122,6 +160,55 @@ foreach ($skill in $skillFolders) {
 }
 
 Write-Host ""
-Write-Host "All skills processed." -ForegroundColor Cyan
-Write-Host "Reminder: after installing/updating the graph-enabled skill, confirm that" -ForegroundColor DarkGray
-Write-Host "GraphTools itself is built at the path referenced inside its SKILL.md." -ForegroundColor DarkGray
+if ($Check) {
+    Write-Host "Check finished (nothing was changed)." -ForegroundColor Cyan
+}
+else {
+    Write-Host "All skills processed." -ForegroundColor Cyan
+}
+
+# Companion tools: find absolute paths of the form C:\...\Git\<Name> in the skills' text and scripts.
+$companionPaths = @{}
+foreach ($skill in $skillFolders) {
+    Get-ChildItem -Path $skill.FullName -Recurse -File -Include *.md, *.ps1 | ForEach-Object {
+        $file = $_
+        Select-String -Path $file.FullName -Pattern 'C:\\MyFiles\\Git\\([A-Za-z0-9_.-]+)' -AllMatches | ForEach-Object {
+            foreach ($m in $_.Matches) {
+                $name = $m.Groups[1].Value
+                if ($name -ne (Split-Path $repoRoot -Leaf)) {
+                    if (-not $companionPaths.ContainsKey($name)) { $companionPaths[$name] = New-Object System.Collections.Generic.HashSet[string] }
+                    [void]$companionPaths[$name].Add($skill.Name)
+                }
+            }
+        }
+    }
+}
+$missingCompanions = @($companionPaths.Keys | Where-Object { -not (Test-Path (Join-Path 'C:\MyFiles\Git' $_)) } | Sort-Object)
+if ($missingCompanions.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Companion tool folder(s) the skills refer to but that were not found:" -ForegroundColor Yellow
+    foreach ($name in $missingCompanions) {
+        $used = ($companionPaths[$name] | Sort-Object) -join ', '
+        Write-Host "  - C:\MyFiles\Git\$name  (used by: $used)"
+        if ($knownCompanions.ContainsKey($name)) {
+            Write-Host "      git clone $($knownCompanions[$name]) C:\MyFiles\Git\$name" -ForegroundColor DarkGray
+        }
+    }
+    Write-Host "  Those skills will not work until the folders exist (and are built, where the skill says so)." -ForegroundColor DarkYellow
+}
+else {
+    Write-Host "Companion tool folders referenced by the skills: all found." -ForegroundColor DarkGray
+}
+
+if ($Check) {
+    if ($skillsNeedingUpdate.Count -gt 0) {
+        Write-Host "RESULT: UpdatesAvailable ($($skillsNeedingUpdate.Count) skill(s): $($skillsNeedingUpdate -join ', '))"
+    }
+    else {
+        Write-Host "RESULT: UpToDate"
+    }
+}
+else {
+    Write-Host "Reminder: after installing/updating the graph-enabled skill, confirm that" -ForegroundColor DarkGray
+    Write-Host "GraphTools itself is built at the path referenced inside its SKILL.md." -ForegroundColor DarkGray
+}

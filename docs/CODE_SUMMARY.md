@@ -18,3 +18,4 @@ No C# solution detected in this repo; tracked in docs-only mode (no code graph).
 | `ui-navigation-orchestrator` | Navigate WinForms/WPF apps with a per-target-repo navigation-tree cache; composes `ui-interaction` and `vs-debug`. |
 | `vs-debug` | Visual Studio debugger bridge through AgentDebugToolkit/EnvDTE: attach, breakpoints, stepping, call stacks, thread/frame selection and evaluation. |
 | `vs-chat-history` | Search and read local Visual Studio Copilot Chat history through the `chathistory` CLI; supports session lookup and capped excerpts, with rename only on request. |
+| `install-skills` | Lets Copilot install/update the repo's skills on request ("install skills from <url>", "check the repo and update all the skills"): clone/pull, `Install-Skills.ps1 -Check` (read-only, `RESULT:` line, companion-tool report), `-Force`, `-Prune` only after asking. |

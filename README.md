@@ -21,6 +21,7 @@ Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
 | `ui-navigation-orchestrator/` | Experimental, still-maturing orchestration layer that composes `ui-interaction` + `vs-debug` to navigate a target app's UI, maintaining a lightweight per-target-app navigation-tree cache. Replaces the retired `ui-debug-map` skill. |
 | `agent-orchestrator/` | Drives and supervises a Copilot chat agent running in a *different* Visual Studio window via AgentDebugToolkit's UIA CLI — attach, assign tasks, poll state, detect/answer prompts, run the Decomposition → implement → Audit → review → approve → commit loop. Ships helper scripts in `scripts/`: `Send-CopilotPrompt`, two chat watchers (`Watch-CopilotChatV2`, the light default, and `Watch-CopilotChatV1`, the full-tree one), `Select-ChoicePromptOption`, `Read-CopilotReply`, `Invoke-CopilotReview` and others, with manual test cases in `scripts/tests/`. |
 | `vs-chat-history/` | Searches and reads the Visual Studio Copilot Chat history stored on this machine through the `chathistory` CLI of [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit): word search, session lists and filters, capped excerpts of turns and checkpoints, counts, and (only on request) rename and undo. Read-only except rename and undo-rename; covers `session-store.db` only; chat text is treated as sensitive. |
+| `install-skills/` | Lets Copilot install or update all the skills in this repo for you ("install skills from `<repo url>`", "check the repo and update all the skills"): clone or pull, `Install-Skills.ps1 -Check`, then `-Force` (and `-Prune` only after asking you). Installed by `Install-Skills.ps1` like the others. |
 | `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
 | `tests/` | Manual test cases for `Install-Skills.ps1`. Test cases for the other scripts sit next to them, in each skill's `scripts/tests/` folder. |
 
@@ -56,6 +57,17 @@ Skills must live in your personal Copilot skills folder
 project on your machine — this is a manual copy step; nothing about cloning this repo installs
 anything automatically.
 
+**Option 0 — ask Copilot (new machine):** the `install-skills` skill is not installed yet on a new
+machine, so spell the first request out once, for example:
+
+> Clone `<this-repo-url>` to `C:\MyFiles\Git\Visual-Studio-Copilot-Skills` and run
+> `.\Install-Skills.ps1 -Check`, show me the result, then run `.\Install-Skills.ps1 -Force`.
+
+After that, the short forms work in any chat: "install skills from `<repo url>`" and "check the repo
+and update all the skills" (also "are my skills up to date"). The skill clones or pulls the repo,
+runs `-Check`, installs with `-Force`, asks before it deletes anything (`-Prune`), and finishes with a
+second `-Check` as proof.
+
 **Option 1 — script (recommended):**
 ```powershell
 git clone <this-repo-url>
@@ -65,6 +77,10 @@ cd visual-studio-copilot-skills
 Shows exactly what's changed per skill and asks for confirmation before copying anything. Use
 `-Force` to skip the prompts once you trust it. Files that were removed from the repo but remain in
 an installed skill are listed and left in place; add `-Prune` to delete them (same confirmation).
+`-Check` changes nothing: it lists what is new or outdated and ends with a `RESULT:` line
+(`UpToDate` or `UpdatesAvailable`). Every run also reports companion tool folders the skills refer to
+(`C:\MyFiles\Git\GraphTools`, `AgentDebugToolkit`, `VsChatHistoryToolkit`) that are missing, with the
+`git clone` command; it never clones or builds them.
 
 **Option 2 — manual:**
 Copy each folder's contents into the matching path under `%USERPROFILE%\.copilot\skills\`.

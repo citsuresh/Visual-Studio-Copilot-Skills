@@ -4,27 +4,31 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
-Closed the open-task list from the v25 (TTS) work. `Install-Skills.ps1` gained `-Prune` (removes
-installed files no longer in the repo, with the per-skill confirmation; default still leaves them but
-now lists them); sandbox cases I-06, I-09 and I-10 passed (`tests/Install-Skills.tests.md`).
-`Speak-Text.ps1` was run in a portable PowerShell 7.4.6 (exit 0, spoken). The v25 work and the
-Bootstrap re-sync are committed and pushed (`fb8de95`, `33137d8`). This repo remains docs-only: no
-tracked `.sln`/`.slnx`, code graph, or Key Flows file.
+Making installs and updates easy on any machine. `Install-Skills.ps1` has `-Prune` (committed
+`a83824b`), `-Check` (read-only, final `RESULT:` line) and a companion-tool report (folders like
+`C:\MyFiles\Git\GraphTools` that skills refer to but are missing, with a `git clone` line for the three
+known ones). New skill `install-skills` handles "install skills from <url>" and "check the repo and
+update all the skills" (clone/pull, `-Check`, `-Force`, asks before `-Prune`); installed here and
+hash-verified. Sandbox cases I-06 and I-09 to I-12 passed (`tests/Install-Skills.tests.md`).
+`Speak-Text.ps1` ran in PowerShell 7.4.6. This repo remains docs-only: no tracked `.sln`/`.slnx`, code
+graph, or Key Flows file.
 
 ## Recently changed
 
-Uncommitted (manual commit review first): `Install-Skills.ps1` (`-Prune`),
-`tests/Install-Skills.tests.md` (I-06 updated, I-09 and I-10 added, findings rewritten), `README.md`
-(`-Prune` note), `docs/PROJECT_STATE.md` (this snapshot).
+Committed with this snapshot: `Install-Skills.ps1` (`-Check`, companion report), new
+`install-skills/SKILL.md`, `README.md` (Option 0 and `-Check` text, folder row), `docs/CODE_SUMMARY.md`
+(skill row), `tests/Install-Skills.tests.md` (I-11, I-12), `docs/PROJECT_STATE.md`.
 
 ## Open tasks/bugs
 
-- Commit and push the uncommitted files above.
+- The `install-skills` skill itself has not been run in a real chat (only the script was tested), and
+  the first install on a brand-new machine still needs the spelled-out prompt in the README (Option 0).
+  The printed `git clone` lines for missing companions were not seen (none was missing here).
 - Not tested: `Speak-Text.ps1` on a machine with no voice (simulated only); whether a later chat
   follows "enable tts" in practice (it did in this chat).
 - Not run live: tool permission prompts, workspace banners, the V2 Idle-to-Pending upgrade path, a
   card above a scrolled-up chat list, the `Send-CopilotPrompt.ps1` new-session path. All
-  `AgentCursor` and `Compare-RepoSnapshot` cases are marked not run; `Install-Skills` I-01 to I-10 ran
+  `AgentCursor` and `Compare-RepoSnapshot` cases are marked not run; `Install-Skills` I-01 to I-12 ran
   in a sandbox only (the `-Prune -Force` combination with files to delete was not run).
 - The earlier notes on `Read-CopilotReply.ps1` (empty reply on a long reply) and on monitoring-cost
   measurements were stale: the first was fixed 2026-10-31 (header of the script), the second is
