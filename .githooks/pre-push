@@ -1,0 +1,13 @@
+#!/bin/sh
+# Pre-push hook: warn (never block) when a SKILL.md in the pushed commits differs from what the remote
+# has but its CURRENT_SKILL_VERSION was not bumped. The whole push is judged at once, so several
+# commits before the final version bump are fine.
+# Enable once per clone:  git config core.hooksPath .githooks
+zero=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue
+    [ "$remote_sha" = "$zero" ] && continue
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Update-SkillsIndex.ps1 -Check \
+        -WarnUnbumpedFrom "$remote_sha" -WarnUnbumpedTo "$local_sha" || true
+done
+exit 0

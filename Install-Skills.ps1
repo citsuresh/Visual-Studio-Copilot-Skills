@@ -16,7 +16,8 @@
 .PARAMETER Check
     Read-only: list, per skill, which files are new or changed (and which installed files are no longer
     in the repo), print a final line starting with RESULT:, and change nothing. No prompts. Use it to
-    see whether an update is needed before running the installer for real.
+    see whether an update is needed before running the installer for real. It also prints one INDEX:
+    line saying whether skills-index.json matches the SKILL.md files (informational; RESULT: ignores it).
 
 .PARAMETER Remote
     First look at the repo's remote (git fetch of this clone's upstream branch). With -Check: report how
@@ -281,6 +282,9 @@ else {
 }
 
 if ($Check) {
+    # Maintainer aid: is skills-index.json in step with the SKILL.md files? Does not change RESULT.
+    $indexScript = Join-Path $repoRoot 'scripts\Update-SkillsIndex.ps1'
+    if (Test-Path -LiteralPath $indexScript) { & $indexScript -Check | Out-Null }
     $parts = @()
     if ($skillsNeedingUpdate.Count -gt 0) { $parts += "local: $($skillsNeedingUpdate.Count) skill(s): $($skillsNeedingUpdate -join ', ')" }
     if ($remoteTouched.Count -gt 0) { $parts += "remote: not pulled yet, touches $($remoteTouched -join ', ')" }

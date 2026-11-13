@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pre-commit hook: when a SKILL.md is staged, regenerate skills-index.json and stage it. It does not
+# warn about a missing version bump: that is judged once per push by .githooks/pre-push, so several
+# commits before the final bump stay quiet.
+# Enable once per clone:  git config core.hooksPath .githooks
+if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '^[^/]+/SKILL\.md$'; then
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Update-SkillsIndex.ps1 -Stage \
+        || echo "WARNING: skills-index.json was not updated; run scripts/Update-SkillsIndex.ps1"
+fi
+exit 0

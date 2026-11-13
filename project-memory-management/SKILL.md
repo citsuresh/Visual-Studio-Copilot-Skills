@@ -21,7 +21,7 @@ to set up this skill / project memory prompts in a new project.
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 1`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 2`. Compare against the source-of-truth copy at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management\SKILL.md`, and against that
   clone's GitHub upstream, once at the start of a session. A copy installed before v1 has no version
   line; treat it as version 0.
@@ -29,6 +29,9 @@ to set up this skill / project memory prompts in a new project.
   - v1 — versioning introduced, with a Step 0 that checks the skills repo (local clone and GitHub
     upstream) for a newer version and offers to run `Install-Skills.ps1 -Remote -Force`. No workflow
     changed. This skill is deprecated; the check exists only so a stale installed copy is noticed.
+  - v2 — Step 0 reads this skill's version and what's new from the repo's small `skills-index.json`
+    instead of the whole `SKILL.md`, so the update check costs about 2 KB, not up to 100 KB. If the
+    index cannot be read it falls back to a filtered read of the version line.
 
 ## Step 0: Skill Update Check
 
@@ -39,14 +42,17 @@ Run this **once**, the first time any workflow of this skill is invoked in a ses
 2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
-3. Read `CURRENT_SKILL_VERSION` from the clone's copy at
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management\SKILL.md` and, if the fetch
-   worked, from the upstream copy:
-   `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:project-memory-management/SKILL.md"`.
-   The repo version is the higher of the two.
+3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
+   whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
+   two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
+   and `whatsNew`:
+   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'project-memory-management'`
+   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'project-memory-management'`
+   - If neither can be read (a repo from before the index existed), read only the version line,
+     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`. If equal, continue silently.
-5. If the repo's version is higher: tell the user plainly what changed (the changelog entries
-   between the two versions) and whether the newer version is only on GitHub (clone not pulled
+5. If the repo's version is higher: tell the user what's new (the index's `whatsNew` line; if more than one version behind, say how
+   many and offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled
    yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
    `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
    clone (fast-forward only, never when tracked files have uncommitted changes) and installs every

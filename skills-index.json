@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "skills": {
+    "agent-orchestrator": {
+      "version": 18,
+      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+    },
+    "project-memory-management": {
+      "version": 2,
+      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+    },
+    "project-memory-management-graph": {
+      "version": 25,
+      "whatsNew": "Optional read-aloud (text-to-speech) rule."
+    },
+    "ui-interaction": {
+      "version": 19,
+      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+    },
+    "ui-navigation-orchestrator": {
+      "version": 7,
+      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+    },
+    "vs-chat-history": {
+      "version": 10,
+      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+    },
+    "vs-debug": {
+      "version": 8,
+      "whatsNew": "Step 0 reads this skill's version and what's new from the repo's small skills-index.json instead of the whole SKILL.md, so the update check costs about 2 KB, not up to 100 KB."
+    }
+  }
+}

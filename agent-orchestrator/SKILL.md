@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 17`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 18`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md` or behind that clone's
@@ -167,6 +167,9 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     copy of this file), not only the local clone, and offers to run
     `Install-Skills.ps1 -Remote -Force` when a newer version exists. Same trigger as before: once
     per orchestration session. Steps 5 and 6 of Step 0 are now steps 7 and 8.
+  - v18 — Step 0 reads this skill's version and what's new from the repo's small `skills-index.json`
+    instead of the whole `SKILL.md`, so the update check costs about 2 KB, not up to 100 KB. If the
+    index cannot be read it falls back to a filtered read of the version line.
 
 # Agent Orchestrator
 
@@ -302,15 +305,18 @@ involved), so do it every time a new session starts rather than skipping it to s
 2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
    changes no working file. If it fails (offline, no upstream), say once that GitHub could not
    be checked and continue with the clone alone.
-3. Read `CURRENT_SKILL_VERSION` from the clone's copy of this file at
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md` and, if the fetch
-   worked, from the upstream copy:
-   `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:agent-orchestrator/SKILL.md"`.
-   The repo version is the higher of the two.
+3. Read this skill's entry from the repo's small `skills-index.json` (about 2 KB), not from the
+   whole `SKILL.md` (which can be over 100 KB). The repo version is the higher `version` of the
+   two copies below, and its `whatsNew` is the change to report. Keep only the printed `version`
+   and `whatsNew`:
+   - GitHub's copy (skip if the fetch failed): `(git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:skills-index.json" | Out-String | ConvertFrom-Json).skills.'agent-orchestrator'`
+   - The clone's copy: `(Get-Content C:\MyFiles\Git\Visual-Studio-Copilot-Skills\skills-index.json -Raw | ConvertFrom-Json).skills.'agent-orchestrator'`
+   - If neither can be read (a repo from before the index existed), read only the version line,
+     never the whole file: `Select-String -Path C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md -Pattern 'CURRENT_SKILL_VERSION\s*=\s*\d+' | Select-Object -First 1`.
 4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION` (the version of whatever
    copy is currently loaded/running).
-5. If the repo's version is higher: tell the user plainly what changed (the changelog entries
-   between the two versions) and whether the newer version is only on GitHub (clone not pulled
+5. If the repo's version is higher: tell the user what's new (the index's `whatsNew` line; if more than one version behind, say how
+   many and offer to list the older changelog entries) and whether the newer version is only on GitHub (clone not pulled
    yet) or already in the clone. Ask via `ask_user` whether to pause and update now. On yes, run
    `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
    clone (fast-forward only, never when tracked files have uncommitted changes) and installs every

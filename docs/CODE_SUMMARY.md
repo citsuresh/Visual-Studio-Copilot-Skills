@@ -7,6 +7,15 @@ skill folder into `%USERPROFILE%\.copilot\skills\` so they're available to the C
 
 No C# solution detected in this repo; tracked in docs-only mode (no code graph).
 
+## Update index and hooks
+
+| File | Responsibility |
+|---|---|
+| `skills-index.json` | Generated: per skill `version` and one-line `whatsNew`. Read by each skill's Step 0 (clone copy and `git show "@{u}:skills-index.json"`) instead of the whole `SKILL.md`. |
+| `scripts/Update-SkillsIndex.ps1` | Generator, derived from each `SKILL.md`'s `CURRENT_SKILL_VERSION` and changelog entry. `-Check` (read-only), `-Stage`, `-WarnUnbumped` (staged vs HEAD), `-WarnUnbumpedFrom/-To` (range, warn only). |
+| `.githooks/pre-commit`, `.githooks/pre-push` | Regenerate and stage the index on commit; warn (never block) about a missing version bump over the whole push. Need `git config core.hooksPath .githooks` per clone; LF line endings (see `.gitattributes`). |
+| `Install-Skills.ps1 -Check` | Also prints `INDEX: UpToDate / OutOfDate / Missing`; does not change `RESULT:`. |
+
 ## Skills in this repo
 
 | Skill | Purpose |

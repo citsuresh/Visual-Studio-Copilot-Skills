@@ -101,3 +101,29 @@ rejected as above.
 
 **Not tested:** a machine with no installed voice (the path was simulated with a fake synthesizer);
 PowerShell 7; whether a later chat obeys "enable tts" in practice.
+## 2026-11-13 — A generated skills index makes the update check cheap; warn-only hooks keep it current
+
+**Decision:** The repo root holds skills-index.json (per skill: ersion and a one-line whatsNew).
+scripts/Update-SkillsIndex.ps1 generates it from each SKILL.md: the version from
+`CURRENT_SKILL_VERSION` and the first sentence of that version's changelog entry. Each skill's
+Step 0 reads its own entry from the clone's copy and from `git show "@{u}:skills-index.json"` (about
+2 KB) instead of the whole `SKILL.md` (up to 113 KB), falling back to a filtered read of the version
+line. A `pre-commit` hook regenerates and stages the index; a `pre-push` hook warns (never blocks)
+when a `SKILL.md` changed in the pushed commits without a version bump, judged over the whole push.
+`Install-Skills.ps1 -Check` prints an `INDEX:` line. `install-skills` has no version and is not
+indexed. The graph skill's Step 0 text changed without a version bump (wording only, so projects are not
+flagged stale); it reaches installed copies via `Install-Skills.ps1`.
+
+**Rationale:** The old check printed the whole file to read one number, and the fetch itself is cheap.
+The text comes from the changelog deterministically: no AI (not reproducible), and no commit message
+(a pre-commit hook runs before it exists and one commit can touch several skills). No date or SHA in the
+index, as they would change on every run and break the "matches" check. The bump warning sits on push,
+not commit, so several commits before the final bump stay quiet. It only warns because some edits
+(wording) legitimately skip a bump.
+
+**Alternatives considered:** A GitHub Action (check-only or auto-commit): not added yet; it would catch
+web-UI edits and skipped hooks, but cannot block a push. Blocking on a missing bump: rejected by the
+user (false positives, bypassable). Version-only detection means an upstream change without a bump is
+not noticed by the check.
+
+**Not tested:** the new Step 0 in a real chat; hooks on a clone that did not run `git config core.hooksPath .githooks`.

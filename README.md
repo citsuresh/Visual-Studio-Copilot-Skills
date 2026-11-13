@@ -23,6 +23,9 @@ Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
 | `vs-chat-history/` | Searches and reads the Visual Studio Copilot Chat history stored on this machine through the `chathistory` CLI of [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit): word search, session lists and filters, capped excerpts of turns and checkpoints, counts, and (only on request) rename and undo. Read-only except rename and undo-rename; covers `session-store.db` only; chat text is treated as sensitive. |
 | `install-skills/` | Lets Copilot install or update all the skills in this repo for you ("install skills from `<repo url>`", "check the repo and update all the skills"): `Install-Skills.ps1 -Check -Remote`, then `-Remote -Force` (and `-Prune` only after asking you). Installed by `Install-Skills.ps1` like the others. |
 | `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
+| `skills-index.json` | Generated, about 2 KB: each skill's current `version` and a one-line `whatsNew` (taken from its changelog). The skills' first-use update check reads this instead of the whole `SKILL.md` (up to 113 KB). Never edit it by hand. `install-skills` has no version and is not listed. |
+| `scripts/Update-SkillsIndex.ps1` | Regenerates `skills-index.json` from the `SKILL.md` files (no AI, no commit message). `-Check` only compares and exits 1 if the index is out of date; `-Stage` also runs `git add`. `Install-Skills.ps1 -Check` prints the result as an `INDEX:` line. |
+| `.githooks/` | `pre-commit` regenerates and stages `skills-index.json` whenever a `SKILL.md` is committed. `pre-push` warns (never blocks) if a `SKILL.md` in the pushed commits changed but its `CURRENT_SKILL_VERSION` did not, judged over the whole push so several commits before the final bump are fine. Enable once per clone: `git config core.hooksPath .githooks`. |
 | `tests/` | Manual test cases for `Install-Skills.ps1`. Test cases for the other scripts sit next to them, in each skill's `scripts/tests/` folder. |
 
 Each of the two project-memory skills has three workflows: **Bootstrap** (start of session /
@@ -146,10 +149,11 @@ composes them to drive a Copilot chat session in another VS window. Each has its
 
 **Update check at first use:** every skill except `install-skills` (which always checks GitHub itself)
 checks once per chat session, the first time it is used, whether a newer version exists: it runs
-`git fetch` on the local clone, compares its own `CURRENT_SKILL_VERSION` with the clone's copy and with
-the GitHub upstream copy, and, if one is newer, tells you what changed and asks whether to run
-`Install-Skills.ps1 -Remote -Force`. It never updates without asking, and it is not periodic. The
-memory skills also keep their separate per-project marker check.
+`git fetch` on the local clone, compares its own `CURRENT_SKILL_VERSION` with its entry in the
+clone's and the GitHub upstream's `skills-index.json` (a 2 KB read; it falls back to reading just the
+version line of `SKILL.md` if there is no index), and, if one is newer, tells you what's new and asks
+whether to run `Install-Skills.ps1 -Remote -Force`. It never updates without asking, and it is not
+periodic. The memory skills also keep their separate per-project marker check.
 
 ## Design notes
 
@@ -171,3 +175,10 @@ memory skills also keep their separate per-project marker check.
 Edit the `SKILL.md` (or `graph-viewer.html`) directly in this repo, commit, then re-run
 `Install-Skills.ps1` to push the update into your personal skills folder — the script only
 copies files that actually changed (compared by hash), so this is safe to re-run at any time.
+
+When a change affects behaviour, bump `CURRENT_SKILL_VERSION` and add a changelog entry whose first
+sentence says what's new: that sentence becomes the index's `whatsNew`. With the hooks enabled
+(`git config core.hooksPath .githooks`, once per clone) the index is regenerated on commit and a
+missing bump is warned about on push. Without the hooks, run `scripts\Update-SkillsIndex.ps1` before
+committing; `Install-Skills.ps1 -Check` reports `INDEX: OutOfDate` if you forget. Edits made on
+github.com bypass the hooks, so run the script afterwards.

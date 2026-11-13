@@ -4,28 +4,31 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
-Making installs and updates easy on any machine. `Install-Skills.ps1` has `-Prune` and `-Check`
-(committed `a83824b`, `68e1d6d`) plus `-Remote` and `-MaxAgeHours` (fetch GitHub, report `REMOTE:`,
-pull fast-forward only and install; the `RESULT:` line says "GitHub not checked" when the remote is
-unreachable). Every skill's Step 0 now also checks the GitHub upstream, once per session, and asks
-before running `Install-Skills.ps1 -Remote -Force`: the five UI/chat skills (version bumps: vs-debug 7,
-ui-interaction 18, ui-navigation-orchestrator 6, vs-chat-history 9, agent-orchestrator 17), the graph
-skill (Workflow 0 section, no bump), the deprecated `project-memory-management` (new version 1) and
-`install-skills` (uses `-Remote`). Sandbox cases I-13 to I-19 passed (`tests/Install-Skills.tests.md`).
-`Speak-Text.ps1` ran in PowerShell 7.4.6. This repo remains docs-only: no tracked `.sln`/`.slnx`, code
-graph, or Key Flows file.
+Making installs and updates easy on any machine. `Install-Skills.ps1` has `-Prune`, `-Check`, `-Remote`
+and `-MaxAgeHours` (committed up to `43cc3fa`), and every skill's Step 0 checks the GitHub upstream once
+per session and asks before running `Install-Skills.ps1 -Remote -Force`. This session made that check
+cheap: a generated `skills-index.json` (version + one-line `whatsNew` per skill) is read instead of the
+whole `SKILL.md`. `scripts/Update-SkillsIndex.ps1` generates it (`-Check`, `-Stage`, range warnings);
+`.githooks/pre-commit` regenerates and stages it, `.githooks/pre-push` warns (never blocks) about a
+missing version bump over the whole push; `Install-Skills.ps1 -Check` prints `INDEX:`. Skill versions
+now: vs-debug 8, ui-interaction 19, ui-navigation-orchestrator 7, vs-chat-history 10, agent-orchestrator
+18, project-memory-management 2, graph 25 (text change only, no bump). Sandbox cases I-20 to I-23 passed.
+This repo remains docs-only: no tracked `.sln`/`.slnx`, code graph, or Key Flows file.
 
 ## Recently changed
 
-Uncommitted: `Install-Skills.ps1` (`-Remote`, `-MaxAgeHours`), the `SKILL.md` of all eight skills,
-`README.md`, `docs/CODE_SUMMARY.md`, `tests/Install-Skills.tests.md` (I-13 to I-19),
-`docs/PROJECT_STATE.md`. The edited skills are not installed yet.
+`skills-index.json`, `scripts/Update-SkillsIndex.ps1`, `.githooks/pre-commit`, `.githooks/pre-push`,
+`.gitattributes`, `Install-Skills.ps1` (`INDEX:` line), the `SKILL.md` of seven skills (Step 0 reads the
+index), `README.md`, `docs/CODE_SUMMARY.md`, `docs/DESIGN_DECISIONS.md`, `tests/Install-Skills.tests.md`.
+The edited skills are not installed yet.
 
 ## Open tasks/bugs
 
-- The new Step 0 text (fetch, `git show "@{u}:..."`, `ask_user`, then the install) has not been run by a
-  skill in a real chat, only the script behind it. Until the edited skills are installed, the running
-  copies still use the old local-only check.
+- The new Step 0 text (fetch, index read via `git show "@{u}:skills-index.json"`, `ask_user`, then the
+  install) has not been run by a skill in a real chat, only the commands behind it. Until the edited
+  skills are installed, the running copies still use the old check.
+- The hooks need `git config core.hooksPath .githooks` once per clone (set on this one); web-UI edits and
+  `--no-verify` bypass them. No GitHub Action exists (check-only one was offered, not decided).
 - The `install-skills` skill itself has not been run in a real chat (only the script was tested), and
   the first install on a brand-new machine still needs the spelled-out prompt in the README (Option 0).
   The printed `git clone` lines for missing companions were not seen (none was missing here).
