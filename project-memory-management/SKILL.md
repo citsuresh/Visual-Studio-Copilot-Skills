@@ -19,12 +19,49 @@ files don't exist yet, or when the user asks to (re)initialize project memory. U
 at the close of a working session to record what happened. Use Initialize when the user asks
 to set up this skill / project memory prompts in a new project.
 
+## Skill Version
+
+- `CURRENT_SKILL_VERSION = 1`. Compare against the source-of-truth copy at
+  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management\SKILL.md`, and against that
+  clone's GitHub upstream, once at the start of a session. A copy installed before v1 has no version
+  line; treat it as version 0.
+- Changelog:
+  - v1 — versioning introduced, with a Step 0 that checks the skills repo (local clone and GitHub
+    upstream) for a newer version and offers to run `Install-Skills.ps1 -Remote -Force`. No workflow
+    changed. This skill is deprecated; the check exists only so a stale installed copy is noticed.
+
+## Step 0: Skill Update Check
+
+Run this **once**, the first time any workflow of this skill is invoked in a session.
+
+1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. If it doesn't exist on this
+   machine, skip this check and say so in one line; do not guess a location.
+2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+   changes no working file. If it fails (offline, no upstream), say once that GitHub could not
+   be checked and continue with the clone alone.
+3. Read `CURRENT_SKILL_VERSION` from the clone's copy at
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management\SKILL.md` and, if the fetch
+   worked, from the upstream copy:
+   `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:project-memory-management/SKILL.md"`.
+   The repo version is the higher of the two.
+4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`. If equal, continue silently.
+5. If the repo's version is higher: tell the user plainly what changed (the changelog entries
+   between the two versions) and whether the newer version is only on GitHub (clone not pulled
+   yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
+   changed skill; tell the user the new text applies from a new chat session, and continue the
+   requested workflow with the current copy. On no, continue and do not ask again in this
+   session.
+
 ## Scope restriction (applies to all workflows)
 
 - Never create a new repository, anywhere, under any circumstance.
 - Never read from, write to, or delete any file or folder outside of: (a) the current
   project's own folder, or (b) this skill's own folder under the personal skills directory
-  (`~/.copilot/skills/project-memory-management/`).
+  (`~/.copilot/skills/project-memory-management/`), or (c) the skills repo clone
+  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\`, only for Step 0 (`git fetch`, `git show`, and
+  running its `Install-Skills.ps1` after the user agrees) — never to edit files inside it.
 - If a step would require touching a path outside this scope, stop and ask the user first
   instead of proceeding.
 

@@ -5,8 +5,9 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 17`. Compare this file's version against the source-of-truth copy at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` once at the start of a
+- `CURRENT_SKILL_VERSION = 18`. Compare this file's version against the source-of-truth copy at
+  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md`, and against that clone's
+  GitHub upstream, once at the start of a
   session, the same way `agent-orchestrator` does — only one installed copy, one source of truth,
   no per-project marker needed.
 - Changelog:
@@ -80,6 +81,10 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
   - v17 — Documents the toolkit's depth-limit detection (commits `5b5923a`, `7ea546b`): `depthLimited`,
     `maxDepth`, `nodesBeyondDepth`, `nodesBeyondDepthCapped` and `hint` on `inspect` and
     `read-visible-text`, so a frame-only result at the default depth is recognisable as "look deeper".
+  - v18 — Step 0 now also checks the repo's GitHub upstream (`git fetch`, then reads the upstream
+    copy of this file), not only the local clone, and offers to run
+    `Install-Skills.ps1 -Remote -Force` when a newer version exists. Same trigger as before: once
+    per session.
 
 # UI Interaction
 
@@ -127,16 +132,26 @@ still check this skill's own version once (they version independently), but neve
 check per call — this skill is invoked far more often than the others, so re-checking per call
 would defeat the point of it being a cheap, once-per-session check.
 
-1. Read `CURRENT_SKILL_VERSION` from the repo copy at
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md`. Use the same "ask,
-   don't guess" fallback as the `AgentDebugToolkit` path above if this repo path doesn't exist on
-   the current machine.
-2. Compare that repo version to this file's own `CURRENT_SKILL_VERSION`.
-3. If the repo's version is higher: tell the user plainly what changed (the changelog entries
-   between the running version and the repo's version) and that the installed copy is stale.
-   Recommend running `Install-Skills.ps1`, but let the user decide whether to update now or
-   proceed with the current session.
-4. If versions match: proceed silently.
+1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. Use the same "ask, don't
+   guess" fallback as the `AgentDebugToolkit` path above if it doesn't exist on the current
+   machine.
+2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+   changes no working file. If it fails (offline, no upstream), say once that GitHub could not
+   be checked and continue with the clone alone.
+3. Read `CURRENT_SKILL_VERSION` from the clone's copy at
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\ui-interaction\SKILL.md` and, if the fetch worked,
+   from the upstream copy:
+   `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:ui-interaction/SKILL.md"`.
+   The repo version is the higher of the two.
+4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`.
+5. If the repo's version is higher: tell the user plainly what changed (the changelog entries
+   between the two versions) and whether the newer version is only on GitHub (clone not pulled
+   yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
+   changed skill; tell the user the new text applies from a new chat session. On no, proceed
+   with the current session and do not ask again in it.
+6. If versions match: proceed silently.
 
 ## Hands-off cursor indicator (user requirement)
 

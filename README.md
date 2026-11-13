@@ -21,7 +21,7 @@ Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
 | `ui-navigation-orchestrator/` | Experimental, still-maturing orchestration layer that composes `ui-interaction` + `vs-debug` to navigate a target app's UI, maintaining a lightweight per-target-app navigation-tree cache. Replaces the retired `ui-debug-map` skill. |
 | `agent-orchestrator/` | Drives and supervises a Copilot chat agent running in a *different* Visual Studio window via AgentDebugToolkit's UIA CLI — attach, assign tasks, poll state, detect/answer prompts, run the Decomposition → implement → Audit → review → approve → commit loop. Ships helper scripts in `scripts/`: `Send-CopilotPrompt`, two chat watchers (`Watch-CopilotChatV2`, the light default, and `Watch-CopilotChatV1`, the full-tree one), `Select-ChoicePromptOption`, `Read-CopilotReply`, `Invoke-CopilotReview` and others, with manual test cases in `scripts/tests/`. |
 | `vs-chat-history/` | Searches and reads the Visual Studio Copilot Chat history stored on this machine through the `chathistory` CLI of [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit): word search, session lists and filters, capped excerpts of turns and checkpoints, counts, and (only on request) rename and undo. Read-only except rename and undo-rename; covers `session-store.db` only; chat text is treated as sensitive. |
-| `install-skills/` | Lets Copilot install or update all the skills in this repo for you ("install skills from `<repo url>`", "check the repo and update all the skills"): clone or pull, `Install-Skills.ps1 -Check`, then `-Force` (and `-Prune` only after asking you). Installed by `Install-Skills.ps1` like the others. |
+| `install-skills/` | Lets Copilot install or update all the skills in this repo for you ("install skills from `<repo url>`", "check the repo and update all the skills"): `Install-Skills.ps1 -Check -Remote`, then `-Remote -Force` (and `-Prune` only after asking you). Installed by `Install-Skills.ps1` like the others. |
 | `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. |
 | `tests/` | Manual test cases for `Install-Skills.ps1`. Test cases for the other scripts sit next to them, in each skill's `scripts/tests/` folder. |
 
@@ -64,9 +64,9 @@ machine, so spell the first request out once, for example:
 > `.\Install-Skills.ps1 -Check`, show me the result, then run `.\Install-Skills.ps1 -Force`.
 
 After that, the short forms work in any chat: "install skills from `<repo url>`" and "check the repo
-and update all the skills" (also "are my skills up to date"). The skill clones or pulls the repo,
-runs `-Check`, installs with `-Force`, asks before it deletes anything (`-Prune`), and finishes with a
-second `-Check` as proof.
+and update all the skills" (also "are my skills up to date"). The skill clones the repo if needed, runs
+`-Check -Remote` (which asks GitHub what is new), installs with `-Remote -Force` (which pulls, then
+installs), asks before it deletes anything (`-Prune`), and finishes with a second `-Check` as proof.
 
 **Option 1 — script (recommended):**
 ```powershell
@@ -81,6 +81,14 @@ an installed skill are listed and left in place; add `-Prune` to delete them (sa
 (`UpToDate` or `UpdatesAvailable`). Every run also reports companion tool folders the skills refer to
 (`C:\MyFiles\Git\GraphTools`, `AgentDebugToolkit`, `VsChatHistoryToolkit`) that are missing, with the
 `git clone` command; it never clones or builds them.
+
+`-Remote` checks GitHub first (`git fetch`) and prints a `REMOTE:` line (`UpToDate`, `Behind N commit(s)`,
+`Pulled N commit(s)`, `Diverged`, `Unreachable`, ...) with the commit subjects and the skills they touch.
+With `-Check` it only reports. Without `-Check`, if the clone is only behind and has no uncommitted
+changes to tracked files, it pulls (`--ff-only`) and then installs; if the pull changed
+`Install-Skills.ps1` itself, the new copy runs. `-MaxAgeHours N` skips the fetch when the clone was
+fetched less than N hours ago. If GitHub cannot be reached, the `RESULT:` line says
+"GitHub not checked".
 
 **Option 2 — manual:**
 Copy each folder's contents into the matching path under `%USERPROFILE%\.copilot\skills\`.
@@ -134,8 +142,14 @@ overwriting, so both files always stay pointed at the same skill rather than dri
 `vs-debug` are stable, independent mechanism skills; `ui-navigation-orchestrator` composes them
 for UI navigation/mapping tasks and replaces the retired `ui-debug-map` skill; `agent-orchestrator`
 composes them to drive a Copilot chat session in another VS window. Each has its own
-`CURRENT_SKILL_VERSION` and changelog (see each `SKILL.md`), checked once per session via a
-Step 0 version check rather than the per-project marker system used by the memory skills.
+`CURRENT_SKILL_VERSION` and changelog (see each `SKILL.md`).
+
+**Update check at first use:** every skill except `install-skills` (which always checks GitHub itself)
+checks once per chat session, the first time it is used, whether a newer version exists: it runs
+`git fetch` on the local clone, compares its own `CURRENT_SKILL_VERSION` with the clone's copy and with
+the GitHub upstream copy, and, if one is newer, tells you what changed and asks whether to run
+`Install-Skills.ps1 -Remote -Force`. It never updates without asking, and it is not periodic. The
+memory skills also keep their separate per-project marker check.
 
 ## Design notes
 

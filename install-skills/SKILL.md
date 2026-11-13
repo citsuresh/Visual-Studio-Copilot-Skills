@@ -16,23 +16,28 @@ Never commit or push.
 - No URL given (update request): use `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`; if it is missing,
   ask for the URL.
 - Not cloned yet: `git clone <url> <folder>`.
-- Already cloned: `git -C <folder> status --porcelain`. If it shows uncommitted changes, say so and
-  continue with the local files only after the user agrees; otherwise `git -C <folder> pull --ff-only`.
-  If the pull fails, report the full error and stop.
+- Already cloned: do not pull by hand. `Install-Skills.ps1 -Remote` (steps 2 and 3) fetches from GitHub,
+  reports what is new, and pulls fast-forward only, never when tracked files have uncommitted changes.
 - If `<folder>\Install-Skills.ps1` does not exist, stop and say this repo is not a skills repo.
 
 ## 2. Check first (read-only)
 
-Run `<folder>\Install-Skills.ps1 -Check` and read its output. The last line is `RESULT: UpToDate` or
-`RESULT: UpdatesAvailable (...)`. Summarise: which skills are new or changed, installed files that are
-no longer in the repo, and any companion tool folders reported missing.
+Run `<folder>\Install-Skills.ps1 -Check -Remote` and read its output. The `REMOTE:` line says whether
+GitHub has commits the clone does not (`UpToDate`, `Behind N commit(s)`, `Diverged`, `Unreachable`, ...),
+with the commit subjects and the skills they touch. The last line is `RESULT: UpToDate` or
+`RESULT: UpdatesAvailable (...)`. Summarise: what is new on GitHub, which skills are new or changed,
+installed files that are no longer in the repo, and any companion tool folders reported missing.
 
+- `REMOTE: Unreachable`: say GitHub could not be checked and that the result covers the local clone only.
+- `REMOTE:` ending in `NOT pulled: uncommitted changes to tracked files` or `Diverged`: the clone cannot
+  be updated automatically; report it and let the user decide.
 - A request that only asks to check ("are my skills up to date", "check the repo") stops here.
-- `UpToDate`: say so and stop.
+- `UpToDate` with a reachable remote: say so and stop.
 
 ## 3. Install or update
 
-Run `<folder>\Install-Skills.ps1 -Force`. Asking to install or update is the confirmation for the copy.
+Run `<folder>\Install-Skills.ps1 -Remote -Force`. Asking to install or update is the confirmation for
+the pull and the copy. If the pull changed `Install-Skills.ps1` itself, the script runs the new copy.
 
 - If the check listed installed files that are no longer in the repo, ask the user once whether to
   remove them. Only if they agree, run `<folder>\Install-Skills.ps1 -Force -Prune`. Never add

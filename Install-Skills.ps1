@@ -18,6 +18,18 @@
     in the repo), print a final line starting with RESULT:, and change nothing. No prompts. Use it to
     see whether an update is needed before running the installer for real.
 
+.PARAMETER Remote
+    First look at the repo's remote (git fetch of this clone's upstream branch). With -Check: report how
+    many commits the clone is behind, which skills they touch and the commit subjects, and change
+    nothing. Without -Check: if the clone is only behind (never ahead or diverged) and has no uncommitted
+    changes to tracked files, run git pull --ff-only, then install as usual; if Install-Skills.ps1
+    itself changed, the new copy is run instead of this one. If the remote cannot be reached the script
+    says so and carries on with the local files. Prints one line starting with REMOTE:.
+
+.PARAMETER MaxAgeHours
+    With -Remote: skip the git fetch when the clone was fetched less than this many hours ago (the
+    time of .git\FETCH_HEAD); the already-fetched state is still compared. 0 (default) always fetches.
+
 .NOTES
     At the end of every run the script also looks for companion tool folders that the skills refer to by
     absolute path (for example C:\MyFiles\Git\GraphTools) and reports any that are missing, with the
@@ -28,12 +40,16 @@
     .\Install-Skills.ps1 -Force
     .\Install-Skills.ps1 -Prune
     .\Install-Skills.ps1 -Check
+    .\Install-Skills.ps1 -Check -Remote -MaxAgeHours 6
+    .\Install-Skills.ps1 -Remote -Force
 #>
 
 param(
     [switch]$Force,
     [switch]$Prune,
-    [switch]$Check
+    [switch]$Check,
+    [switch]$Remote,
+    [int]$MaxAgeHours = 0
 )
 
 # Companion repos the skills depend on, with where to get them (used only to print a clone command).
@@ -46,6 +62,70 @@ $skillsNeedingUpdate = @()
 
 $repoRoot = $PSScriptRoot
 $destRoot = Join-Path $env:USERPROFILE ".copilot\skills"
+$remoteTouched = @()
+
+if ($Remote) {
+    # Runs before the skill folders are listed, because a pull can add or change them.
+    $remoteStatus = 'Unknown'
+    $remoteDetail = $null
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) { $remoteStatus = 'NoGit' }
+    elseif (-not (Test-Path (Join-Path $repoRoot '.git'))) { $remoteStatus = 'NotAGitClone' }
+    else {
+        $fetchHead = Join-Path $repoRoot '.git\FETCH_HEAD'
+        $recent = $MaxAgeHours -gt 0 -and (Test-Path $fetchHead) -and ((Get-Date) - (Get-Item $fetchHead).LastWriteTime).TotalHours -lt $MaxAgeHours
+        $fetchOk = $true
+        if (-not $recent) {
+            $fetchOut = git -C $repoRoot fetch --quiet origin 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -and $_ -ne 'System.Management.Automation.RemoteException' } | Out-String
+            if ($LASTEXITCODE -ne 0) { $fetchOk = $false; $remoteStatus = 'Unreachable'; $remoteDetail = $fetchOut.Trim() }
+        }
+        else { $remoteDetail = "fetch skipped: this clone was fetched less than $MaxAgeHours hour(s) ago" }
+        if ($fetchOk) {
+            $upstream = (git -C $repoRoot rev-parse --abbrev-ref '@{u}' 2>$null | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or -not $upstream) { $remoteStatus = 'NoUpstream' }
+            else {
+                $behind = [int](git -C $repoRoot rev-list --count 'HEAD..@{u}')
+                $ahead = [int](git -C $repoRoot rev-list --count '@{u}..HEAD')
+                if ($behind -eq 0) { $remoteStatus = 'UpToDate' }
+                elseif ($ahead -gt 0) { $remoteStatus = "Diverged (behind $behind, ahead $ahead; not pulled)" }
+                else { $remoteStatus = "Behind $behind commit(s)" }
+                if ($behind -gt 0) {
+                    Write-Host "Commits on $upstream that this clone does not have yet:" -ForegroundColor Yellow
+                    git -C $repoRoot log --oneline --max-count=15 'HEAD..@{u}' | ForEach-Object { Write-Host "    $_" }
+                    $changedPaths = @(git -C $repoRoot diff --name-only 'HEAD..@{u}')
+                    foreach ($top in ($changedPaths | ForEach-Object { ($_ -split '/')[0] } | Sort-Object -Unique)) {
+                        git -C $repoRoot cat-file -e "@{u}:$top/SKILL.md" 2>$null
+                        if ($LASTEXITCODE -eq 0) { $remoteTouched += $top }
+                    }
+                    $installerChanged = $changedPaths -contains 'Install-Skills.ps1'
+                    if ($remoteTouched.Count -gt 0) { Write-Host "  Skills touched: $($remoteTouched -join ', ')" -ForegroundColor Yellow }
+                    if ($installerChanged) { Write-Host "  Install-Skills.ps1 itself changed" -ForegroundColor Yellow }
+                    if (-not $Check -and $ahead -eq 0) {
+                        $dirty = (git -C $repoRoot status --porcelain --untracked-files=no | Out-String).Trim()
+                        if ($dirty) { $remoteStatus = "Behind $behind commit(s), NOT pulled: uncommitted changes to tracked files" }
+                        else {
+                            $pullOut = git -C $repoRoot pull --ff-only --quiet 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -and $_ -ne 'System.Management.Automation.RemoteException' } | Out-String
+                            if ($LASTEXITCODE -ne 0) { $remoteStatus = "Behind $behind commit(s), NOT pulled: $($pullOut.Trim())" }
+                            else {
+                                $remoteStatus = "Pulled $behind commit(s)"
+                                if ($installerChanged) {
+                                    Write-Host "REMOTE: $remoteStatus (Install-Skills.ps1 changed; continuing with the new copy)"
+                                    $rerun = @{} + $PSBoundParameters
+                                    [void]$rerun.Remove('Remote'); [void]$rerun.Remove('MaxAgeHours')
+                                    & (Join-Path $repoRoot 'Install-Skills.ps1') @rerun
+                                    exit $LASTEXITCODE
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ($remoteDetail) { Write-Host "  $remoteDetail" -ForegroundColor DarkGray }
+    Write-Host "REMOTE: $remoteStatus"
+    Write-Host ""
+}
 
 Write-Host "Scanning for skills in $repoRoot ..." -ForegroundColor Cyan
 
@@ -201,8 +281,16 @@ else {
 }
 
 if ($Check) {
-    if ($skillsNeedingUpdate.Count -gt 0) {
-        Write-Host "RESULT: UpdatesAvailable ($($skillsNeedingUpdate.Count) skill(s): $($skillsNeedingUpdate -join ', '))"
+    $parts = @()
+    if ($skillsNeedingUpdate.Count -gt 0) { $parts += "local: $($skillsNeedingUpdate.Count) skill(s): $($skillsNeedingUpdate -join ', ')" }
+    if ($remoteTouched.Count -gt 0) { $parts += "remote: not pulled yet, touches $($remoteTouched -join ', ')" }
+    $notChecked = $Remote -and ($remoteStatus -in 'Unreachable', 'NoUpstream', 'NotAGitClone', 'NoGit')
+    if ($parts.Count -gt 0) {
+        if ($notChecked) { $parts += "GitHub not checked: $remoteStatus" }
+        Write-Host "RESULT: UpdatesAvailable ($($parts -join '; '))"
+    }
+    elseif ($notChecked) {
+        Write-Host "RESULT: UpToDate (local clone only; GitHub not checked: $remoteStatus)"
     }
     else {
         Write-Host "RESULT: UpToDate"

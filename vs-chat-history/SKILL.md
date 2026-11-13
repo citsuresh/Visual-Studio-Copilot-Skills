@@ -5,10 +5,14 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 8`. Compare against the source-of-truth copy at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md` once at the start of a
-  session (Step 0).
+- `CURRENT_SKILL_VERSION = 9`. Compare against the source-of-truth copy at
+  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md`, and against that clone's
+  GitHub upstream, once at the start of a session (Step 0).
 - Changelog:
+  - v9 — Step 0 now also checks the repo's GitHub upstream (`git fetch`, then reads the upstream
+    copy of this file), not only the local clone, and offers to run
+    `Install-Skills.ps1 -Remote -Force` when a newer version exists. Same trigger as before: once
+    per session. No other step changed.
   - v8 — adds `rollup` (events summaries combined across the most recent chats: tool, skill and
     permission counts, compaction statistics, session-end totals, chats without a log or session-end
     event). No existing step changed.
@@ -78,13 +82,25 @@ it, how to read its output, and what to keep private.
 
 Run this **once**, the first time this skill is used in a session, not on every command.
 
-1. Read `CURRENT_SKILL_VERSION` from the repo copy at
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md`. If that path does not
-   exist, ask the user rather than guessing.
-2. Compare it with this file's own `CURRENT_SKILL_VERSION`.
-3. If the repo version is higher, say plainly what changed and that the installed copy is stale;
-   recommend `Install-Skills.ps1` and let the user decide.
-4. If the versions match, continue silently.
+1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. If it does not exist, ask the
+   user rather than guessing.
+2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+   changes no working file. If it fails (offline, no upstream), say once that GitHub could not
+   be checked and continue with the clone alone.
+3. Read `CURRENT_SKILL_VERSION` from the clone's copy at
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\vs-chat-history\SKILL.md` and, if the fetch worked,
+   from the upstream copy:
+   `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:vs-chat-history/SKILL.md"`.
+   The repo version is the higher of the two.
+4. Compare the repo version with this file's own `CURRENT_SKILL_VERSION`.
+5. If the repo version is higher, say plainly what changed (the changelog entries between the two
+   versions) and whether the newer version is only on GitHub (clone not pulled yet) or already in
+   the clone. Ask via `ask_user` whether to update now. On yes, run
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
+   changed skill; tell the user the new text applies from a new chat session. On no, continue and
+   do not ask again in this session.
+6. If the versions match, continue silently.
 
 ## Commands
 

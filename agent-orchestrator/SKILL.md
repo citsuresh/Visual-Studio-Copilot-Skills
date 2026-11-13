@@ -5,10 +5,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 16`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 17`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
-  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Unlike
+  `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md` or behind that clone's
+  GitHub upstream. Unlike
   `project-memory-management-graph` (which bootstraps many independent target projects and needs
   a per-project marker), this skill has only one installed copy and one source of truth, so no
   per-project marker file is needed — just a direct comparison between the running copy's version
@@ -162,6 +163,10 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     (the Send button becomes Stop, so the send script fails after pasting and leaves the text unsent) and to keep
     each Copilot round small (one item per prompt, a separate cheap read-only review prompt, one full test run per
     round). No script changed.
+  - v17 - Step 0 now also checks the repo's GitHub upstream (`git fetch`, then reads the upstream
+    copy of this file), not only the local clone, and offers to run
+    `Install-Skills.ps1 -Remote -Force` when a newer version exists. Same trigger as before: once
+    per orchestration session. Steps 5 and 6 of Step 0 are now steps 7 and 8.
 
 # Agent Orchestrator
 
@@ -287,24 +292,34 @@ sessions reuse it instead of re-deriving it.
 
 Run this **once**, at the very start of a new orchestration session — do not repeat it on every
 individual verb call (click, inspect, poll, etc.) within that session; it must not get pulled into
-Step 3's polling loop. This is a cheap check (one line read from one local file, no UIA calls
+Step 3's polling loop. This is a cheap check (one `git fetch` and one line read, no UIA calls
 involved), so do it every time a new session starts rather than skipping it to save time.
 
-1. Read `CURRENT_SKILL_VERSION` from the repo copy of this file at
-   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md`. Use the same "ask,
-   don't guess" fallback documented in `ui-interaction` for the `AgentDebugToolkit` path if this
-   repo path doesn't exist on the current machine — stop and ask the user where to find it rather
-   than silently skipping the check or assuming a different location.
-2. Compare that repo version to this file's own `CURRENT_SKILL_VERSION` (the version of whatever
+1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. Use the same "ask, don't
+   guess" fallback documented in `ui-interaction` for the `AgentDebugToolkit` path if it doesn't
+   exist on the current machine — stop and ask the user where to find it rather than silently
+   skipping the check or assuming a different location.
+2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+   changes no working file. If it fails (offline, no upstream), say once that GitHub could not
+   be checked and continue with the clone alone.
+3. Read `CURRENT_SKILL_VERSION` from the clone's copy of this file at
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\agent-orchestrator\SKILL.md` and, if the fetch
+   worked, from the upstream copy:
+   `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:agent-orchestrator/SKILL.md"`.
+   The repo version is the higher of the two.
+4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION` (the version of whatever
    copy is currently loaded/running).
-3. If the repo's version is higher: tell the user plainly what changed (the changelog entries
-   between the running version and the repo's version) and that the installed copy is stale.
-   Recommend running `Install-Skills.ps1` before continuing, but let the user decide whether to
-   pause and update now or proceed anyway with the current session.
-4. If versions match: proceed silently — no need to announce anything.
-5. If the repo copy's `scripts\SCRIPTS.md` exists, read it so the learned scripts are in context,
+5. If the repo's version is higher: tell the user plainly what changed (the changelog entries
+   between the two versions) and whether the newer version is only on GitHub (clone not pulled
+   yet) or already in the clone. Ask via `ask_user` whether to pause and update now. On yes, run
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
+   changed skill; tell the user the new text applies from a new chat session. On no, proceed
+   with the current session and do not ask again in it.
+6. If versions match: proceed silently — no need to announce anything.
+7. If the repo copy's `scripts\SCRIPTS.md` exists, read it so the learned scripts are in context,
    and mention the count in a few words (e.g. "2 learned scripts indexed").
-6. Start the hands-off indicator: `AgentCursor.ps1 -Session Start` (blue dot).
+8. Start the hands-off indicator: `AgentCursor.ps1 -Session Start` (blue dot).
 
 ## Step 1 — Find and verify the target window
 

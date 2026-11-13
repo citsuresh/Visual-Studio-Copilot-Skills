@@ -324,7 +324,36 @@ Before running Begin Session, Bootstrap, End Session, or Initialize, always do t
 first — it applies uniformly to all four, including Initialize itself (e.g. a first-time setup
 should never be "stale," but should still record the current version).
 
-### Steps
+### Installed-skill update check (once per session, before the steps below)
+
+This is separate from the per-project marker check below: it asks whether this skill's own
+installed copy is behind the skills repo. Run it **once**, the first time any workflow of this
+skill is invoked in a session, not again for later workflows in the same session. Changing this
+section does not by itself require a `CURRENT_SKILL_VERSION` bump: it does not change what a
+project's docs or `copilot-instructions.md` contain.
+
+1. The repo clone is `C:\MyFiles\Git\Visual-Studio-Copilot-Skills`. If it doesn't exist on this
+   machine, skip this check and say so in one line; do not guess a location.
+2. Check GitHub: `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills fetch --quiet origin`. This
+   changes no working file. If it fails (offline, no upstream), say once that GitHub could not
+   be checked and continue with the clone alone.
+3. Read `CURRENT_SKILL_VERSION` from the clone's copy at
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\project-memory-management-graph\SKILL.md` and, if
+   the fetch worked, from the upstream copy:
+   `git -C C:\MyFiles\Git\Visual-Studio-Copilot-Skills show "@{u}:project-memory-management-graph/SKILL.md"`.
+   The repo version is the higher of the two.
+4. Compare the repo version to this file's own `CURRENT_SKILL_VERSION`. If equal, continue
+   silently.
+5. If the repo's version is higher: tell the user plainly what changed (the changelog entries
+   between the two versions) and whether the newer version is only on GitHub (clone not pulled
+   yet) or already in the clone. Ask via `ask_user` whether to update now. On yes, run
+   `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\Install-Skills.ps1 -Remote -Force`: it pulls the
+   clone (fast-forward only, never when tracked files have uncommitted changes) and installs every
+   changed skill; tell the user the new text applies from a new chat session, and continue the
+   requested workflow with the current copy. On no, continue and do not ask again in this
+   session.
+
+### Steps (per-project marker check)
 
 1. Resolve the repo root (see "Path resolution" above) and check whether
    `.github/copilot-instructions.md` exists.
@@ -364,7 +393,8 @@ should never be "stale," but should still record the current version).
      the same project.
 
 4. This check must stay cheap: a single file read plus a string/regex comparison — no codebase
-   scanning, no GraphTools invocation, regardless of outcome.
+   scanning, no GraphTools invocation, regardless of outcome. (The once-per-session installed-skill
+   update check above adds one `git fetch` and is the only exception.)
 
 ## Scope restriction (applies to all workflows)
 
@@ -373,7 +403,9 @@ should never be "stale," but should still record the current version).
   project's own folder, or (b) this skill's own folder under the personal skills directory
   (`~/.copilot/skills/project-memory-management-graph/`), or (c) the GraphTools install
   location (`C:\MyFiles\Git\GraphTools\`), and only to invoke its executables — never to modify
-  files inside it.
+  files inside it, or (d) the skills repo clone `C:\MyFiles\Git\Visual-Studio-Copilot-Skills\`,
+  only for the installed-skill update check in Workflow 0 (`git fetch`, `git show`, and running
+  its `Install-Skills.ps1` after the user agrees) — never to edit files inside it.
 - If a step would require touching a path outside this scope, stop and ask the user first
   instead of proceeding.
 
