@@ -1,6 +1,6 @@
 # Visual Studio Copilot Skills
 
-Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
+Personal GitHub Copilot Agent Skills for Visual Studio:
 
 - **Project memory** (`project-memory-management-graph`, and the deprecated `project-memory-management`):
   persistent, low-token project memory across sessions, with an optional Roslyn-based code knowledge
@@ -9,6 +9,9 @@ Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
   `agent-orchestrator`, `vs-chat-history`): drive and read other Windows applications and the Visual
   Studio debugger, supervise a Copilot chat running in another Visual Studio window, and search the
   local Copilot chat history.
+
+- **Optional alerts** (`read-aloud`, `push-notifications`): current-chat speech and generic-only
+  phone notifications, enabled independently and delivered only when the handoff is ready.
 
 ## What's in this repo
 
@@ -21,8 +24,9 @@ Personal GitHub Copilot Agent Skills for Visual Studio. Two families:
 | `ui-navigation-orchestrator/` | Experimental, still-maturing orchestration layer that composes `ui-interaction` + `vs-debug` to navigate a target app's UI, maintaining a lightweight per-target-app navigation-tree cache. Replaces the retired `ui-debug-map` skill. |
 | `agent-orchestrator/` | Drives and supervises a Copilot chat agent running in a *different* Visual Studio window via AgentDebugToolkit's UIA CLI — attach, assign tasks, poll state, detect/answer prompts, run the Decomposition → implement → Audit → review → approve → commit loop. Ships helper scripts in `scripts/`: `Send-CopilotPrompt`, two chat watchers (`Watch-CopilotChatV2`, the light default, and `Watch-CopilotChatV1`, the full-tree one), `Select-ChoicePromptOption`, `Read-CopilotReply`, `Invoke-CopilotReview` and others, with manual test cases in `scripts/tests/`. |
 | `vs-chat-history/` | Searches and reads the Visual Studio Copilot Chat history stored on this machine through the `chathistory` CLI of [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit): word search, session lists and filters, capped excerpts of turns and checkpoints, counts, and (only on request) rename and undo. Read-only except rename and undo-rename; covers `session-store.db` only; chat text is treated as sensitive. |
-| `read-aloud/` | Optional text-to-speech for the current chat: say "enable tts" or "start tts" and Copilot speaks a short summary of each reply with the Windows default voice until you say "disable tts" or "stop tts". A separate auto tts mode (`enable auto tts` or `start auto tts`; off: `disable auto tts` or `stop auto tts`) speaks a one-sentence completion summary only when Visual Studio is not the foreground window as the reply finishes; plain tts wins if both are on. Works in any project (no Bootstrap needed). Ships `scripts/Speak-Text.ps1`, `scripts/Speak-IfAway.ps1` (the one command auto tts runs after every reply), `scripts/Test-HostVsActive.ps1` (the read-only foreground check it calls) and `scripts/AudioDucker.cs`; optionally lowers other applications' audio while speaking (opt-in through `%USERPROFILE%\.copilot\tts-settings.json`, `{"duck":true,"duckPercent":25}`; the C# is compiled in memory, so no build step). Has no version and is not listed in `skills-index.json`. |
+| `read-aloud/` | Optional current-chat speech: "enable tts" / "start tts" speaks short summaries with the Windows default voice; "disable tts" / "stop tts" stops it. Independent auto tts (`enable auto tts` / `start auto tts`; off: `disable auto tts` / `stop auto tts`) speaks only when the host Visual Studio is inactive; plain tts wins if both are on. Finish preparation, send any qualifying enabled push, then speak and immediately show the ready question/reply. Works without Bootstrap. Ships `scripts/Speak-Text.ps1`, `scripts/Speak-IfAway.ps1`, `scripts/Test-HostVsActive.ps1` and `scripts/AudioDucker.cs`; optional audio ducking uses `%USERPROFILE%\.copilot\tts-settings.json` (`{"duck":true,"duckPercent":25}`), compiled in memory with no build step. Unversioned and not in `skills-index.json`. |
 | `install-skills/` | Lets Copilot install| `install-skills/` | Lets Copilot install or update all the skills in this repo for you ("install skills from `<repo url>`", "check the repo and update all the skills"): `Install-Skills.ps1 -Check -Remote`, then `-Remote -Force` (and `-Prune` only after asking you). Installed by `Install-Skills.ps1` like the others. |
+| `push-notifications/` | Optional Pushbullet alerts: "start push notifications" / "enable push notifications" turn on current-chat Completed/Question/Blocker alerts; "stop push notifications" / "disable push notifications" turn them off. Stable titles support MacroDroid; bodies contain only an approved repository name and fixed generic text. Missing credentials leave pushes off with setup guidance and require a fresh enable/start command afterward. |
 | `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. Also records this clone's path in `%USERPROFILE%\.copilot\skills-source.json` and clones, updates and builds the companion toolkits under `%USERPROFILE%\.copilot\toolkits\` (see "Toolkits" below). |
 | `skills-index.json` | Generated, about 2 KB: each skill's current `version` and a one-line `whatsNew` (taken from its changelog). The skills' first-use update check reads this instead of the whole `SKILL.md` (up to 113 KB). Never edit it by hand. `install-skills` has no version and is not listed. |
 | `scripts/Update-SkillsIndex.ps1` | Regenerates `skills-index.json` from the `SKILL.md` files (no AI, no commit message). `-Check` only compares and exits 1 if the index is out of date; `-Stage` also runs `git add`. `Install-Skills.ps1 -Check` prints the result as an `INDEX:` line. |
@@ -152,16 +156,44 @@ for UI navigation/mapping tasks and replaces the retired `ui-debug-map` skill; `
 composes them to drive a Copilot chat session in another VS window. Each has its own
 `CURRENT_SKILL_VERSION` and changelog (see each `SKILL.md`).
 
-**Update check at first use:** every skill except `install-skills` (which always checks GitHub itself)
-checks once per chat session, the first time it is used, whether a newer version exists: it runs
+**Update check at first use:** skills with a Step 0 update check run it once per chat session,
+the first time they are used, to check whether a newer version exists: the check runs
 `git fetch` on the local clone, compares its own `CURRENT_SKILL_VERSION` with its entry in the
 clone's and the GitHub upstream's `skills-index.json` (a 2 KB read; it falls back to reading just the
 version line of `SKILL.md` if there is no index), and, if one is newer, tells you what's new and asks
 whether to run `Install-Skills.ps1 -Remote -Force`. It never updates without asking, and it is not
-periodic. The memory skills also keep their separate per-project marker check. The skills that use a
+periodic. `install-skills` checks GitHub on request; `read-aloud` and `push-notifications` have no
+Step 0 version check. The memory skills also keep their separate per-project marker check. Skills that use a
 toolkit run a second, read-only check in the same step (`Install-Skills.ps1 -Check -Remote
 -MaxAgeHours 6`, filtered to their own `TOOLKIT:` line), also when the skill version matches: a missing,
 unbuilt or outdated toolkit is reported and the skill asks before running the installer.
+
+## Phone notifications
+
+After installing the skills, say **enable push notifications** or **start push notifications**.
+If the credential XML is missing, notifications remain off and Copilot gives brief setup guidance.
+The sender and setup helper are installed with the skill; no source checkout is needed.
+In your own PowerShell window, run:
+
+```powershell
+& "$env:USERPROFILE\.copilot\skills\push-notifications\scripts\Initialize-Pushbullet.ps1"
+```
+
+Paste a Pushbullet access token only at the masked prompt, never into chat. The script creates
+Windows-user-encrypted XML and places a setup-helper copy beside it under `%USERPROFILE%\.copilot\`.
+The real XML stays outside Git and the installed skill tree; only scripts are version-controlled.
+Each new machine/user must create its own XML. After setup, issue the enable/start command again;
+creating the file does not enable notifications automatically.
+The original `scripts\agent` entry points remain compatible forwarders for manual repo use.
+
+Titles stay `Copilot - Completed`, `Copilot - Question` and `Copilot - Blocker` for MacroDroid.
+Bodies contain an approved non-sensitive repository label and fixed generic status text, not code,
+logs, chat excerpts or secrets. Pushbullet may put all three in one Android category. Phone-side
+automation is user-configured; incoming phone replies are not connected to Copilot.
+
+Finish preparation first, then send the qualifying push, perform active TTS, and immediately show
+the question/final reply. Push and TTS remain independent opt-in modes. Stop pushes with
+**disable push notifications** or **stop push notifications**.
 
 ## Toolkits
 

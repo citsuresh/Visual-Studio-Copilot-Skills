@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 20`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 21`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -178,6 +178,8 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     Needs the `Install-Skills.ps1` from the same change; no other step changed.
   - v20 - Documents script-blocked orchestration and caller-requested focus handback through
     ui-interaction, without bypassing policy or assuming automatic host discovery exists.
+  - v21 - Coordinates ready user handoffs: finish verification and focus/cursor cleanup, then
+    optional push, optional TTS and the immediately available question or final reply.
 
 # Agent Orchestrator
 
@@ -308,6 +310,21 @@ sessions reuse it instead of re-deriving it.
 - A Stop hook (if the user has one configured for a chime) fires at the end of every turn, so the
   chime can also play when a turn ends while background work is still pending (for example a
   background watcher). A chime is not proof that the whole task is finished.
+
+## User handoff alerts
+
+When independently enabled, follow `push-notifications` and `read-aloud` for user-facing alerts;
+do not enable either mode just because orchestration starts. A watcher reporting Idle, Pending
+or a footer is a cue to read and verify, not proof that a deliverable is complete. Do not send
+completion alerts for individual polls, watcher launches or unfinished implementation tranches.
+
+Before a user handoff, finish reading the reply and any necessary verification, prepare the
+question/options or final response, return requested host focus and stop the session indicator.
+Only then send the qualifying generic push, wait, perform the active TTS announcement, wait,
+and immediately open the question or publish the ready reply. No preparation may intervene.
+If the supervisor can answer the target agent's question within the user's authorization, do
+not alert the user unnecessarily. Use this host chat's approved repository label, not the target
+repository's name, and never send target chat text, code or diagnostics to the push service.
 
 ## Step 0: Version Check
 

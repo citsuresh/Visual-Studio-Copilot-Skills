@@ -10,15 +10,16 @@ separate auto tts mode below. This applies to the current chat only, never to la
 
 ## Turning it on and off
 
-- "enable tts" / "start tts": from now on, after each reply, speak a summary (below). Say "TTS on" once
+- "enable tts" / "start tts": from now on, when each reply is ready, speak a summary (below). Say "TTS on" once
   in your reply; that reply is spoken too.
 - "disable tts" / "stop tts": stop speaking. Say "TTS off" once. Do not speak that reply.
 
 ## Speaking
 
-After each reply, run the script with a spoken summary of 1 to 3 sentences (no code, paths, tables or
-long output; write numbers and symbols the way you would say them). Blocking questions use the
-earlier announcement timing described below:
+Finish preparing the reply first, then run the script with a spoken summary of 1 to 3 sentences
+(no code, paths, tables or long output; write numbers and symbols the way you would say them).
+Publish the reply immediately after speech finishes. Blocking questions follow the same ready
+handoff rule below; do not announce a question while still preparing it:
 
 ```powershell
 & "$env:USERPROFILE\.copilot\skills\read-aloud\scripts\Speak-Text.ps1" -Text "<summary>"
@@ -33,15 +34,33 @@ earlier announcement timing described below:
   silent.
 - Wait for it to finish; do not run two at once.
 
+## Ready handoff order (both modes)
+
+1. Finish all preparation and verification needed for the handoff, including reading required
+   background results, rendering drafts/diffs, returning requested focus and clearing UI session
+   indicators. A question and its options, or the final reply, must already be ready.
+2. If push notifications are independently enabled and this is a qualifying completion, question
+   or blocker, follow `push-notifications` to send the generic repository-prefixed push first and
+   wait for the attempt to finish. Do not send an extra push merely because TTS is on.
+3. Apply the active speech mode once and wait for it to finish. Normal TTS wins over auto TTS;
+   auto TTS retains its foreground check. Push mode never forces speech or bypasses `Silent`.
+4. Immediately open the prepared question or publish the ready reply. No further editing,
+   hashing, searching, testing, watcher launch or other preparation may intervene.
+
+Skip disabled modes without enabling them. Never put a push or speech announcement into a
+preparatory command, announce a question that is not ready to open, or claim completion while
+required work is still running. If a new user request invalidates an already-announced decision,
+explain that the alert was premature rather than implying an unanswered question exists.
+
 ## Repository identity and blocking questions (both modes)
 
 - Begin every spoken summary with the verified name of this chat's repository, so the user can
   identify the correct VS window. When supervising another repository's agent, name this chat's
   repository, not the supervised target. If no repository is known, use the verified solution or
   workspace name; never guess a name or speak a full path.
-- Before invoking a question or approval tool that blocks for user input, speak the repository
-  name and one short sentence explaining what decision is needed. Announce once per question
-  batch, not once per option. Wait for speech to finish, then open the question immediately.
+- Only once a question or approval is ready to open, finish any qualifying push first, then speak
+  the repository name and one short sentence explaining what decision is needed. Announce once
+  per question batch, not once per option. Wait for speech, then open the question immediately.
   This is an explicit exception to the end-of-reply / last-tool-call timing rule: announcing
   after the question tool returns is too late to alert someone waiting in another window.
 - Apply the active mode normally: plain TTS uses `Speak-Text.ps1` and always speaks; auto TTS
@@ -62,10 +81,11 @@ window. Off by default; current chat only.
 - The modes are independent: `disable tts` does not turn auto tts off, and `disable auto tts` does not
   turn plain tts off. If plain tts is also on, it wins: speak every reply as above and skip this call.
 
-While it is on, as the very last step of EVERY reply, including the reply that turns it on, run this one
+While it is on, once EVERY reply is ready, including the reply that turns it on, run this one
 command in the foreground and wait for it, except for the blocking-question timing above. Run it
-alone as the last tool call of a normal reply, after all other tool calls have finished and never in
-the same parallel batch as other calls, otherwise it can speak before the work is done. The text is
+alone as the last tool call of a normal reply, after all other tool calls and any qualifying push
+have finished and never in the same parallel batch as other calls. Publish the ready reply next;
+otherwise speech can incorrectly imply that unfinished work is done. The text is
 a one-sentence completion summary prefixed by the repository name, with the same
 rules as Speaking (no code, paths or tables; never set a voice):
 

@@ -194,3 +194,39 @@ the file now uses tabs.
 
 **Not tested:** `NoVoice` with ducking on (the duck call comes after the voice check, by reading); PowerShell 7;
 exclusive-mode audio apps; a real chat triggering the skill from "enable tts".
+
+## 2026-11-18 - Independent generic-only pushes and ready user handoffs
+
+**Decision:** Push notifications are a separate current-chat opt-in skill, independent of both
+speech modes. Completed/Question/Blocker titles stay fixed for MacroDroid; bodies contain only
+fixed generic text and an explicitly approved non-sensitive repository label. Required work and
+question preparation finish before the qualifying push, active TTS and immediate user handoff.
+The graph skill's generated pointer delegates timing to read-aloud rather than duplicating it.
+
+**Rationale:** An alert during preparation can summon the user to a nonexistent question.
+Pushbullet self-pushes were observed sharing the Android category `Me`, so stable titles support
+the user's phone-side rules without claiming separate Android categories. No task details are
+sent to the external service.
+
+**Implementation:** Reuse the canonical sender/setup scripts in `scripts/agent/` through the
+installer's `skills-source.json`, not duplicate implementations in skill folders. Credential XML
+stays outside Git/the installed skill tree, Windows-user encrypted. A setup-helper copy sits
+beside it. Missing XML leaves pushes disabled with brief masked-prompt instructions and an
+explicit request to issue start/enable again; setup never silently enables notifications.
+
+**Alternatives rejected:** Coupling push enablement to TTS, arbitrary message summaries,
+committing even encrypted credentials, and sharing one encrypted XML across machines. Incoming
+phone replies require a separate receiver and are not implemented by this one-way sender.
+
+## 2026-11-18 - Bundle notification runtime with the installed skill
+
+**Decision:** Reverse the source-checkout dependency in the preceding entry. The canonical
+sender and standalone setup helper now live in `push-notifications/scripts/`, copied by the
+existing installer without installer changes. Old `scripts/agent/` entry points forward with
+the same named parameters. The credential location and nearby standalone setup copy stay unchanged.
+
+**Rationale:** An installed skill must contain its runtime helpers and work without the source
+checkout. Forwarders preserve manual calls without maintaining duplicate implementations.
+Offline privacy/setup tests target the bundled setup implementation and exercise the sender
+through the compatibility entry point. Installation still requires hash verification and a
+separate live dry run; passing mocked transport tests does not establish phone delivery.

@@ -2,16 +2,20 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 20,
-      "whatsNew": "Documents script-blocked orchestration and caller-requested focus handback through ui-interaction, without bypassing policy or assuming automatic host discovery exists."
+      "version": 21,
+      "whatsNew": "Coordinates ready user handoffs: finish verification and focus/cursor cleanup, then optional push, optional TTS and the immediately available question or final reply."
     },
     "project-memory-management": {
       "version": 3,
       "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json instead of a fixed C:\\MyFiles\\Git path."
     },
     "project-memory-management-graph": {
-      "version": 27,
-      "whatsNew": "The read-aloud (TTS) rules moved into their own small skill, read-aloud, which owns Speak-Text.ps1 (now with optional ducking of other applications' audio) and is triggered by the phrases \"enable tts\" / \"start tts\" in any project,..."
+      "version": 28,
+      "whatsNew": "Generated read-aloud pointers delegate ready-handoff timing to that skill instead of prescribing speech after replies; enabled push precedes enabled TTS and the ready handoff."
+    },
+    "push-notifications": {
+      "version": 2,
+      "whatsNew": "Bundle sender and setup scripts with the installed skill, removing the source-checkout dependency while keeping credential location, privacy rules and ready-handoff timing unchanged."
     },
     "ui-interaction": {
       "version": 21,

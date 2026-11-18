@@ -25,7 +25,7 @@ itself gains/changes a workflow step (not just when GraphTools or project code c
 previously-set-up project can detect it's running against stale instructions and offer to
 re-sync — without the user having to remember or manually redo anything per project.
 
-- `CURRENT_SKILL_VERSION = 27`. Bump this integer whenever an edit to this SKILL.md file changes
+- `CURRENT_SKILL_VERSION = 28`. Bump this integer whenever an edit to this SKILL.md file changes
   what Initialize, Bootstrap, End Session, or Begin Session actually *do* in a way that a
   project set up under the old version would benefit from or require re-running one of them to
   pick up (e.g.: a new step is added/removed from Bootstrap, Initialize's generated prompt file
@@ -332,6 +332,9 @@ re-sync — without the user having to remember or manually redo anything per pr
     v25 and v26 keep working until the project is re-bootstrapped. Projects bootstrapped at v26 are
     flagged stale; re-run Bootstrap to pick up the pointer bullet. Not yet validated live in
     Copilot/Visual Studio.
+  - v28 - Generated read-aloud pointers delegate ready-handoff timing to that skill instead of
+    prescribing speech after replies; enabled push precedes enabled TTS and the ready handoff.
+    Existing projects can rerun Bootstrap to replace the older pointer wording.
 
 **Before finishing any edit to this file that changes what a workflow does: did you bump
 `CURRENT_SKILL_VERSION` and add a changelog entry above? If unsure, re-read the criteria above
@@ -1195,8 +1198,9 @@ other steps are unaffected.
       `read-aloud` skill owns the script, the spoken-summary rules and the voice handling (the
       system default voice configured in Windows; this skill never sets, selects or prefers one):
       - Read-aloud (TTS), off by default: when the user says "enable tts" or "start tts", invoke the
-        `read-aloud` skill and follow it, speaking after each reply, until the user says "disable
-        tts" or "stop tts". This mode applies to the current chat only.
+        `read-aloud` skill and follow its ready-handoff timing rules until the user says "disable
+        tts" or "stop tts". Push notifications remain a separate opt-in mode. These modes apply
+        to the current chat only.
     - Verify with a command (for example `Select-String`) that the file has exactly one line
       starting with `- Read-aloud (TTS)`, that it names the `read-aloud` skill, and that it contains
       no path and no voice name; quote the result in the report.

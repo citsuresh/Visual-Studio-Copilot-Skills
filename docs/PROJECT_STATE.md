@@ -4,18 +4,118 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
-2026-11-18: Begin Session and user-approved Bootstrap synced this repo's project memory from
-graph skill v25 to v27. The generated instructions now use the installed GraphTools wrapper
-under `%USERPROFILE%\.copilot\toolkits\GraphTools` and delegate TTS to `read-aloud`.
-Reviewed real-world UI/debugger feedback and shipped source-verified skill corrections. Only
-AgentDebugToolkit Phase 1a (read-only state inspection) is approved and delegated to the separate
-VS instance; its completion/audit report is pending. No toolkit commit, push or installation is
-authorized. Installed skills report up to date; toolkits were unchanged by the latest install.
-This repo remains docs-only, with an empty graph registry and no Key Flows file. The graph
-viewer matches the installed skill's copy. One reusable script is indexed.
+2026-11-18 closeout (supersedes historical pending statuses below): user explicitly accepted
+the intermittent desktop-test limitation and authorized toolkit commit/push/install. Published
+Batch B `ac3fd7b` and C `68bbd1c`; exact remote HEAD and installed clone/executable build identity
+are independently verified as `68bbd1c27852c6ea403cc500ded77a932cfa0b6d`, clean-source build.
+Installer rebuilt all four tools with 0 warnings/errors; final `RESULT: UpToDate`. Protected
+pre-existing toolkit files remain uncommitted and unchanged. No portable release or MCP restart
+was performed. New capabilities are present in installed UI/debugger `info` output.
+
+Notification v2 packaging draft was shown and explicitly approved, then applied to source:
+canonical unchanged sender/setup now ship under `push-notifications/scripts/`; old paths forward.
+Approved skill/runtime hashes match; forwarders differ from drafts only by the existing EOF
+newline. Offline compatibility-sender/privacy and bundled setup fixtures passed; setup forwarder
+WhatIf passed. After separate explicit approval, v2 was installed and all three installed-file
+hashes verified; post-check `RESULT: UpToDate` (`-SkipToolkits`). Installed sender offline checks
+and setup WhatIf passed without reading real credentials. Actual XML stays unchanged outside Git.
+The old current-chat flow is OFF; installed v2 alerts are ON for this chat under explicit user
+consent. Auto TTS remains independently ON. The normal-title Question dry run used only the
+installed sender; the server accepted it and the user confirmed phone delivery and correct
+MacroDroid routing. The user then explicitly approved commit/push of the reviewed 17-file skills
+batch; its final revision belongs in Git history rather than this self-referential snapshot.
+
+AgentDebugToolkit Phase 1a was published as `6587af7`; Batch A as `75e2b4d`, with its exact ten-file
+scope and remote hash independently verified. Batch A's independent full build had zero warnings/
+errors and all 388 tests passed. Batch B is implemented; its final TRX independently confirms
+106 passed / 0 failed / 0 skipped. The agent reported a successful build, without a warning count.
+Its 25 exact source files are frozen outside Git and staged under explicit user approval;
+staging is not commit approval. The primary cumulative B source audit found no confirmed new
+defect. An isolated base-A checkout plus all 25 hash-verified B files independently built with
+0 errors and 6 NU1900 warnings from unavailable configured vulnerability feeds; this was not a
+warning-clean build. Its fresh-checkout missing-assets failure and successful restore/build logs
+are preserved. Independent targeted runs passed 48 + 58 distinct cases, verified to match all
+106 original case names exactly; the first selector omitted debugger classes named differently
+from their source filename. No cases were repeated to hide a failure. Publisher syntax passed.
+All five protected baseline hashes were independently unchanged before the C handoff.
+
+Batch C Phase 3 bounded inspection is implemented in 14 unstaged files; its actual final reply
+and 86-pass/0-failure/0-skip TRX were independently verified. Phase 4 structured paged UIA readers
+is implemented; the actual final reply and 174 distinct passing TRX cases were independently
+verified, including all 86 selected Phase 3 cases. CLI/MCP now have `read-rows` and
+`read-tree-items`; successful live provider integration remains untested. Phase 5 verified
+selection has reported implementation/build completion. Its original combined run was
+267 passed / 33 failed; a corrected fake-resolution counter recheck passed the entire 58-case
+selection-engine class. The primary independently verified 242 unaffected passes + those 58
+corrected cases cover exactly the original 300 names, NOT one clean combined run. Failures stay
+preserved. The 26-file cumulative C source snapshot is reviewed with no confirmed new production
+defect. The actual `msg-provider-fixtures` reply and its new six-method WPF integration test
+file were reviewed; its reported build succeeded, but tests were deliberately not run. Review
+caught an incorrect tree-offset expectation before execution and a minor CLI budget-scope doc
+ambiguity. The actual `msg-provider-corrections` completion and exact corrected lines are verified:
+tree index 1 must be child B with its exact ID; grid selection must contain one item; docs allow
+budgets on the other supported verbs. No assertions were weakened. Independent final full-solution
+CLI build passed with 0 warnings / 0 errors. The host VS build tool could not build the external
+project because it lacks an active configuration here; CLI validation succeeded instead. Source
+hash comparison shows only the expected new test and contract-doc changes since the C audit;
+the 124-file final baseline is saved. Frozen B index hash and its 25-path scope are verified.
+The authorized final full suite ran with the desktop idle: 764 tests, 762 passed, 2 failed, 0 skipped.
+Five of six new provider-fixture tests passed. The bounded inspect/text fixture failed because its
+maxNodes=6 budget stops before the first TextBlock; this is a test expectation defect, not evidence
+that bounded traversal returned a wrong value. An existing minimized coordinate double-click case
+also failed while click and right-click variants passed; this needs a focused diagnosis before any
+claim of full regression success. Full log is preserved externally. No retry or assertion weakening
+was performed. No WinForms/x86/hardware or real publication claim is established. The B staged
+fingerprint must remain unchanged, and C must remain unstaged. No commit/push/publication/toolkit
+installation, production apps/debugger/hardware actions. The toolkit agent then fixed both failures in test scope: the bounded fixture uses maxNodes=8
+so its first text node is reachable while the budget assertion remains; the minimized pointer
+fixture waits for the native IsIconic state before invoking restore/double-click. Focused evidence
+is 7 passed / 0 failed / 0 skipped and the covering test-project build succeeded. No production
+code changed. The full-suite rerun cleared both original failures but reported four focus-sensitive failures
+(760 passed / 4 failed): two window-input and two scroll cases returned foreground-activation-failed.
+The agent suspected desktop foreground contention: fixtures use ShowActivated=false
+and depend on SetForegroundWindow; the root cause is not proven. A focused run passed send-keys,
+paste-text, vertical scroll and horizontal-left; horizontal-right delivered the CLI success response
+but did not produce the expected fixture message. No reproducible production regression or contract-
+correct fix was established, so no files changed in that diagnosis. Evidence is preserved in the
+focused TRX and both full-suite logs. Do not claim a clean full suite or publish until the desktop
+focus issue and horizontal-right behavior are separately resolved or explicitly accepted.
+At the user's request, a single additional focused invocation passed all five affected cases
+(send-keys, paste-text, vertical scroll, horizontal-left/right): 5 passed / 0 failed / 0 skipped.
+The primary verified all five named TRX results and counters; log/TRX are preserved externally
+as `focus-five-user-requested-once`. No source changes or repeated attempts accompanied that run.
+This verifies this invocation only, not a clean full suite or resolution of intermittent failures.
+Closeout verification: final solution build passed again with 0 warnings/errors. Frozen B index
+still matches its approved fingerprint. Hash comparison against the pre-validation baseline
+shows only the reviewed two test edits and two generated ignored TRX files; protected files
+are unchanged. User authorized toolkit commit/push/install once changes are good; accepting
+the remaining intermittent full-suite limitation versus further diagnosis is pending.
+Notification packaging v2 is prepared only in an external draft: installed-relative bundled
+sender/setup, unchanged runtime implementations, and compatibility forwarders for old paths.
+Unified skill diff was shown; draft offline privacy/setup checks and PowerShell parsing passed.
+Source/installed skill remain v1 pending explicit apply approval; install and live dry run follow.
+Earlier watcher/activation failures did not establish that the agent stopped; host focus was
+returned and the cursor indicator cleared after the successful handoff.
+
+
+
+This repo remains docs-only. Its project marker is v27; applying source skill v28 does not itself
+rerun Bootstrap. Five reusable scripts are indexed, including the notification helpers and a
+read-only exact TRX coverage comparator saved from this verification.
 
 ## Recently changed
 
+- Pending commit: four notification/handoff skills, generated index, script catalog, README,
+  code summary/design notes, credential ignore rule and the three notification helper/test scripts.
+- Added `scripts/agent/Compare-TrxCoverage.ps1`: read-only reference-versus-combined-run coverage
+  verification, rejecting duplicates, missing/extra cases and non-passing/incomplete runs.
+- Live Pushbullet tests reached the phone; the user confirmed MacroDroid routing works with the
+  fixed titles. Current sender prefixes approved repository names without accepting arbitrary
+  message bodies. Offline tests cover payload privacy and encrypted first-machine setup using
+	disposable dummy credentials, not the real token. The authorized nearby-helper copy is now
+  hash-verified. All three live-sender `-WhatIf` previews passed with no network sends or token
+  reads; interactive enable/stop and actual-phone handoff tests remain pending. The nine approved
+  draft/diff artifacts were cleaned up after exact-match verification.
 - Bootstrap: `.github/copilot-instructions.md` and this file.
 - Committed/pushed `99b9173`: `ui-interaction` v21, `vs-debug` v10,
   `agent-orchestrator` v20 and `skills-index.json`. Installed copies were hash-verified.
@@ -34,6 +134,12 @@ In this repo only `.github/copilot-instructions.md` (Bootstrap-generated) holds 
 
 ## Open tasks/bugs
 
+- Notification v2 packaging, installed hash/offline checks and the user-confirmed phone/routing
+	dry run are complete. The reviewed skills batch has explicit commit/push approval.
+  The old flow is disabled and the installed skill enabled for this chat only. Enable/stop
+  command/timing branches remain partly untested. Missing-XML skill guidance
+  has been reviewed but not exercised interactively; the real credential was never moved/deleted.
+  New skill discovery may require a new chat. No incoming-phone-reply bridge is implemented.
 - TTS pre-question timing: user confirmed the repo-labelled auto-TTS announcement finished
   before the question card while this VS was inactive. Regular TTS, active-window silence,
   both-mode precedence and disabled-mode scenarios remain untested for this change.
