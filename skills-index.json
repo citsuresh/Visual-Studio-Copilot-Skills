@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 21,
-      "whatsNew": "Coordinates ready user handoffs: finish verification and focus/cursor cleanup, then optional push, optional TTS and the immediately available question or final reply."
+      "version": 22,
+      "whatsNew": "Reuses exact-binary capability checks and explicit restore guidance, bounds raw UIA fallbacks, and distinguishes verified UI selection from a verified submitted card answer."
     },
     "project-memory-management": {
       "version": 3,
@@ -18,8 +18,8 @@
       "whatsNew": "Default the encrypted XML beside the installed scripts and protect its filename from installer copying/pruning; existing credentials require an explicitly approved local migration."
     },
     "ui-interaction": {
-      "version": 21,
-      "whatsNew": "Adds state-first toggle handling, bounded inspection guidance, WinForms tree/tab and minimized-window recovery, explicit portable-package selection, and a script-free focus handback path."
+      "version": 22,
+      "whatsNew": "Gates new workflows on executable identity/capabilities and documents bounded inspection, paged UIA readers, verified state/selection changes and explicit minimized-window restoration."
     },
     "ui-navigation-orchestrator": {
       "version": 8,
@@ -30,8 +30,8 @@
       "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and VsChatHistoryToolkit through %USERPROFILE%\\.copilot\\toolkits\\VsChatHistoryToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit..."
     },
     "vs-debug": {
-      "version": 10,
-      "whatsNew": "Corrects CLI verb names and documents exception inspection, wait limits, portable packages, and expression-evaluation caveats."
+      "version": 11,
+      "whatsNew": "Documents executable capability checks, static help, explicit VS-instance targeting, optional break context and seconds-based long waits without changing evaluation permissions."
     }
   }
 }

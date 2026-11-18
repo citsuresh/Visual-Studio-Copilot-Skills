@@ -253,3 +253,25 @@ The user's missing-XML start command kept pushes disabled and returned setup gui
 legacy fallback. After a separately authorized same-account credential copy and fresh enable
 command, the user confirmed receipt of the requested [TEST] notification. That confirms phone
 delivery, not normal-title MacroDroid routing for v3.
+
+## 2026-11-19 - Gate skill workflows on the exact executable, not checkout versions
+
+**Decision:** UI v22, debugger v11 and orchestrator v22 check the selected executable's `info`
+identity/capability IDs before using new features. Explicit portable packages also report their
+manifest verification status; a missing manifest is not a match. Keep CLI identity separate
+from the running MCP server's advertised schema. This does not auto-update, restart, or grant
+mutation permissions, and unknown/legacy builds use only already-verified legacy behavior.
+
+**Rationale:** An installed source clone can be current while a selected portable binary or
+running server is older. A checkout version or installer marker alone cannot establish verb
+support. Per-feature checks avoid imposing a single minimum version on unrelated workflows.
+Provider support, cooperative budgets and non-atomic observations remain explicit limitations.
+Verified UIA selection does not prove a chat app submitted that answer: preserve the existing
+click/submit/fresh-echo contract. Bundled watcher/transcript scripts are not retrofitted by docs.
+
+**Verified:** Both installed CLI identities advertise the documented capability IDs at source
+commit `68bbd1c`; static VS help confirms aliases, targeting/context options and wait metadata.
+The three applied skills hash-match their approved temporary drafts. These doc checks do not
+establish real WinForms/x86/hardware coverage; no application or debugger action was performed.
+After separate installation approval, all three installed skill hashes match source and the
+post-install check reports `RESULT: UpToDate`; toolkit executables were not rebuilt.

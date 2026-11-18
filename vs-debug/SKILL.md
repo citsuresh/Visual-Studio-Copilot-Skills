@@ -5,7 +5,7 @@ description: 'Attach the Visual Studio debugger to a running application via Age
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 10`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 11`. Compare against the source-of-truth copy at
   `<skills repo>\vs-debug\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's GitHub
   upstream, once at the start of a session.
@@ -61,6 +61,8 @@ description: 'Attach the Visual Studio debugger to a running application via Age
     `Install-Skills.ps1`). Needs the `Install-Skills.ps1` from the same change; no verb changed.
   - v10 - Corrects CLI verb names and documents exception inspection, wait limits, portable
     packages, and expression-evaluation caveats. Documentation only; no toolkit verb changed.
+  - v11 - Documents executable capability checks, static help, explicit VS-instance targeting,
+    optional break context and seconds-based long waits without changing evaluation permissions.
 
 # VS Debug
 
@@ -86,8 +88,10 @@ record of it.
 - **Explicit portable package:** if the user supplies a package location instead of the managed
   installation, use `<package>\vs\agentdebug-vs.exe` and that package's docs. Record the exact
   executable path; Step 0 checks the managed clone/build, not this separate package's capabilities.
-  Do not silently switch between them. The current CLI has no `--help`; use the documented verb
-  names below, not guessed aliases such as `get-call-stack` or `read-call-stack`.
+  Do not silently switch between them. On capable binaries, `help`, `--help`, `<verb> --help`
+  and `help --verb <verb>` return static JSON without contacting VS. Use canonical `get-callstack`;
+  `get-call-stack` is a supported alias, but `read-call-stack` is not. Verify help capability
+  before using these additions on an older package.
 - **CRITICAL environment gotcha:** clear `DOTNET_ROOT`
   (`Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue`) before invoking `agentdebug-vs.exe`
   or `dotnet build`/`restore`, same as `ui-interaction`.
@@ -146,18 +150,43 @@ attach/breakpoint/step/get-callstack call.
    - No `TOOLKIT:` line (an older installer): continue only if `agentdebug-vs.exe` exists,
      otherwise ask the user.
    Do not ask again in this session.
+8. **Exact-executable preflight, once per chosen binary.** Run `<chosen exe> info` and record
+   its actual path, architecture, embedded build facts and capabilities; UI executable identity
+   or the managed checkout's HEAD does not identify this VS binary. Null build facts are unknown.
+   For a portable package, use `info --verifyPackage`: only `matched` establishes manifest
+   consistency, not a signature/trust guarantee. Report `not-present` as unverified and ask before
+   relying on it; stop using a mismatched package. Required new capability IDs are
+   `vs.help.json.v1`, `vs.instance-targeting.v1`, `vs.break-context.v1` and
+   `vs.wait-for-break.long.v1` for the corresponding workflows below. If `info` or a needed ID is
+   unavailable, do not assume the new verb/flag exists: use verified legacy behavior or ask to
+   update the chosen installation. MCP additionally requires the running server to advertise the
+   matching tool/schema; a CLI build does not restart that server or grant mutation permissions.
 
 ## Core operations
 
-- **debugger-status** — inspect the selected VS instance's debugger mode. Pass `--solution <name>`
-  to disambiguate instances; use `attach-process` only when attachment is needed.
+- **Instance targeting applies to every targeted command below.** On capable builds, first use
+  read-only `list-instances` (no options) to identify the intended instance, then pass its verified
+  `--instancePid <VS pid>` on every call; it is not persisted. This is the Visual Studio PID,
+  not `--pid <debuggee pid>`. Optional `--solution <name>` is an additional AND constraint, not
+  a fallback. Duplicate solution names need the exact VS PID. Unqualified ordinary commands
+  retain legacy first-ROT-instance behavior, so do not use them to guess among several windows.
+  Discovery may omit busy/unregistered instances and return null fields/errors; absence does
+  not establish that VS is not running. Explicit targeting failures must not fall through to
+  another instance. Signatures below omit these common flags for brevity.
+- **debugger-status** — inspect the explicitly selected VS instance's mode; use `attach-process`
+  only when attachment is needed. With `--context true`, also observe instance, selected thread/
+  frame function, exposed `exceptionLocal`, last breakpoint, `modeAtEnd` and per-field errors.
+  `breakReason` remains `unknown`; observations are non-atomic and null fields remain unknown.
+  The root `activeDocument`/`activeLine` are last-hit-breakpoint observations, possibly historical,
+  not proof of the current stop cause or selected frame's source. Inspect context errors and
+  the call stack; neither a present nor absent `$exception` proves why execution stopped.
 - **attach-process `--pid <n>`** — attach by explicit PID rather than by name/already-debugging
-  process. Resolution is unambiguous by construction (every running `devenv.exe`, or just the one
-  matching `--solution`, is scanned for that PID in its `LocalProcesses`). Returns
+  process. Without explicit instance constraints, registered VS instances are scanned for that
+  PID in `LocalProcesses`; `--instancePid`/`--solution` restrict this search. Returns
   `{ pid, mode }`. Fails with `process-not-found` if no instance sees that PID, or
   `ambiguous-process` (with a `candidates` list of `{instance, solution}`) if more than one
-  running Visual Studio instance can see it — retry with `--solution` to disambiguate rather than
-  guessing which one.
+  instance can see it. Resolve the intended VS PID rather than guessing; explicit instance
+  discovery can also return `ambiguous-instance`, `instance-unavailable` or `devenv-not-found`.
 - **set-breakpoint / remove-breakpoint** — both take `--file <absolute path> --line <n>`.
   `list-breakpoints` enumerates existing breakpoints. Method-signature breakpoints and the alias
   `clear-breakpoint` are not implemented by the current CLI.
@@ -167,14 +196,19 @@ attach/breakpoint/step/get-callstack call.
   not it's being debugged). Same `process-not-debugged`/`ambiguous-process` failure shape as
   `attach-process`. Use this instead of waiting on a breakpoint when you need to stop the process
   *right now*, regardless of where it currently is.
-- **wait-for-break `--timeoutMs <n> [--pollMs <n>]`** — wait for any break mode, not only a
-  breakpoint hit. Units are milliseconds: `60000` is one minute; the default poll interval is
-  `250`. The CLI accepts a non-negative 32-bit integer timeout and has no 170-second cap in its
-  poll loop; the MCP `vs_wait_for_break` tool clamps waits to `120000` (two minutes). A shell or
-  tool runner can impose a separate deadline. For long tests, use bounded waits within the
-  runner's limit and continue only after an explicit `timeout`; report other failures. Never
-  resume the debuggee merely because a wait timed out. Use an asynchronous shell invocation
-  when supported so a long wait does not prevent progress reporting.
+- **wait-for-break `(--timeoutMs <n> | --timeoutSeconds <n>) [--pollMs <n>]`** — wait for any
+  break mode, not just a breakpoint. Supply exactly one timeout unit; whole seconds are 0..590.
+  Prefer `--timeoutSeconds 60` for one minute. Legacy direct-CLI milliseconds remain
+  0..2147483647; there is no 170-second poll-loop cap. Polling defaults to 250 ms.
+  Current MCP accepts 0..590000 ms or 0..590 whole seconds, rejecting out-of-range values rather
+  than clamping to the old two-minute limit. Its outer process budget is requested wait plus
+  10000 ms, at most 600000 ms. Target resolution/COM overhead and an in-flight call can exceed
+  the polling budget; neither this nor a shell runner promises a hard deadline.
+  A polling timeout reports `timeoutMs`, `pollMs` and `elapsedMs`; an outer runner timeout is
+  distinct. For longer tests, repeat bounded waits only after an explicit polling `timeout`,
+  preserving the same verified VS target; report other failures. Never resume the debuggee
+  merely because a wait timed out. Use an asynchronous shell when supported; after a break,
+  call `debugger-status --context true` and `get-callstack` on that same instance.
 - **list-threads** — enumerate the current program's threads (real OS/runtime thread ids, not
   CLI-invented handles). Requires break mode; fails `no-current-program` if nothing is being
   debugged.
@@ -206,7 +240,8 @@ attach/breakpoint/step/get-callstack call.
   right after a failed `select-frame` — re-select a known-good frame first (index 0 if managed, or
   the last index that succeeded) and re-check with `get-callstack` before inspecting anything.
 - **step-into / step-over / step-out** — the exact CLI verbs; there is no generic `step` verb.
-- **get-callstack** — returns the current call stack once broken.
+- **get-callstack** — returns the current call stack once broken; capable builds also accept
+  `get-call-stack` as an alias, not a separate implementation.
 - **get-exception-info** — checks the current frame's locals for `$exception`, returning
   `exceptionType` and `message` (EnvDTE's value representation). `no-active-exception` means no
   `$exception` was found in that frame; it does not establish why the debugger originally stopped.
@@ -216,9 +251,10 @@ attach/breakpoint/step/get-callstack call.
   stack frame as EnvDTE string representations, not typed/structured values.
 - **evaluate `--expression <text> [--allowSideEffects]`** — evaluate an expression against the
   currently selected frame (or EnvDTE's own current frame if none was explicitly selected).
-  - **Strict option parsing** (2026-10-14 build onward): only `--allowSideEffects` and `--all`
-    (`remove-breakpoint`) may be given bare. Any other flag with no value, or followed by another
-    `--` flag, fails `invalid-argument` before the verb runs. Pass an empty value or one starting
+  - **Strict option parsing** (2026-10-14 build onward): `--allowSideEffects` and `--all`
+    (`remove-breakpoint`) may be bare; capable builds also accept bare `--context` for
+    `debugger-status`. Other value-taking flags with no value, or followed by another
+    `--` flag, fail `invalid-argument` before the verb runs. Pass an empty value or one starting
     with `--` as `--name=value`: e.g. `--expression=--i`, not `--expression --i`. MCP tools
     already send such values in this form.
   - **Expression read by default**: uses `GetExpression`, not `ExecuteStatement`. Implicit
@@ -258,34 +294,38 @@ attach/breakpoint/step/get-callstack call.
   you still get `com-busy-retry-exhausted` after that, the tool has already exhausted its own
   retry budget — report it as a real failure (e.g. VS genuinely wedged/mid-build) rather than
   looping more calls at it.
-- **`ambiguous-process` always includes a `candidates` list** — use it to retry with `--solution`
-  rather than guessing or picking the first candidate blindly.
+- **`ambiguous-process` includes a `candidates` list** — identify the intended VS instance and
+  use explicit `--instancePid` (and `--solution` if useful), never the first candidate blindly.
 
 ## Quick-reference workflow (PID-targeted, CLI-only)
 
 A concise end-to-end flow using only the verbs above — no UI automation needed:
 
-1. `attach-process --pid <n>` (resolve `--solution` first if `ambiguous-process` comes back).
-2. `break-all --pid <n>` (to stop immediately) — or set breakpoints and `wait-for-break` if you
-   want to stop at a specific location instead.
-3. `list-threads` → `select-thread --threadId <n>` → `select-frame --index <n>`.
-4. Inspect: `get-locals` for a quick dump, or `evaluate --expression <text>` for something
-   specific (add `--allowSideEffects true` only if you deliberately need to invoke/mutate).
-5. `continue` / `step-over`/`step-into`/`step-out` to keep going, or `detach --pid <n>` to release
-   the debugger while leaving the process running.
+1. `list-instances`, verify the intended `<VS pid>`, then
+   `attach-process --pid <debuggee pid> --instancePid <VS pid>` only if attachment is needed.
+2. `break-all --pid <debuggee pid> --instancePid <VS pid>` to stop immediately, or set
+   breakpoints and use `wait-for-break --timeoutSeconds 60 --instancePid <VS pid>`.
+3. `list-threads`, `select-thread --threadId <n>`, then `select-frame --index <n>`;
+   append the same `--instancePid <VS pid>` to each command.
+4. Inspect with `debugger-status --context true`, `get-callstack`, `get-locals`, or
+   `evaluate --expression <text>`, again targeting that VS PID on every call. Add
+   `--allowSideEffects true` only when explicitly authorized to invoke/mutate.
+5. `continue` / `step-over`/`step-into`/`step-out`, or `detach --pid <debuggee pid>` to release
+   the debugger without stopping the process; keep the same explicit VS target.
 
 ## Typical composition with ui-interaction
 
 A common flow when the goal is "tell me what code runs when I do X in the app" (i.e. the trigger
 itself is a UI action, not something you can stop/attach to directly):
 
-1. `debugger-status` (with `--solution <name>` if needed), then `attach-process --pid <n>` only
-   if the target is not already attached.
+1. Verify the VS PID using `list-instances`, then `debugger-status --instancePid <VS pid>`;
+   attach only if needed. Carry this target on every debugger command below.
 2. `set-breakpoint --file <absolute path> --line <n>` at a plausible handler (from a code search,
    or from a coarse class-name anchor another skill already has).
 3. Call into **ui-interaction** to actually perform the UI action (click/type) that should
    trigger that code path.
-4. `wait-for-break --timeoutMs 60000`, then `get-callstack` to confirm exactly what ran.
+4. `wait-for-break --timeoutSeconds 60 --instancePid <VS pid>`, then targeted
+   `debugger-status --context true` and `get-callstack` to inspect the observed break.
 5. `detach --pid <n>` (or keep stepping, if the caller wants deeper investigation).
 
 This skill never performs the UI-triggering step itself — that's `ui-interaction`'s job, kept

@@ -4,21 +4,26 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
-2026-11-19 notification v3 supersedes the notification status below: the user approved applying
-the exact shown draft, initially with NO XML migration. Source now defaults XML beside installed scripts;
-the installer excludes that filename from source copies and orphan/prune handling. All six
-applied files match the approved draft exactly. PowerShell parsing, offline privacy/setup tests
-and the new isolated fake-profile installer check/copy/prune regression test passed. The reusable
-installer test is saved and indexed. After separate approval, v3 was installed without toolkits,
-pruning or credential migration. All three installed-file hashes match source; post-check is
-`RESULT: UpToDate`. The user's start command with the new XML absent correctly left pushes OFF
-and returned setup guidance without falling back to legacy XML. The user then explicitly asked
-to copy the same-account XML beside installed scripts: the copy is hash-verified and the original
-retained unchanged. A fresh enable command turned pushes ON for this chat. The requested test
-was server-accepted and the user confirmed phone receipt; its [TEST] title does not establish
-normal-title MacroDroid routing for v3. Auto TTS remains independently ON. The user explicitly
-approved commit/push of the reviewed 14-file v3 batch, excluding credentials; publication identity
-belongs in Git history. Historical publication details follow.
+2026-11-19 skill alignment is applied to source after temporary unified-diff review and explicit
+approval: UI v22, debugger v11 and orchestrator v22. All three source hashes exactly match the
+approved drafts. Exact-executable capability gates, bounded/paged UIA reads, state/selection/
+restore safety, explicit VS targeting, break context and long waits are documented. Card-answer
+submit/echo verification remains mandatory. Bundled helpers and toolkit binaries are unchanged.
+Installed UI/VS identities are clean-source `68bbd1c`; capability IDs, static debugger help and
+draft metadata/Markdown checks passed. After separate approval, all three skills were installed
+with `-SkipToolkits`; installed hashes exactly match source and post-check is `RESULT: UpToDate`.
+No app/UI/debugger mutation or new live provider test ran. Commit/push of this seven-file
+alignment batch is explicitly approved; publication identity belongs in Git history.
+Updated skill discovery may require a new chat.
+Real WinForms/x86/hardware smoke coverage and the accepted intermittent desktop-test limitation
+remain outstanding. A rebuilt MCP executable has not restarted any running server.
+
+Notification v3 is published as `3dc61ec`, installed and hash-verified. Offline privacy/setup,
+isolated installer credential copy/prune protection, and interactive missing-XML guidance passed.
+After explicit same-account copy approval, XML is beside installed scripts; the original is
+retained unchanged and neither is in Git. Fresh enable and user-confirmed [TEST] phone delivery
+passed, not a new normal-title MacroDroid-routing confirmation. Pushes and auto TTS are ON for
+this chat only. Historical notes below are superseded by this current-focus snapshot.
 
 2026-11-18 closeout (supersedes historical pending statuses below): user explicitly accepted
 the intermittent desktop-test limitation and authorized toolkit commit/push/install. Published

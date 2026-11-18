@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 21`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 22`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -96,6 +96,8 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
   - v21 - Adds state-first toggle handling, bounded inspection guidance, WinForms tree/tab and
     minimized-window recovery, explicit portable-package selection, and a script-free focus
     handback path. Documentation only; new toolkit capabilities are not assumed.
+  - v22 - Gates new workflows on executable identity/capabilities and documents bounded inspection,
+    paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
 
 # UI Interaction
 
@@ -121,7 +123,8 @@ navigate where I meant it to"), that judgment stays with the caller. This skill 
 - **Explicit portable package:** if the user supplies a package location, use
   `<package>\ui\agentdebug-ui.exe` and that package's docs instead. Record the exact executable
   path; Step 0 checks the managed clone/build, not a separately copied package or its verb
-  capabilities. Do not silently switch installs, or infer missing verbs from a folder layout.
+  capabilities. Run the exact executable's identity/capability preflight below; do not silently
+  switch installs, or infer verbs from a folder layout.
 - **CRITICAL environment gotcha:** always run
   `Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue` before invoking `agentdebug-ui.exe`
   or `dotnet build`/`restore` in a fresh PowerShell process — VS's inherited `DOTNET_ROOT` breaks
@@ -194,6 +197,30 @@ would defeat the point of it being a cheap, once-per-session check.
    - No `TOOLKIT:` line (an older installer): continue only if `agentdebug-ui.exe` exists,
      otherwise ask the user.
    Do not ask again in this session.
+8. **Exact-executable preflight, once per chosen binary.** Run `<chosen exe> info` before using
+   the capabilities below. Keep its actual `executablePath`, `architecture`, embedded
+   `build.sourceCommit`/`sourceDirty` and `capabilities`; null build facts remain unknown. A
+   matching skill version, checkout HEAD or installer marker does not identify a copied binary.
+   For a portable package, also run `info --verifyPackage`: only `packageVerification.status`
+   `matched` establishes manifest consistency. `not-present` means unverified, not matched;
+   report it and ask before relying on an unverified package. Stop using a mismatched package.
+   This is integrity evidence, not a signature or permission to mutate a target.
+
+   | Workflow | Required capability IDs |
+   | --- | --- |
+   | State read / desired-state toggle | `ui.get-state.v1` / `ui.set-toggle-state.v1` |
+   | Explicit restore / lookup hints | `ui.activate.restore.v1` / `ui.lookup-diagnostics.v1` |
+   | Bounded inspect / text | `ui.inspect.bounded.v1` / `ui.read-visible-text.bounded.v1` |
+   | Paged rows / tree items | `ui.read-rows.uia-paged.v1` / `ui.read-tree-items.uia-paged.v1` |
+   | Verified item / row selection | `ui.select-item.verified.v1` / `ui.select-row.verified.v1` |
+   | Coordinate click / window-level keys | `ui.click.coordinates.v1` / `ui.send-keys.window.v1` |
+
+   Check only the features needed for the task. If `info` is unavailable or a required ID is
+   missing, do not issue that new verb/flag; use already-verified legacy behavior or ask to update
+   the chosen installation. An advertised feature does not guarantee provider support. For MCP,
+   check the running server's advertised tool/schema too: CLI identity or rebuilding files does
+   not update an already-running server. Restart/update only with approval; never enable mutation
+   permissions merely to obtain a tool.
 
 ## Hands-off cursor indicator (user requirement)
 
@@ -257,8 +284,9 @@ agent-orchestrator loads it from here.
   `list-windows --processName devenv` returns candidate HWNDs and PIDs. Confirm the right
   instance with the user if ambiguous; do not choose the first VS process or assume the target
   app is the chat host. Retain the verified host HWND for this run and rediscover after a restart.
-- After each requested action batch, return with `activate --hwnd <host hwnd>` and verify the
-  host's `isForeground` through `list-windows`. Stop the session indicator before waiting for
+- After each requested action batch, return with `activate --hwnd <host hwnd> --restore true`
+  when the restore capability is advertised (otherwise use verified legacy activation), and
+  verify the host's `isForeground` through `list-windows`. Stop the session indicator before waiting for
   the user. If activation is denied and scripts are blocked, report the failure and ask for
   manual activation; do not promise that `Set-AgentForegroundWindow` is available. Raising VS
   does not prove that the Chat pane itself is selected. No automatic return-to-host verb exists
@@ -297,8 +325,8 @@ agent-orchestrator loads it from here.
   `click`/`type` themselves. CLI `click`, `get-text`, `find-first`, `find-all`, and
   `wait-for-element` accept optional `--controlType <short name>`; this filters candidates before
   matching/ambiguity checks, but does not guarantee uniqueness. An unknown type returns
-  `invalid-argument`. MCP support for this new selector option is pending a rebuild; use the CLI
-  until the matching MCP tools are rebuilt. A selector matching a label does not prove that it
+  `invalid-argument`. Use this selector option through MCP only when the running tool advertises
+  it; otherwise use the verified CLI. A selector matching a label does not prove that it
   targets the intended control — confirm the matched element's `controlType`/`className` in the
   response, not just that `success: true` was returned.
 - **inspect / read** — returns the current element tree, text, and state. This is the primitive
@@ -310,10 +338,43 @@ agent-orchestrator loads it from here.
   resolve. If the window's own name matches `--nameContains`, the whole tree is retained, so use
   a more specific substring or add `--controlType`.
   Filters shrink output, not necessarily execution time: the current implementation builds the
-  tree before pruning. Start with a known control HWND and the smallest useful `--maxDepth`;
-  use `get-text` or `find-first` when they answer the question. Do not repeatedly dump a large
-  grid or increase depth indiscriminately after a slow read. There is currently no paged grid
-  reader or inspection time/node budget; report that limit rather than inventing flags.
+  observed tree before pruning. Prefer a known control HWND and the smallest useful depth.
+  On a capable binary, add `--maxNodes 500 --maxDurationMs 2000` to opt into incremental bounded
+  traversal; omitting both retains legacy eager traversal. Nodes count attempted snapshots,
+  including the root and failed reads. Time is cooperative: an in-flight UIA call can overrun
+  arbitrarily, and lookup/filtering/serialization are outside that timer. This is not a hard
+  deadline. Check `traversal.complete`, `traversal.stopReasons`, `traversal.errors` and `truncated`; successful partial
+  output or zero filtered matches does not prove absence. Narrow the root or deliberately adjust
+  budgets/depth and reread from the root; there is no resume token. Use `get-text` for a known
+  value and the paged readers below for collections, rather than repeatedly dumping a grid.
+- **read-rows / read-tree-items** — read-only, UIA-only structured pages on capable binaries:
+  `read-rows --hwnd <container hwnd> --offset 0 --limit 20 --maxColumns 16` or
+  `read-tree-items --hwnd <tree hwnd> --offset 0 --limit 50 --maxDepth 30`.
+  With a window HWND, optional `--strategy/--value` resolves one container; no grid is guessed.
+  Offset is zero-based; limit is required (1..100). Both default to finite budgets of 5000 node
+  attempts and 10000 ms, overridable with `--maxNodes`/`--maxDurationMs` (still cooperative).
+  Rows use provider-logical GridPattern coordinates when available, otherwise exposed row
+  ordinals; check `backend`/`scope`. Tree pages enumerate exposed TreeItem descendants, excluding
+  the root. Exposed offsets scan from the root; neither cheap seeking nor stable cross-page
+  identity is promised. Check `pageComplete`, `complete` and `traversal.errors`, not just `success`: exposed
+  modes always have `complete:false`, and omitted `hasMore` is unknown, not false. Follow
+  `nextOffset` only for a clean page with identical target/options; incomplete pages supply
+  `retryOffset` for rereading, not skipping missing content. Strings are capped at 512 characters.
+  Unsupported providers fail explicitly. No scrolling, expansion, realization, selection, native
+  remote-memory reads or hardware-state proof is added; WinForms/x86 support depends on UIA exposure.
+- **select-item / select-row** — explicit replacement selection, not a read or grid edit:
+  `select-item --hwnd <h> --strategy AutomationId --value <id> --mode replace`, or
+  `select-row --hwnd <container hwnd> --row <zero-based index> --rowKind logical|exposed --mode replace`.
+  An optional row selector identifies the container. Choose the row kind from observed backend
+  semantics, never interchange exposed ordinals and logical coordinates. Replacement may deselect
+  other items. Requires supported authoritative selection patterns and an enabled target; a
+  logical coordinate must establish an actual row, not merely a cell. Success requires
+  `verified:true` and a freshly checked singleton selection in the actual container. The toolkit
+  calls Select at most once, with no click/key/scroll/realize fallback. Check `actionAttempted`,
+  `partialMutationPossible` and observations on failure, then reread before deciding on another
+  action; there is no rollback or automatic retry. Budgets are cooperative and observations are
+  non-atomic. Provider internals may change focus. This verifies UI selection, not an app's
+  submitted choice or hardware state; preserve any caller-specific echo/submission verification.
 - **type / paste** — prefer clipboard-paste over synthetic typing for reliability; avoid literal
   newlines in directly-typed text (rejected by design in some verbs).
   To empty a control, use `type --clear` (MCP: `ui_type` with `clear=true`), not `--text ''`.
@@ -331,7 +392,7 @@ agent-orchestrator loads it from here.
 - **wait / poll** — for a UI state to settle, invoked asynchronously so a caller can relay
   progress without blocking.
 - **set-grid-cell** — for virtualized WPF DataGrid controls (see gotcha below).
-- **scroll-container** — CLI only until MCP is rebuilt:
+- **scroll-container** — use the CLI, or MCP only when the running tool exposes these options:
   `scroll-container --hwnd <h> --strategy <Name|AutomationId> --value <v> --verticalPercent <0..100> [--scopeHwnd <h2>]`.
   Moves one uniquely selected container to an absolute vertical percent using UIA `ScrollPattern` only;
   there is no direction or relative-step option. Check `changed`, `boundaryReached`, and
@@ -368,15 +429,18 @@ agent-orchestrator loads it from here.
   depth 8, 91 at depth 16 and 272 at depth 30. A result with only the window frame (Minimize,
   Restore, Close, empty Pane/View nodes) at the default depth does **not** show the app is
   opaque; this exact mistake produced an earlier "UIA cannot read Claude" conclusion. First
-  re-probe once, deep and filtered: `inspect --maxDepth 30 --controlType Edit` (or
-  `--nameContains <label>`, or `--controlType Button`) and `read-visible-text --maxDepth 30`.
-  Filtered output is a pruned tree, so it stays small. Toolkit builds from commit `5b5923a` on
+  re-probe once, deep and filtered: `inspect --maxDepth 30 --controlType Edit --maxNodes 2000
+  --maxDurationMs 3000` (or `--nameContains <label>`, or `--controlType Button`) and
+  `read-visible-text --maxDepth 30 --maxNodes 2000 --maxDurationMs 3000` on capable binaries.
+  Filtering prunes output after traversal; check completeness before inferring absence. On older
+  builds use a narrow root and verified legacy flags only. Toolkit builds from commit `5b5923a` on
   say so themselves: when nodes at the depth limit still have children, `inspect` and
   `read-visible-text` add `depthLimited: true`, `maxDepth`, `nodesBeyondDepth` (a lower bound when
   `nodesBeyondDepthCapped` is true) and a `hint` that suggests a deeper `--maxDepth`; treat that as
   "not opaque, look deeper". Chromium builds its accessibility tree lazily, so if a deep probe
   still shows only the frame, probe once more after a few seconds before deciding.
-- **Only if a deep filtered probe still returns just the window frame** is the app opaque.
+- **Only if a sufficiently observed deep filtered probe still returns just the window frame**
+  is the app opaque; a budget/depth cutoff or provider failure is not evidence of opacity.
   Then stop UIA probing, tell the user immediately (“UIA cannot read this app; screenshot and
   coordinates only”), and continue screenshot-first without retrying selectors. Never relaunch
   the app or enable accessibility without the user's approval, because that can expose chat
@@ -484,24 +548,40 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   underlying feature is broken.
 - **Read state before toggling.** A checkbox, connection button or other toggle is not an
   idempotent connect/disconnect command. Establish the current and desired states before a
-  click, skip it if already at the desired state, and verify afterward. Current `inspect`
-  reports supported patterns but not `ToggleState`; `isEnabled` or a disabled neighbouring
-  control is not proof of checked/connected state. If no authoritative app status or readable
-  state is available, report the uncertainty and ask rather than blindly toggling.
+  change, skip it if already correct, and verify afterward. On a capable binary use
+  `get-state --hwnd <h> --strategy AutomationId --value <id>`: `state.toggleState` is `on`, `off`
+  or `indeterminate`; `state.isSelected` is separate. Inspect nodes expose the same fields inside
+  `State`, paged elements inside `state`. Unsupported patterns have support false and no value;
+  failed probes leave facts unknown and report errors, never off/false defaults. `isEnabled` or
+  a disabled neighbouring control is not proof of checked/connected state.
+  For a requested change use `set-toggle-state` with the same selector and explicit
+  `--expectedState <freshly observed state> --desiredState <intended state>`. It rejects stale
+  preconditions/unsupported/disabled targets, toggles at most once, and verifies immediately;
+  three-state cycles may return `verify-mismatch` rather than reaching the requested state.
+  Read/action/read is not atomic; provider internals may change focus. On attempted failure,
+  inspect `mutationAttempted` and before/after observations, then reread; never blindly repeat.
+  If no authoritative state is available, ask rather than guessing. UI state alone does not
+  establish a physical connection or hardware outcome.
 - **WinForms tabs and minimized windows.** An element-not-found result does not establish that
   a control was removed: inactive tab pages can be absent from the exposed tree. Check the
-  selected tab, switch only to the intended page and reacquire selectors. Check whether the
-  window is minimized before deeper probing; ask the user to restore it if necessary. Current
-  `activate` does not explicitly restore a minimized window, although coordinate clicks and
-  window-level `send-keys` do. Do not send dummy input just to restore it or reuse old geometry.
+  selected tab, switch only to the intended page and reacquire selectors. Missing/empty lookups
+  can include `lookupDiagnostics` with observed root HWND/minimized state and conditional tab
+  hints; they do not prove which page contains the control. Read-only lookups never restore or
+  switch tabs. When interaction is intended and the capability exists, use
+  `activate --hwnd <root hwnd> --restore true`; default activation still does not request restore.
+  Check `activated` and `isMinimizedAfter` and requery the control. Windows may deny foreground
+  activation even after restoration; report failure instead of assuming success. Restoration
+  does not expose inactive pages or guarantee a selector match. On older builds ask for manual
+  restoration when needed. Never send dummy input just to restore or reuse pre-restore geometry.
 - **Native trees and lists.** `get-text` reads ValuePattern or the selected element's Name,
   not its descendants; a SysTreeView32 name such as `-` is not its item text. Try scoped
+  `read-tree-items`/`read-rows` first on capable binaries; otherwise use scoped
   `read-visible-text --maxDepth <n>` or `inspect --controlType TreeItem --maxDepth <n>`;
   descendants still depend on provider exposure and expansion. `Name` selectors are exact UIA
-  Name matches, not a search across every visible cell. There is no standalone select-row or
-  select-item verb in the current CLI. `set-grid-cell` edits a supported grid cell; it is not a
-  general WinForms row-selection operation. Report unavailable selection rather than guessing
-  a verb or silently installing a remote-memory workaround.
+  Name matches, not a search across every visible cell. The new verified selection verbs require
+  provider support and do not make a cell an actual row. `set-grid-cell` remains editing, not
+  general row selection. Report unsupported providers rather than silently installing a
+  native-message/remote-memory workaround.
 - **`read-visible-text` output is flat.** It returns one de-duplicated list of strings in visual order, with no label for which element each string came from, so it cannot tell chat messages from tool-call details or other UI text. Collapsed or expandable content (for example, folded tool-call details) is not expanded, so its inner text does not appear. Do not treat its output as a complete transcript. To check a specific element's text, use a scoped `inspect` or `get-text` on that element. When reading a long virtualized list, re-read after each `scroll-container` position, because one read covers only what is currently rendered.
 - **Virtualized WPF DataGrid controls** — use the `set-grid-cell` verb; some grids need an
   explicit `--applyStrategy`/`--applyValue` to commit the edit.
@@ -526,6 +606,8 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   (the last takes only `true` or `false` when given a value). This requires an `agentdebug-ui.exe` built from the
   2026-10-14 parsing fix; an older build still turns a bare flag into `"true"`. MCP tools already
   send empty and `--`-prefixed values in `--flag=value` form.
+  For the new identity verb only, `--verifyPackage` may also be bare; `activate --restore`
+  requires an explicit `true` or `false`.
 - *(Resolved, kept for reference of the format above)* the toolkit's `send-keys` verb used to
   auto-focus an element with a click before sending keys, which broke reliable arrow-key
   navigation on custom listbox controls exposing zero UIA children. Fixed upstream in

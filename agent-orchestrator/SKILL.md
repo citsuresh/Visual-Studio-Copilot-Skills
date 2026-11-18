@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 21`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 22`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -180,6 +180,8 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     ui-interaction, without bypassing policy or assuming automatic host discovery exists.
   - v21 - Coordinates ready user handoffs: finish verification and focus/cursor cleanup, then
     optional push, optional TTS and the immediately available question or final reply.
+  - v22 - Reuses exact-binary capability checks and explicit restore guidance, bounds raw UIA
+    fallbacks, and distinguishes verified UI selection from a verified submitted card answer.
 
 # Agent Orchestrator
 
@@ -265,7 +267,10 @@ particular, do not replace the choice script with an unverified radio click; if 
 answer cannot be verified, ask the user to answer the card. Do not promise unattended
 orchestration when policy prevents a required verification step. Return focus to the separately
 identified host window after action batches when requested; never confuse it with the target
-VS window. Stop the indicator at every handback, including errors and questions.
+VS window. Use `activate --hwnd <verified host hwnd> --restore true` only when the chosen
+binary advertises restore support, then verify foreground state; restoration can still leave
+activation denied. No automatic chat-pane or caller-window discovery is implied. Stop the
+indicator at every handback, including errors and questions.
 
 ## Learned scripts (saved by the orchestrator, curated by the user)
 
@@ -375,6 +380,12 @@ involved), so do it every time a new session starts rather than skipping it to s
    - No `TOOLKIT:` line (an older installer): continue only if `agentdebug-ui.exe` exists,
      otherwise ask the user.
    Do not ask again in this session.
+6b. Apply ui-interaction's exact-executable `info`/capability preflight to the chosen executable,
+   including any explicit `-ExePath` or portable package. Reuse an already verified result for
+   that same binary; never infer its features from the managed checkout or an installer marker.
+   Use new budget/restore/selection flags only when advertised. If debugger automation is needed,
+   also follow vs-debug's separate binary check and explicit VS-instance targeting. These checks
+   do not start UI interaction, bypass script policy or grant mutation permissions.
 7. If the repo copy's `scripts\SCRIPTS.md` exists, read it so the learned scripts are in context,
    and mention the count in a few words (e.g. "2 learned scripts indexed").
 8. Start the hands-off indicator: `AgentCursor.ps1 -Session Start` (blue dot).
@@ -572,10 +583,12 @@ returns (or times out), leaving the user with no visibility for minutes at a tim
    avoid false positives from momentary UI flicker, but a caller who's actively watching can (and
    should) verify directly instead of waiting idle.
 
-If missing entirely, recreate it: loop `inspect --hwnd <h> --maxDepth 20-25`, classify state by
-the rules above (Pending, then Working, otherwise Idle), sleep ~12-15s between polls (start short right
-after you respond, back off gradually, cap around 60s — don't leave long gaps once a response has
-just been sent, since the agent may finish or hit a prompt quickly).
+If the watcher is missing, use only a verified raw fallback: scope a probe to the needed chat
+control and, on a capable binary, use `inspect --hwnd <h> --maxDepth 25 --nameContains <label>
+--maxNodes 1000 --maxDurationMs 2000`. Treat incomplete/error/zero-partial-match results as
+unknown, not Idle or proof that no prompt is waiting. Reacquire or deliberately adjust the scope/
+budget before another read. Do not recreate an unbounded full-chat tree loop; if the required
+state/answer checks cannot be preserved, ask for help rather than promise unattended operation.
 
 **Reading the reply:** the watcher's `LastMessage` is now the last non-footer message in document
 order (it was previously often stale), but it is cut at `-MaxMessageLength`. For the full text —
@@ -588,9 +601,11 @@ It reads `inspect`, not `read-visible-text`, because `read-visible-text` cuts ea
 characters (a Test-3 trace was truncated that way). The chat list is virtualized: only rendered
 messages are returned, so scroll the chat if an older one is missing.
 
-**Transient noise:** occasional `{"success":false,"error":"unhandled-exception","message":"Element
-does not exist or it is virtualized..."}` responses from `inspect` are a transient UIA
-virtualization race — simply retry, don't treat as a real failure.
+**Unavailable/partial observations:** stale UIA elements can reflect virtualization, but do not
+classify every `unhandled-exception` as harmless noise. Reacquire the verified target and allow
+one fresh read-only probe for an unavailable element; report persistent/unexpected failures.
+Inspect traversal/state errors and completeness before using a bounded result. Unknown is not
+Idle, an empty reply, or permission to answer a different prompt.
 
 **Verify cheaply.** Most of a supervised run is checking state, so use the cheapest check that
 answers the question, in this order: (1) the `Watch-CopilotChatV1.ps1 -Hwnd <h>` result (`State`,
@@ -607,7 +622,11 @@ for a single element (`--value "Ask Copilot"` is found only while the input is e
 `--value "Allow this time"` is found only while a permission prompt is waiting) or `inspect --hwnd
 <h> --nameContains <text> --maxDepth <small>`; (4) a screenshot only when layout or an unknown
 dialog matters. Never run an unfiltered `inspect` of a chat window: its output can be very large
-and token-heavy. Before `Send-CopilotPrompt.ps1`, run `find-first --hwnd <h> --strategy Name
+and token-heavy. On capable binaries, bound raw inspection with `--maxNodes`/`--maxDurationMs`
+and preserve incomplete/unknown results rather than classifying a partial tree as complete.
+These flags do not retrofit bundled watcher/transcript scripts: their current implementations
+are unchanged; do not pass nonexistent script parameters or assume those scripts are bounded.
+Before `Send-CopilotPrompt.ps1`, run `find-first --hwnd <h> --strategy Name
 --value "Ask Copilot"` and send only if it is found: the script clears the input first, so a draft
 the user is typing there would be replaced.
 ## Step 4 — Detect and answer prompts correctly
@@ -633,15 +652,19 @@ landing while a card is still pending, `element-not-found`/`stale-context` error
    changed, and returns `CardClosed: false` with `NextQuestion` set. The last call submits, and its
    echo lists every answer. Do not reply in the chat box while a later page is still open.
 
-   **Why not the CLI or UIA select:** `SelectionItemPattern.Select()` marks the radio selected
+   **Why generic selection is not card-answer verification:** `SelectionItemPattern.Select()` marks the radio selected
    but the newer card still submitted its previous choice (asked for Option 2, card echoed
    Option 1). And `click --strategy Name` hits `ambiguous-match` (the RadioButton and its
-   TextBlock share a Name) or the ToolTip gotcha below. If the script is unavailable, the raw
-   fallback still **requires two clicks, not one**:
+   TextBlock share a Name) or the ToolTip gotcha below. New `select-item`/`select-row` verification
+   proves a UIA selection postcondition, not which answer the chat app will submit; it does not
+   replace this script's click/submit/echo contract. If the script is unavailable and unique
+   targets can be established, the raw fallback still **requires two clicks, not one**:
    ```powershell
-   & $exe click --hwnd <h> --strategy Name --value "<exact option text>"
-   & $exe click --hwnd <h> --strategy Name --value Submit
+   & $exe click --hwnd <h> --strategy Name --value "<exact option text>" --controlType RadioButton
+   & $exe click --hwnd <h> --strategy Name --value Submit --controlType Button
    ```
+   On ambiguity, narrow the target or ask the user; never pick the first match. An authoritative
+   selected-state read can help before Submit but still does not replace the submitted echo.
    Selecting the radio button by `Name` only *selects* it — the card is not dismissed/submitted
    until the separate `Submit` button (found via `--strategy Name --value Submit`) is clicked.
    Missing this second click is the single most common mistake when operating this skill.
@@ -661,10 +684,12 @@ landing while a card is still pending, `element-not-found`/`stale-context` error
    not just that *some* click succeeded. When using the raw fallback, always re-verify after the
    two-click submit:
    ```powershell
-   & $exe inspect --hwnd <h> --maxDepth 20
+   & $exe inspect --hwnd <h> --maxDepth 25 --nameContains "User entered:" --maxNodes 1000 --maxDurationMs 2000
    ```
-   Check that `Submit`/the radio group is gone (card dismissed) and, via the last chat message(s)
-   or a `"User entered: ..."`-style echo, confirm the option that actually got submitted matches
+   This example requires bounded-inspection support. A filtered echo probe alone cannot show
+   that Submit disappeared: separately check the relevant card closed or advanced. Require the
+   fresh echo for this submitted card, not an old match; partial/uncertain results are unverified.
+   Via the last chat message(s) or that fresh echo, confirm the submitted option matches
    what was intended. If it picked the wrong option, don't panic — assess whether the agent's
    resulting path is still reasonable (it may self-correct, as observed once) before deciding
    whether to redirect it with a plain-text follow-up.
@@ -770,11 +795,12 @@ Run this when the orchestration session ends, including when it ends early or fa
   checking the actual files/git diff.
 - Don't assume a previously-known hwnd/pid is still valid across a long gap — re-verify (a
   restarted Visual Studio has a new hwnd; `Send-CopilotPrompt.ps1 -TitleContains` looks it up).
-- Don't rely on `agentdebug-ui.exe activate` alone before a raw `click` or `type`: with another
-  window grabbing focus, the verb fails with `foreground-activation-failed` ("no longer
-  foreground") again and again. Bring the window forward with `Set-AgentForegroundWindow`
-  (from `AgentCursor.ps1`, which the scripts use) right before the verb; that worked where
-  `activate` did not. If it still fails, stop and tell the user rather than looping.
+- Don't assume restoring a window grants foreground focus. On capable builds use explicit
+  `activate --hwnd <verified hwnd> --restore true` when restoration is intended, then verify.
+  Activation can fail with `stale-context`; input can fail with `foreground-activation-failed`.
+  If scripts are allowed, `Set-AgentForegroundWindow` from `AgentCursor.ps1` provides the
+  existing verified fallback; if blocked or still unsuccessful, ask for manual activation.
+  Never bypass policy, send dummy keys to restore, or loop activation/input attempts.
 - Don't write a commit message with `Set-Content -Encoding utf8` in Windows PowerShell 5.1: it
   adds a byte-order mark, which ends up at the start of the commit subject. Write the file with
   `[IO.File]::WriteAllText($path, $msg, (New-Object Text.UTF8Encoding($false)))`, and pass it
