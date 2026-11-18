@@ -7,8 +7,9 @@
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$TokenPath = (Join-Path $env:USERPROFILE '.copilot\pushbullet-token.xml')
+    [string]$TokenPath = (Join-Path $env:USERPROFILE '.copilot\skills\push-notifications\scripts\pushbullet-token.xml')
 )
 
 $ErrorActionPreference = 'Stop'
+$PSBoundParameters['TokenPath'] = $TokenPath
 & (Join-Path $PSScriptRoot '..\..\push-notifications\scripts\Initialize-Pushbullet.ps1') @PSBoundParameters

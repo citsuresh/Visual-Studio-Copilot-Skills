@@ -14,8 +14,8 @@
       "whatsNew": "Generated read-aloud pointers delegate ready-handoff timing to that skill instead of prescribing speech after replies; enabled push precedes enabled TTS and the ready handoff."
     },
     "push-notifications": {
-      "version": 2,
-      "whatsNew": "Bundle sender and setup scripts with the installed skill, removing the source-checkout dependency while keeping credential location, privacy rules and ready-handoff timing unchanged."
+      "version": 3,
+      "whatsNew": "Default the encrypted XML beside the installed scripts and protect its filename from installer copying/pruning; existing credentials require an explicitly approved local migration."
     },
     "ui-interaction": {
       "version": 21,

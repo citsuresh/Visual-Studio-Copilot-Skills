@@ -180,11 +180,14 @@ In your own PowerShell window, run:
 ```
 
 Paste a Pushbullet access token only at the masked prompt, never into chat. The script creates
-Windows-user-encrypted XML and places a setup-helper copy beside it under `%USERPROFILE%\.copilot\`.
-The real XML stays outside Git and the installed skill tree; only scripts are version-controlled.
+Windows-user-encrypted `pushbullet-token.xml` beside the installed scripts. The real XML stays
+outside Git; the installer never copies that filename from source or removes it during pruning.
+Custom credential filenames should stay outside the installed skill tree. Existing v2 XML under
+`%USERPROFILE%\.copilot\` is not moved or reused automatically; migration needs explicit approval.
 Each new machine/user must create its own XML. After setup, issue the enable/start command again;
 creating the file does not enable notifications automatically.
-The original `scripts\agent` entry points remain compatible forwarders for manual repo use.
+The original `scripts\agent` entry points remain compatible forwarders for manual repo use and
+explicitly default to the installed credential location, not the source checkout.
 
 Titles stay `Copilot - Completed`, `Copilot - Question` and `Copilot - Blocker` for MacroDroid.
 Bodies contain an approved non-sensitive repository label and fixed generic status text, not code,

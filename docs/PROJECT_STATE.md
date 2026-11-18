@@ -4,6 +4,22 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
+2026-11-19 notification v3 supersedes the notification status below: the user approved applying
+the exact shown draft, initially with NO XML migration. Source now defaults XML beside installed scripts;
+the installer excludes that filename from source copies and orphan/prune handling. All six
+applied files match the approved draft exactly. PowerShell parsing, offline privacy/setup tests
+and the new isolated fake-profile installer check/copy/prune regression test passed. The reusable
+installer test is saved and indexed. After separate approval, v3 was installed without toolkits,
+pruning or credential migration. All three installed-file hashes match source; post-check is
+`RESULT: UpToDate`. The user's start command with the new XML absent correctly left pushes OFF
+and returned setup guidance without falling back to legacy XML. The user then explicitly asked
+to copy the same-account XML beside installed scripts: the copy is hash-verified and the original
+retained unchanged. A fresh enable command turned pushes ON for this chat. The requested test
+was server-accepted and the user confirmed phone receipt; its [TEST] title does not establish
+normal-title MacroDroid routing for v3. Auto TTS remains independently ON. The user explicitly
+approved commit/push of the reviewed 14-file v3 batch, excluding credentials; publication identity
+belongs in Git history. Historical publication details follow.
+
 2026-11-18 closeout (supersedes historical pending statuses below): user explicitly accepted
 the intermittent desktop-test limitation and authorized toolkit commit/push/install. Published
 Batch B `ac3fd7b` and C `68bbd1c`; exact remote HEAD and installed clone/executable build identity

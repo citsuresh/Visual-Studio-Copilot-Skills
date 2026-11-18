@@ -5,13 +5,15 @@ description: 'Optional generic-only Pushbullet phone alerts for task completion,
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 2`.
+- `CURRENT_SKILL_VERSION = 3`.
 - Changelog:
   - v1 - Opt-in current-chat Pushbullet alerts, start/enable and stop/disable aliases,
     fixed MacroDroid-compatible titles, approved repository prefixes, generic-only payloads
     and masked local credential setup with a nearby setup helper.
   - v2 - Bundle sender and setup scripts with the installed skill, removing the source-checkout
     dependency while keeping credential location, privacy rules and ready-handoff timing unchanged.
+  - v3 - Default the encrypted XML beside the installed scripts and protect its filename from
+    installer copying/pruning; existing credentials require an explicitly approved local migration.
 
 # Push Notifications
 
@@ -81,12 +83,19 @@ Example body: `Public-Repo: A Copilot task has completed.`
    sender; do not copy its logic into another script. If it is missing, report an incomplete
    installation and ask to use `install-skills` to update/install; do not silently substitute
    a source-checkout sender.
-3. Keep the encrypted XML at `%USERPROFILE%\.copilot\pushbullet-token.xml`, outside Git and the
-   installed skill tree. The setup helper, `Initialize-Pushbullet.ps1`, places a copy of itself
-   next to that XML when run. Its source is `<installed skill>\scripts\Initialize-Pushbullet.ps1`;
-   subsequent setup can use the nearby copy. Never put the real XML into the source repo, ship
-   it with the skill, or overwrite an existing credential silently. This preserves the current
-   credential location rather than moving working credentials just to add the skill.
+3. Default the encrypted XML to `<installed skill>\scripts\pushbullet-token.xml`, beside the
+   installed sender and setup helper. The runtime defaults to its own script folder; manual repo
+   forwarders explicitly use this installed location. Never put real XML in the source checkout,
+   distribute it with the skill, or overwrite an existing credential. The installer excludes
+   `pushbullet-token.xml` from copying and orphan/prune handling; Git ignores that filename too.
+   Other custom credential filenames inside the installed tree are not protected: keep custom
+   `-TokenPath` locations outside that tree. For a custom location the setup helper still puts
+   a standalone helper beside the XML. Never run setup from the source checkout without an
+   explicit credential path outside Git.
+   When upgrading from v2, ask before copying the existing `%USERPROFILE%\.copilot\pushbullet-token.xml`
+   into the new default location on this same Windows account/machine. Do not silently fall back
+   to it, read/display its contents, replace a destination, or delete the original. Installation
+   and credential migration require their own approval after the skill draft is approved.
 4. If the XML is missing, leave pushes off and give only brief guidance: create an access token
    in [Pushbullet account settings](https://www.pushbullet.com/#settings/account), then run the
    resolved setup helper in the user's own PowerShell window. Paste the raw token only at its

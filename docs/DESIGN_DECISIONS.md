@@ -230,3 +230,26 @@ checkout. Forwarders preserve manual calls without maintaining duplicate impleme
 Offline privacy/setup tests target the bundled setup implementation and exercise the sender
 through the compatibility entry point. Installation still requires hash verification and a
 separate live dry run; passing mocked transport tests does not establish phone delivery.
+
+## 2026-11-19 - Keep notification credentials beside installed scripts
+
+**Decision:** Reverse v2's preserved credential default: bundled runtime scripts now default to
+their own folder, and repo compatibility forwarders explicitly pass that installed location.
+The installer excludes the exact case-insensitive filename `pushbullet-token.xml` from both
+source copying and orphan/prune handling. It copies only enumerated non-credential files rather
+than using a recursive wildcard. Custom credential filenames belong outside the installed tree.
+
+**Rationale:** The user expects credentials near the setup scripts. Without both installer
+exclusions, an update could distribute a source credential or prune a locally created one.
+Filtering the source list alone would not protect a subsequent wildcard copy. Existing XML is
+never silently reused, moved or overwritten; any same-account migration requires separate consent.
+The user explicitly requested leaving the new location empty for the enable-command test.
+
+**Verified:** Offline privacy/setup tests and a disposable fake-profile installer test pass.
+The latter checks nested script updates, case-insensitive credential exclusion, local credential
+hash preservation, ordinary orphan pruning and a final up-to-date check. No real XML is involved.
+Separately approved installation has exact source/installed hashes and `RESULT: UpToDate`.
+The user's missing-XML start command kept pushes disabled and returned setup guidance, without
+legacy fallback. After a separately authorized same-account credential copy and fresh enable
+command, the user confirmed receipt of the requested [TEST] notification. That confirms phone
+delivery, not normal-title MacroDroid routing for v3.

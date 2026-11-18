@@ -10,7 +10,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Completed', 'Question', 'Blocker')]
     [string]$Event,
-    [string]$TokenPath = (Join-Path $env:USERPROFILE '.copilot\pushbullet-token.xml'),
+    [string]$TokenPath = (Join-Path $env:USERPROFILE '.copilot\skills\push-notifications\scripts\pushbullet-token.xml'),
     [string]$DeviceId,
     [switch]$Test,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$')]
@@ -18,4 +18,5 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSBoundParameters['TokenPath'] = $TokenPath
 & (Join-Path $PSScriptRoot '..\..\push-notifications\scripts\Send-PushbulletNotification.ps1') @PSBoundParameters

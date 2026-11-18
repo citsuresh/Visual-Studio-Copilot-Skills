@@ -12,6 +12,7 @@
     (for example a script that was removed from the repo). Without -Prune such files are only
     reported and left in place. The deletion is covered by the same per-skill confirmation as the
     copy (skipped with -Force), and only touches files inside that skill's own destination folder.
+    Local pushbullet-token.xml files are never copied from source or removed by pruning.
 
 .PARAMETER Check
     Read-only: list, per skill, which files are new or changed (and which installed files are no longer
@@ -170,7 +171,9 @@ foreach ($skill in $skillFolders) {
     Write-Host "  Source:      $($skill.FullName)"
     Write-Host "  Destination: $dest"
 
-    $srcFiles = Get-ChildItem -Path $skill.FullName -Recurse -File
+    $srcFiles = @(Get-ChildItem -Path $skill.FullName -Recurse -File | Where-Object {
+        $_.Name -ine 'pushbullet-token.xml'
+    })
     $changedFiles = @()
 
     foreach ($f in $srcFiles) {
@@ -189,7 +192,7 @@ foreach ($skill in $skillFolders) {
         $srcRel = @($srcFiles | ForEach-Object { $_.FullName.Substring($skill.FullName.Length).TrimStart('\', '/') })
         $orphanFiles = @(Get-ChildItem -Path $dest -Recurse -File | ForEach-Object {
                 $rel = $_.FullName.Substring($dest.Length).TrimStart('\', '/')
-                if ($srcRel -notcontains $rel) { $rel }
+                if ($_.Name -ine 'pushbullet-token.xml' -and $srcRel -notcontains $rel) { $rel }
             })
     }
     if ($Check) {
@@ -239,7 +242,12 @@ foreach ($skill in $skillFolders) {
     }
 
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
-    Copy-Item -Path (Join-Path $skill.FullName "*") -Destination $dest -Recurse -Force
+    foreach ($f in $srcFiles) {
+        $relPath = $f.FullName.Substring($skill.FullName.Length).TrimStart('\', '/')
+        $destFile = Join-Path $dest $relPath
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destFile) -Force | Out-Null
+        Copy-Item -LiteralPath $f.FullName -Destination $destFile -Force
+    }
 
     $destFull = [System.IO.Path]::GetFullPath($dest).TrimEnd('\') + '\'
     foreach ($rel in $orphanFiles) {

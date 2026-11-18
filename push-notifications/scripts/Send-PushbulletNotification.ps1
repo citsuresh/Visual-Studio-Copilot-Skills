@@ -9,7 +9,7 @@
 .PARAMETER Event
     Completed, Question or Blocker. Notification text is deliberately generic.
 .PARAMETER TokenPath
-    SecureString XML file created by Read-Host -AsSecureString | Export-Clixml.
+    SecureString XML file beside this script by default; never distribute it.
 .PARAMETER DeviceId
     Optional Pushbullet device identifier. Omit to notify all linked devices.
 .PARAMETER Test
@@ -26,7 +26,7 @@ param(
     [ValidateSet('Completed', 'Question', 'Blocker')]
     [string]$Event,
 
-    [string]$TokenPath = (Join-Path $env:USERPROFILE '.copilot\pushbullet-token.xml'),
+    [string]$TokenPath = (Join-Path $PSScriptRoot 'pushbullet-token.xml'),
 
     [string]$DeviceId,
 

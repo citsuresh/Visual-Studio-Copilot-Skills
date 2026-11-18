@@ -6,13 +6,13 @@
     beside the XML outside Git. Existing credentials and differing helper copies are
     never overwritten. Does not send notifications or accept a plaintext token argument.
 .PARAMETER TokenPath
-    Local XML destination. Defaults to the sender's per-user credential location.
+    Local XML destination. Defaults beside this script, matching the bundled sender.
 .EXAMPLE
     .\scripts\agent\Initialize-Pushbullet.ps1
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$TokenPath = (Join-Path $env:USERPROFILE '.copilot\pushbullet-token.xml')
+    [string]$TokenPath = (Join-Path $PSScriptRoot 'pushbullet-token.xml')
 )
 
 $ErrorActionPreference = 'Stop'
