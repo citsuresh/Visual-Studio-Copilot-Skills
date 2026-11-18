@@ -17,7 +17,8 @@ separate auto tts mode below. This applies to the current chat only, never to la
 ## Speaking
 
 After each reply, run the script with a spoken summary of 1 to 3 sentences (no code, paths, tables or
-long output; write numbers and symbols the way you would say them):
+long output; write numbers and symbols the way you would say them). Blocking questions use the
+earlier announcement timing described below:
 
 ```powershell
 & "$env:USERPROFILE\.copilot\skills\read-aloud\scripts\Speak-Text.ps1" -Text "<summary>"
@@ -32,6 +33,25 @@ long output; write numbers and symbols the way you would say them):
   silent.
 - Wait for it to finish; do not run two at once.
 
+## Repository identity and blocking questions (both modes)
+
+- Begin every spoken summary with the verified name of this chat's repository, so the user can
+  identify the correct VS window. When supervising another repository's agent, name this chat's
+  repository, not the supervised target. If no repository is known, use the verified solution or
+  workspace name; never guess a name or speak a full path.
+- Before invoking a question or approval tool that blocks for user input, speak the repository
+  name and one short sentence explaining what decision is needed. Announce once per question
+  batch, not once per option. Wait for speech to finish, then open the question immediately.
+  This is an explicit exception to the end-of-reply / last-tool-call timing rule: announcing
+  after the question tool returns is too late to alert someone waiting in another window.
+- Apply the active mode normally: plain TTS uses `Speak-Text.ps1` and always speaks; auto TTS
+  uses `Speak-IfAway.ps1` and speaks only when this chat's VS window is inactive. If both are on,
+  plain TTS wins and only one announcement is made. Neither mode is enabled by asking a question.
+- Keep the existing missing-script, NoVoice and error handling. Do not bypass auto TTS's
+  foreground check, force speech after `Silent`, or announce a question when both modes are off.
+  Do not repeat the same question announcement after the answer; speak a normal completion
+  summary only if subsequent work produces a new result or another decision is needed.
+
 ## Auto TTS (speak only when you are in another window)
 
 A separate mode from plain tts, for hearing that the agent is done only after switching to another
@@ -43,9 +63,10 @@ window. Off by default; current chat only.
   turn plain tts off. If plain tts is also on, it wins: speak every reply as above and skip this call.
 
 While it is on, as the very last step of EVERY reply, including the reply that turns it on, run this one
-command in the foreground and wait for it. Run it alone as the last tool call of the reply, after all other
-tool calls have finished and never in the same parallel batch as other calls, otherwise it can speak
-before the work is done. The text is a one-sentence completion summary, with the same
+command in the foreground and wait for it, except for the blocking-question timing above. Run it
+alone as the last tool call of a normal reply, after all other tool calls have finished and never in
+the same parallel batch as other calls, otherwise it can speak before the work is done. The text is
+a one-sentence completion summary prefixed by the repository name, with the same
 rules as Speaking (no code, paths or tables; never set a voice):
 
 ```powershell
@@ -63,7 +84,7 @@ the reply was short or the last call said Active. If the script file does not ex
 The host window is the Visual Studio running this chat, found by `Test-HostVsActive.ps1` (read-only,
 called by Speak-IfAway) through the parent processes of PowerShell. Limits: another Visual Studio window
 counts as Inactive; the agent must be a descendant of `devenv.exe`, otherwise the result is Unknown; and
-it reflects only the moment the reply finishes.
+it reflects only the moment each announcement is checked, including before a blocking question.
 
 ## Lowering other audio while speaking (optional, off by default)
 
