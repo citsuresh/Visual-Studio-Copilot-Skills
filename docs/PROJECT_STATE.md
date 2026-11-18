@@ -4,25 +4,24 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
-Making the skills portable. The three companion toolkits (GraphTools, AgentDebugToolkit,
-VsChatHistoryToolkit) are public repos with a `VERSION` and `scripts\agent\Build-Toolkit.ps1`.
-`Install-Skills.ps1` clones, fast-forwards (`-Remote`) and builds them under
-`%USERPROFILE%\.copilot\toolkits\<Name>`, prints `TOOLKIT:` lines, and writes
-`%USERPROFILE%\.copilot\skills-source.json` (`SOURCE:` in `-Check`). Flags: `-SkipToolkits`,
-`-ToolkitBaseUrl`. The skills no longer hardcode `C:\MyFiles\Git\...`; each skill that uses a toolkit
-checks it in Step 0 and asks before running the installer. Skill versions now: vs-debug 9,
-ui-interaction 20, ui-navigation-orchestrator 8, vs-chat-history 11, agent-orchestrator 19,
-project-memory-management 3, graph 26 (bootstrapped projects will look stale: the wrapper path changed).
-Parts 1-3 are committed (`de6c323`); Parts 4 (skills) and 5 (docs, secrets review) are applied and
-installed but NOT committed. This repo remains docs-only: no tracked `.sln`/`.slnx`, code graph, or Key
-Flows file.
+2026-11-18: Begin Session and user-approved Bootstrap synced this repo's project memory from
+graph skill v25 to v27. The generated instructions now use the installed GraphTools wrapper
+under `%USERPROFILE%\.copilot\toolkits\GraphTools` and delegate TTS to `read-aloud`.
+Reviewed real-world UI/debugger feedback and shipped source-verified skill corrections. Only
+AgentDebugToolkit Phase 1a (read-only state inspection) is approved and delegated to the separate
+VS instance; its completion/audit report is pending. No toolkit commit, push or installation is
+authorized. Installed skills report up to date; toolkits were unchanged by the latest install.
+This repo remains docs-only, with an empty graph registry and no Key Flows file. The graph
+viewer matches the installed skill's copy. One reusable script is indexed.
 
-## Recently changed (uncommitted)
+## Recently changed
 
-The seven skill `SKILL.md` files above plus `install-skills`, the eight `agent-orchestrator\scripts\*.ps1`
-(default exe path under the toolkits folder), `skills-index.json`, `README.md` (Prerequisites, Installing,
-new Toolkits section), the graph skill README, `tests/Install-Skills.tests.md` (I-24 to I-39),
-`docs/CODE_SUMMARY.md`, `docs/DESIGN_DECISIONS.md`, `docs/ROADMAP.md`, this file.
+- Bootstrap: `.github/copilot-instructions.md` and this file.
+- Committed/pushed `99b9173`: `ui-interaction` v21, `vs-debug` v10,
+  `agent-orchestrator` v20 and `skills-index.json`. Installed copies were hash-verified.
+- Committed/pushed `3ce128e`: `read-aloud/SKILL.md` now requires hosting-repository identity
+  and announcements before blocking questions in both speech modes. Installed copy matches
+  the approved draft/source hash; post-install check reports `RESULT: UpToDate`.
 
 ## Secrets / personal-data review (2026-11-13)
 
@@ -35,8 +34,12 @@ In this repo only `.github/copilot-instructions.md` (Bootstrap-generated) holds 
 
 ## Open tasks/bugs
 
-- Parts 4 and 5 committed and pushed (see git log).
-- Not run: I-38 (a skill's new Step 0 toolkit check in a real chat), I-39 (missing `skills-source.json`),
+- TTS pre-question timing: user confirmed the repo-labelled auto-TTS announcement finished
+  before the question card while this VS was inactive. Regular TTS, active-window silence,
+  both-mode precedence and disabled-mode scenarios remain untested for this change.
+- The graph skill's Step 0 toolkit check ran in this chat and reported `GraphTools UpToDate`;
+  repair/error branches were not exercised.
+- Not run: I-39 (missing `skills-source.json`),
   `SOURCE: Differs` / `NotRecorded`. Not observed: Defender/SmartScreen on locally built unsigned
   executables; PowerShell 7 (only 5.1 installed).
 - TTS: new `read-aloud` skill (committed, installed, hashes verified) with `Speak-Text.ps1` plus
@@ -47,16 +50,19 @@ In this repo only `.github/copilot-instructions.md` (Bootstrap-generated) holds 
   PowerShell 7, a real chat triggering the skill from "enable tts".
 - Hooks need `git config core.hooksPath .githooks` once per clone (set here); web-UI edits and
   `--no-verify` bypass them. No GitHub Action exists.
-- The `install-skills` skill itself has not been run in a real chat (only the script was tested).
+- The `install-skills` skill ran in this chat: remote check, approved install with
+  `-SkipToolkits`, installed-file hash comparison and post-install check all succeeded.
 - Not tested: `Speak-Text.ps1` on a machine with no voice (simulated only).
 - Not run live: tool permission prompts, workspace banners, the V2 Idle-to-Pending upgrade path, a card
   above a scrolled-up chat list, the `Send-CopilotPrompt.ps1` new-session path. All `AgentCursor` and
   `Compare-RepoSnapshot` cases are marked not run; `Install-Skills` I-01 to I-19 and I-24 to I-35 ran in a
   sandbox only.
 - AgentDebugToolkit repo (separate): `tools/Watch-CopilotChat.ps1` still has the old name and is not
-  synced with V1; make the MCP `ui_inspect` read-only by dropping `screenshot`; improve the list-windows
+  synced with V1; improve the list-windows
   flag error message; add a test trait for the interactive-desktop click test. It also has two
-  uncommitted graph doc files, deliberately left out.
+  uncommitted graph doc files, deliberately left out. Feedback review confirmed current MCP
+  `ui_inspect` is already read-only and has no screenshot option.
 - `docs/DESIGN_DECISIONS.md` has an unrelated pre-existing typo ("ersion" in the 2026-11-13 skills index
   entry), not fixed.
-- No code graph or Key Flows file is generated here; no build or test suite applies.
+- No code graph or Key Flows file is generated here. Documentation changes need no application
+  build; installer consistency and generated-index checks apply.
