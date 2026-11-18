@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 19`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 20`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -176,6 +176,8 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     `C:\MyFiles\Git` paths, and Step 0 gains a toolkit check as step 6a (clone, update and build through
     `Install-Skills.ps1`). The core scripts' default `-ExePath` now points into the toolkits folder.
     Needs the `Install-Skills.ps1` from the same change; no other step changed.
+  - v20 - Documents script-blocked orchestration and caller-requested focus handback through
+    ui-interaction, without bypassing policy or assuming automatic host discovery exists.
 
 # Agent Orchestrator
 
@@ -252,6 +254,16 @@ message, several matches the candidate list); `-Hwnd` wins when both are given.
 
 Prefer these over ad-hoc `agentdebug-ui.exe` calls; the raw commands below are what to fall
 back on if a script is missing or fails.
+
+**When scripts are blocked:** do not change or bypass execution policy. Use ui-interaction's
+script-free cursor-session and verified-host focus-handback guidance, with kind `Orchestrator`.
+The bundled send/watch/choice scripts are not available in that environment: use documented
+CLI primitives only where the same read-back and submission checks can be preserved. In
+particular, do not replace the choice script with an unverified radio click; if the intended
+answer cannot be verified, ask the user to answer the card. Do not promise unattended
+orchestration when policy prevents a required verification step. Return focus to the separately
+identified host window after action batches when requested; never confuse it with the target
+VS window. Stop the indicator at every handback, including errors and questions.
 
 ## Learned scripts (saved by the orchestrator, curated by the user)
 

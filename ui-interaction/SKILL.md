@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 20`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 21`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -93,6 +93,9 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     AgentDebugToolkit through `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit`, instead of fixed
     `C:\MyFiles\Git` paths, and Step 0 gains a toolkit check (clone, update and build through
     `Install-Skills.ps1`). Needs the `Install-Skills.ps1` from the same change; no verb changed.
+  - v21 - Adds state-first toggle handling, bounded inspection guidance, WinForms tree/tab and
+    minimized-window recovery, explicit portable-package selection, and a script-free focus
+    handback path. Documentation only; new toolkit capabilities are not assumed.
 
 # UI Interaction
 
@@ -115,17 +118,24 @@ navigate where I meant it to"), that judgment stays with the caller. This skill 
   `bin\Debug\net8.0-windows\`. It is built by the toolkit's `scripts\agent\Build-Toolkit.ps1`, which
   `Install-Skills.ps1` runs; if the exe is missing, use Step 0's toolkit check rather than a manual
   `dotnet build`.
+- **Explicit portable package:** if the user supplies a package location, use
+  `<package>\ui\agentdebug-ui.exe` and that package's docs instead. Record the exact executable
+  path; Step 0 checks the managed clone/build, not a separately copied package or its verb
+  capabilities. Do not silently switch installs, or infer missing verbs from a folder layout.
 - **CRITICAL environment gotcha:** always run
   `Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue` before invoking `agentdebug-ui.exe`
   or `dotnet build`/`restore` in a fresh PowerShell process — VS's inherited `DOTNET_ROOT` breaks
   both.
 - Full verb contract: `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit\docs\CLI_CONTRACT.md`. Read this if a verb
   behaves unexpectedly — do not guess at flags.
-- **Screenshots are opt-in, and cleanup is the caller's responsibility.** `inspect --screenshot
-  true` (MCP: `screenshot: true`) saves a PNG of the whole window to
+- **Screenshots are opt-in, and cleanup is the caller's responsibility.** CLI `inspect --screenshot
+  true` saves a PNG of the whole window to
   `%LOCALAPPDATA%\AgentDebugToolkit\screenshots\` and returns its path in `screenshotPath`; the
   file is not deleted automatically. The capture can include source code, chat text and other
   window contents, so pass `screenshot` only when an image is actually needed.
+  Current MCP `ui_inspect` is read-only and has no screenshot option; use the screenshot tool
+  separately when an image is needed. If image viewing fails, do not claim to have seen the
+  capture or guess coordinates from it; use readable UIA evidence or ask the user for help.
   - At the end of the task, delete only the files whose paths your own calls returned in
     `screenshotPath`, never the whole folder or files you did not create (other runs or users may
     keep screenshots on purpose).
@@ -236,6 +246,24 @@ agent-orchestrator loads it from here.
   restores the user's cursors (or the user can sign out and back in). A session flag older than
   12 hours is ignored.
 
+### Script-blocked environments and focus handback
+
+- If execution policy blocks the helper scripts, do not change or bypass that policy. Use the
+  approved executable directly: `cursor-session start --kind UiAutomation` before a multi-step
+  run and `cursor-session stop --kind UiAutomation` on completion, failure and handback. An
+  orchestrator uses `Orchestrator` instead. This session indicator is not the script's red
+  per-input wrapper; do not claim that unavailable wrapper ran.
+- When the caller requests focus handback, identify the hosting VS window before leaving it:
+  `list-windows --processName devenv` returns candidate HWNDs and PIDs. Confirm the right
+  instance with the user if ambiguous; do not choose the first VS process or assume the target
+  app is the chat host. Retain the verified host HWND for this run and rediscover after a restart.
+- After each requested action batch, return with `activate --hwnd <host hwnd>` and verify the
+  host's `isForeground` through `list-windows`. Stop the session indicator before waiting for
+  the user. If activation is denied and scripts are blocked, report the failure and ask for
+  manual activation; do not promise that `Set-AgentForegroundWindow` is available. Raising VS
+  does not prove that the Chat pane itself is selected. No automatic return-to-host verb exists
+  in the current toolkit.
+
 ## Core primitives
 
 - **list-windows / attach** — find and scope to a target window, by hwnd, pid, or title.
@@ -281,6 +309,11 @@ agent-orchestrator loads it from here.
   `invalid-argument`. Reserve unfiltered `inspect` and screenshots for cases the filters cannot
   resolve. If the window's own name matches `--nameContains`, the whole tree is retained, so use
   a more specific substring or add `--controlType`.
+  Filters shrink output, not necessarily execution time: the current implementation builds the
+  tree before pruning. Start with a known control HWND and the smallest useful `--maxDepth`;
+  use `get-text` or `find-first` when they answer the question. Do not repeatedly dump a large
+  grid or increase depth indiscriminately after a slow read. There is currently no paged grid
+  reader or inspection time/node budget; report that limit rather than inventing flags.
 - **type / paste** — prefer clipboard-paste over synthetic typing for reliability; avoid literal
   newlines in directly-typed text (rejected by design in some verbs).
   To empty a control, use `type --clear` (MCP: `ui_type` with `clear=true`), not `--text ''`.
@@ -449,6 +482,26 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   `OwnerHwnd`/`IsModal`/`IsForeground`. If a click that should trigger a dialog appears to have no
   effect, re-run `list-windows`/`attach` and check for a new `#32770` entry before concluding the
   underlying feature is broken.
+- **Read state before toggling.** A checkbox, connection button or other toggle is not an
+  idempotent connect/disconnect command. Establish the current and desired states before a
+  click, skip it if already at the desired state, and verify afterward. Current `inspect`
+  reports supported patterns but not `ToggleState`; `isEnabled` or a disabled neighbouring
+  control is not proof of checked/connected state. If no authoritative app status or readable
+  state is available, report the uncertainty and ask rather than blindly toggling.
+- **WinForms tabs and minimized windows.** An element-not-found result does not establish that
+  a control was removed: inactive tab pages can be absent from the exposed tree. Check the
+  selected tab, switch only to the intended page and reacquire selectors. Check whether the
+  window is minimized before deeper probing; ask the user to restore it if necessary. Current
+  `activate` does not explicitly restore a minimized window, although coordinate clicks and
+  window-level `send-keys` do. Do not send dummy input just to restore it or reuse old geometry.
+- **Native trees and lists.** `get-text` reads ValuePattern or the selected element's Name,
+  not its descendants; a SysTreeView32 name such as `-` is not its item text. Try scoped
+  `read-visible-text --maxDepth <n>` or `inspect --controlType TreeItem --maxDepth <n>`;
+  descendants still depend on provider exposure and expansion. `Name` selectors are exact UIA
+  Name matches, not a search across every visible cell. There is no standalone select-row or
+  select-item verb in the current CLI. `set-grid-cell` edits a supported grid cell; it is not a
+  general WinForms row-selection operation. Report unavailable selection rather than guessing
+  a verb or silently installing a remote-memory workaround.
 - **`read-visible-text` output is flat.** It returns one de-duplicated list of strings in visual order, with no label for which element each string came from, so it cannot tell chat messages from tool-call details or other UI text. Collapsed or expandable content (for example, folded tool-call details) is not expanded, so its inner text does not appear. Do not treat its output as a complete transcript. To check a specific element's text, use a scoped `inspect` or `get-text` on that element. When reading a long virtualized list, re-read after each `scroll-container` position, because one read covers only what is currently rendered.
 - **Virtualized WPF DataGrid controls** — use the `set-grid-cell` verb; some grids need an
   explicit `--applyStrategy`/`--applyValue` to commit the edit.

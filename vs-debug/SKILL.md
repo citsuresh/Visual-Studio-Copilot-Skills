@@ -5,7 +5,7 @@ description: 'Attach the Visual Studio debugger to a running application via Age
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 9`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 10`. Compare against the source-of-truth copy at
   `<skills repo>\vs-debug\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's GitHub
   upstream, once at the start of a session.
@@ -59,6 +59,8 @@ description: 'Attach the Visual Studio debugger to a running application via Age
     AgentDebugToolkit through `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit`, instead of fixed
     `C:\MyFiles\Git` paths, and Step 0 gains a toolkit check (clone, update and build through
     `Install-Skills.ps1`). Needs the `Install-Skills.ps1` from the same change; no verb changed.
+  - v10 - Corrects CLI verb names and documents exception inspection, wait limits, portable
+    packages, and expression-evaluation caveats. Documentation only; no toolkit verb changed.
 
 # VS Debug
 
@@ -81,6 +83,11 @@ record of it.
   which `Install-Skills.ps1` runs, so do not build it by hand). This is a
   separate CLI/process from `agentdebug-ui.exe` — it drives Visual Studio's debugger via EnvDTE
   COM, not the UI via UIA.
+- **Explicit portable package:** if the user supplies a package location instead of the managed
+  installation, use `<package>\vs\agentdebug-vs.exe` and that package's docs. Record the exact
+  executable path; Step 0 checks the managed clone/build, not this separate package's capabilities.
+  Do not silently switch between them. The current CLI has no `--help`; use the documented verb
+  names below, not guessed aliases such as `get-call-stack` or `read-call-stack`.
 - **CRITICAL environment gotcha:** clear `DOTNET_ROOT`
   (`Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue`) before invoking `agentdebug-vs.exe`
   or `dotnet build`/`restore`, same as `ui-interaction`.
@@ -96,7 +103,7 @@ record of it.
 ## Step 0: Version Check
 
 Run this **once**, the first time this skill is used in a session — not on every individual
-attach/breakpoint/step/read-call-stack call.
+attach/breakpoint/step/get-callstack call.
 
 1. Find the repo clone: read `skillsRepo` from `%USERPROFILE%\.copilot\skills-source.json`, which
    `Install-Skills.ps1` writes:
@@ -142,7 +149,8 @@ attach/breakpoint/step/read-call-stack call.
 
 ## Core operations
 
-- **attach** — to a running process, or the process VS is already debugging.
+- **debugger-status** — inspect the selected VS instance's debugger mode. Pass `--solution <name>`
+  to disambiguate instances; use `attach-process` only when attachment is needed.
 - **attach-process `--pid <n>`** — attach by explicit PID rather than by name/already-debugging
   process. Resolution is unambiguous by construction (every running `devenv.exe`, or just the one
   matching `--solution`, is scanned for that PID in its `LocalProcesses`). Returns
@@ -150,15 +158,23 @@ attach/breakpoint/step/read-call-stack call.
   `ambiguous-process` (with a `candidates` list of `{instance, solution}`) if more than one
   running Visual Studio instance can see it — retry with `--solution` to disambiguate rather than
   guessing which one.
-- **set-breakpoint / clear-breakpoint** — by file/line, or by method signature where supported.
+- **set-breakpoint / remove-breakpoint** — both take `--file <absolute path> --line <n>`.
+  `list-breakpoints` enumerates existing breakpoints. Method-signature breakpoints and the alias
+  `clear-breakpoint` are not implemented by the current CLI.
 - **break-all `--pid <n>`** — breaks *every* thread in the target debuggee process (not just the
   current thread), resolved via the instance's `DebuggedProcesses` (processes under an active
   debug session — distinct from `LocalProcesses`, which is every attachable process whether or
   not it's being debugged). Same `process-not-debugged`/`ambiguous-process` failure shape as
   `attach-process`. Use this instead of waiting on a breakpoint when you need to stop the process
   *right now*, regardless of where it currently is.
-- **wait-for-break** — poll asynchronously for a breakpoint to be hit; relay progress rather than
-  blocking silently, same pattern as `ui-interaction`'s `wait`.
+- **wait-for-break `--timeoutMs <n> [--pollMs <n>]`** — wait for any break mode, not only a
+  breakpoint hit. Units are milliseconds: `60000` is one minute; the default poll interval is
+  `250`. The CLI accepts a non-negative 32-bit integer timeout and has no 170-second cap in its
+  poll loop; the MCP `vs_wait_for_break` tool clamps waits to `120000` (two minutes). A shell or
+  tool runner can impose a separate deadline. For long tests, use bounded waits within the
+  runner's limit and continue only after an explicit `timeout`; report other failures. Never
+  resume the debuggee merely because a wait timed out. Use an asynchronous shell invocation
+  when supported so a long wait does not prevent progress reporting.
 - **list-threads** — enumerate the current program's threads (real OS/runtime thread ids, not
   CLI-invented handles). Requires break mode; fails `no-current-program` if nothing is being
   debugged.
@@ -189,9 +205,14 @@ attach/breakpoint/step/read-call-stack call.
   the outermost managed frame, e.g. `Program.Main`). Never trust a `get-locals`/`evaluate` call made
   right after a failed `select-frame` — re-select a known-good frame first (index 0 if managed, or
   the last index that succeeded) and re-check with `get-callstack` before inspecting anything.
-- **step** — into / over / out.
-- **read-call-stack** — returns the current call stack once broken.
-- **read-locals** (`get-locals`) — local variables for the current (innermost, or selected-frame)
+- **step-into / step-over / step-out** — the exact CLI verbs; there is no generic `step` verb.
+- **get-callstack** — returns the current call stack once broken.
+- **get-exception-info** — checks the current frame's locals for `$exception`, returning
+  `exceptionType` and `message` (EnvDTE's value representation). `no-active-exception` means no
+  `$exception` was found in that frame; it does not establish why the debugger originally stopped.
+  `debugger-status` and `wait-for-break` report a last-hit-breakpoint location, which can be null
+  for an exception or manual break. Inspect the stack and exception explicitly in that case.
+- **get-locals** — local variables for the current (innermost, or selected-frame)
   stack frame as EnvDTE string representations, not typed/structured values.
 - **evaluate `--expression <text> [--allowSideEffects]`** — evaluate an expression against the
   currently selected frame (or EnvDTE's own current frame if none was explicitly selected).
@@ -200,12 +221,15 @@ attach/breakpoint/step/read-call-stack call.
     `--` flag, fails `invalid-argument` before the verb runs. Pass an empty value or one starting
     with `--` as `--name=value`: e.g. `--expression=--i`, not `--expression --i`. MCP tools
     already send such values in this form.
-  - **Safe by default**: reads the expression (`GetExpression`, no statement execution, no
-    assignments) — same non-mutating path `get-locals` already uses. Returns
+  - **Expression read by default**: uses `GetExpression`, not `ExecuteStatement`. Implicit
+    property/function evaluation depends on Visual Studio's debugger settings; this is not a
+    guarantee of side-effect-free inspection, and the CLI does not change those settings. Returns
     `{ name, value, type }`. If the expression parses but can't actually be evaluated, this is a
-    real failure outcome (`evaluation-failed`, with `name`/`type` still populated) — not something
-    to blindly retry; it means the expression itself is invalid in this context (e.g. an
-    out-of-scope variable), not a transient error.
+    real failure outcome (`evaluation-failed`, with available `name`/`type` details). Record the
+    exact expression, quoting, selected frame and error. An out-of-scope variable, native frame,
+    debugger function-evaluation restriction, or shell quoting can need different remedies; a
+    failing method call does not by itself establish a missing toolkit feature. Do not retry
+    blindly or automatically enable side effects.
   - **Unsafe opt-in**: `--allowSideEffects true` switches to `ExecuteStatement`, which *can* run
     property getters, method calls, and assignments against the live debuggee. Only pass this
     when the caller explicitly wants to mutate/invoke something — never as a default retry path
@@ -245,7 +269,7 @@ A concise end-to-end flow using only the verbs above — no UI automation needed
 2. `break-all --pid <n>` (to stop immediately) — or set breakpoints and `wait-for-break` if you
    want to stop at a specific location instead.
 3. `list-threads` → `select-thread --threadId <n>` → `select-frame --index <n>`.
-4. Inspect: `read-locals` for a quick dump, or `evaluate --expression <text>` for something
+4. Inspect: `get-locals` for a quick dump, or `evaluate --expression <text>` for something
    specific (add `--allowSideEffects true` only if you deliberately need to invoke/mutate).
 5. `continue` / `step-over`/`step-into`/`step-out` to keep going, or `detach --pid <n>` to release
    the debugger while leaving the process running.
@@ -255,13 +279,14 @@ A concise end-to-end flow using only the verbs above — no UI automation needed
 A common flow when the goal is "tell me what code runs when I do X in the app" (i.e. the trigger
 itself is a UI action, not something you can stop/attach to directly):
 
-1. `attach` to the running target application.
-2. `set-breakpoint` at a plausible handler (from a code search, or from a coarse class-name
-   anchor another skill already has).
+1. `debugger-status` (with `--solution <name>` if needed), then `attach-process --pid <n>` only
+   if the target is not already attached.
+2. `set-breakpoint --file <absolute path> --line <n>` at a plausible handler (from a code search,
+   or from a coarse class-name anchor another skill already has).
 3. Call into **ui-interaction** to actually perform the UI action (click/type) that should
    trigger that code path.
-4. `wait-for-break`, then `read-call-stack` to confirm exactly what ran.
-5. `detach` (or keep stepping, if the caller wants deeper investigation).
+4. `wait-for-break --timeoutMs 60000`, then `get-callstack` to confirm exactly what ran.
+5. `detach --pid <n>` (or keep stepping, if the caller wants deeper investigation).
 
 This skill never performs the UI-triggering step itself — that's `ui-interaction`'s job, kept
 separate so this skill stays usable for debugging scenarios that don't involve UI interaction at
@@ -272,9 +297,7 @@ all (e.g. attaching to something already running and investigating a crash).
 - Never persists a map, cache, or notes file of what it finds — that's up to the caller.
 - Never decides where to look first; a caller supplies the breakpoint location (whether from a
   navigation tree's `[ClassName]` breadcrumb, a fresh code search, or direct instruction).
-- Never executes statements, property getters, method calls, or assignments against the live
-  debuggee by default. `evaluate` only reads an expression's current value unless the caller
-  explicitly passes `--allowSideEffects true` — this is a deliberate safety default, not an
-  oversight, and it is this skill's responsibility to never flip that flag on its own (e.g. as a
-  fallback after a safe-mode evaluation fails). Only pass it when the caller has explicitly asked
-  to mutate or invoke something on the debuggee.
+- Never opts into `ExecuteStatement` without explicit permission to invoke or mutate something
+  on the debuggee. Do not enable `--allowSideEffects true` as a fallback after evaluation fails.
+  The default `GetExpression` route still depends on the debugger's implicit-evaluation settings;
+  do not describe it as a sandbox that prevents all getter or function execution.

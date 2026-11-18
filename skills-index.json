@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 19,
-      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and AgentDebugToolkit through %USERPROFILE%\\.copilot\\toolkits\\AgentDebugToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit check as..."
+      "version": 20,
+      "whatsNew": "Documents script-blocked orchestration and caller-requested focus handback through ui-interaction, without bypassing policy or assuming automatic host discovery exists."
     },
     "project-memory-management": {
       "version": 3,
@@ -14,8 +14,8 @@
       "whatsNew": "The read-aloud (TTS) rules moved into their own small skill, read-aloud, which owns Speak-Text.ps1 (now with optional ducking of other applications' audio) and is triggered by the phrases \"enable tts\" / \"start tts\" in any project,..."
     },
     "ui-interaction": {
-      "version": 20,
-      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and AgentDebugToolkit through %USERPROFILE%\\.copilot\\toolkits\\AgentDebugToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit check..."
+      "version": 21,
+      "whatsNew": "Adds state-first toggle handling, bounded inspection guidance, WinForms tree/tab and minimized-window recovery, explicit portable-package selection, and a script-free focus handback path."
     },
     "ui-navigation-orchestrator": {
       "version": 8,
@@ -26,8 +26,8 @@
       "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and VsChatHistoryToolkit through %USERPROFILE%\\.copilot\\toolkits\\VsChatHistoryToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit..."
     },
     "vs-debug": {
-      "version": 9,
-      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and AgentDebugToolkit through %USERPROFILE%\\.copilot\\toolkits\\AgentDebugToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit check..."
+      "version": 10,
+      "whatsNew": "Corrects CLI verb names and documents exception inspection, wait limits, portable packages, and expression-evaluation caveats."
     }
   }
 }
