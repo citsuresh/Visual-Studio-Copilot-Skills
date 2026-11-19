@@ -26,8 +26,8 @@
       "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json instead of a fixed C:\\MyFiles\\Git path."
     },
     "vs-chat-history": {
-      "version": 11,
-      "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and VsChatHistoryToolkit through %USERPROFILE%\\.copilot\\toolkits\\VsChatHistoryToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit..."
+      "version": 13,
+      "whatsNew": "Replaces experimental direct self-renaming with the bundled independent idle-handoff worker; other idle chats retain the direct UI route."
     },
     "vs-debug": {
       "version": 12,

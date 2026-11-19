@@ -1,15 +1,22 @@
 ---
 name: vs-chat-history
-description: 'Search and read the Visual Studio Copilot Chat history stored on this machine through the chathistory CLI (VsChatHistoryToolkit): full-text search over turns and checkpoints, list and filter sessions, show a session (repository, branch, solution, checkpoint titles), read capped excerpts of turns and checkpoints, count sessions, and, only when the user asks, rename a chat or undo the rename. Use for: "what did we decide about X in an earlier chat", "find the chat where I worked on Y", "which solution was that chat in", "how many chats do I have". Read-only except rename and undo-rename. Covers session-store.db only, so chats missing from that database are invisible. Chat text is confidential: show short excerpts only.'
+description: 'Search and read local Visual Studio Copilot Chat history through the chathistory CLI (VsChatHistoryToolkit), and rename chats only when the user asks. Use for: "what did we decide about X in an earlier chat", "find the chat where I worked on Y", "which solution was that chat in", "how many chats do I have", or "rename this chat". Rename this responding chat through the bundled independent idle-handoff script, not during generation; other idle chats can use the native UI directly. CLI history coverage is session-store.db only; UI observations are separate. Chat text is confidential: show short excerpts only.'
 ---
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 11`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 13`. Compare against the source-of-truth copy at
   `<skills repo>\vs-chat-history\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a session (Step 0).
 - Changelog:
+  - v13 - Replaces experimental direct self-renaming with the bundled independent idle-handoff
+    worker; other idle chats retain the direct UI route. Preserves CLI activity/force, restart
+    and undo safeguards. Handles verified empty clipboards and checks foreground once before
+    input; incomplete snapshots and denied activation still stop the worker.
+  - v12 - Allows user-requested current-chat renaming through the verified Visual Studio
+    session-list UI; keeps CLI activity/force, restart and undo safeguards separate. The UI
+    self-rename workflow is pending a controlled live test, not verified by earlier CLI tests.
   - v11 — The skills repo clone is found through `%USERPROFILE%\.copilot\skills-source.json` and
     VsChatHistoryToolkit through `%USERPROFILE%\.copilot\toolkits\VsChatHistoryToolkit`, instead of
     fixed `C:\MyFiles\Git` paths, and Step 0 gains a toolkit check (clone, update and build through
@@ -48,8 +55,10 @@ description: 'Search and read the Visual Studio Copilot Chat history stored on t
 # VS Chat History
 
 Search and read past Visual Studio Copilot Chat conversations on this machine by calling the
-`chathistory` command-line tool. The tool does the database work; this skill only says how to call
-it, how to read its output, and what to keep private.
+`chathistory` command-line tool. The tool does the database work. For user-requested renaming,
+use the bundled idle-handoff worker for this responding chat and direct native UI for other
+idle chats, both through `ui-interaction`. Never directly rename a generating chat. CLI history
+reads and stored-session renaming remain separate workflows.
 
 ## Rules that always apply
 
@@ -58,19 +67,23 @@ it, how to read its output, and what to keep private.
   wording. Prefer a summary in your own words with the session id so the user can look it up.
 - **Never read or copy the store yourself.** Do not open `session-store.db` with another tool, do
   not copy it, do not read `events.jsonl` or `workspace.yaml` directly, and do not run SQL. Use
-  only the commands below. Every command except `rename` and `undo-rename` opens the database
+  only the supported CLI commands below for store access. Every command except `rename` and `undo-rename` opens the database
   read-only. Every answer is capped; in a `rename` or `undo-rename` result every shown value
   (`old_title`, `new_title` and the name line, `user_named` line and summary in `before` and
   `after`) is cut to 200 characters and `truncated` is then true. Still report only the status,
   the titles and any warning, not the whole result.
 - **Never write chat text into files, commits, PR descriptions or notes** unless the user asks.
   Redact credentials, tokens, account numbers and personal data if they show up in an excerpt.
-- **State the coverage.** Every result has `"coverage": "session-store.db only"`. The chat pane can
+- **State the coverage.** Every CLI result has `"coverage": "session-store.db only"`. The chat pane can
   list more chats than the database holds, so "not found" means "not in session-store.db".
-- **Only `rename` and `undo-rename` write.** They change one chat's `workspace.yaml` and stored
-  summary and append to an undo log, `%LOCALAPPDATA%\VsChatHistoryToolkit\rename-log.jsonl`, which
-  holds chat titles and summaries and is as confidential as the chats: never print, quote or share
-  it. Use these two commands only when the user asks (see Renaming).
+  Native UI observations cover only the verified Visual Studio window; do not describe them as
+  CLI database results or assume a session missing from the database cannot appear in the UI.
+- **Writes require a rename request.** Native UI renaming and CLI `rename`/`undo-rename` are
+  allowed only when the user asks (see Renaming). Among CLI commands, only those two write:
+  they change one chat's `workspace.yaml` and stored summary and append to an undo log,
+  `%LOCALAPPDATA%\VsChatHistoryToolkit\rename-log.jsonl`, which holds chat titles and summaries
+  and is as confidential as the chats: never print, quote or share it. UI renames do not create
+  this toolkit's undo-log entries; do not use CLI undo to reverse an untracked UI rename.
 
 ## Prerequisites / environment
 
@@ -234,19 +247,234 @@ rank chats by cost use `usage-top --from <date>` (then `usage <id>` on the top f
 
 ## Renaming (writes; only when the user asks)
 
+### Choose the route by generation state, not the "Active session" label
+
+Use an exact user-approved title; propose one and obtain approval if needed. Do not silently
+trim, truncate or replace it. Invoke `ui-interaction` and follow its exact-executable preflight,
+foreground/input guards, explicit read-back and cursor cleanup. Verify the intended VS host
+and conversation, not the first `devenv`, newest database row or first matching title.
+
+| Target | Route |
+| --- | --- |
+| This chat, whose agent is responding | Independent idle-handoff worker below; end the response before it renames. |
+| Another chat, verified idle | Direct native UI below; the delayed worker is unnecessary. |
+| Another chat still generating, or state unknown | Do not rename yet. Wait for verified idle or ask the user; do not stop its agent. |
+
+The observed UI label **"Active session" means selected/displayed**, not proof of generation
+or idle. A missing Cancel button in the session list is not proof another chat is idle; verify
+the intended conversation itself. Preserve drafts and never send a message to establish state.
+
+### Shared fast lookup: use the observed controls, not whole-window dumps
+
+These selectors were observed in the tested VS Insiders chat pane. Verify them once in the
+intended host; they are not a guarantee across VS versions or languages. Scope reads to the
+unique visible pane with **Name `Chat` and ClassName `GenericPane`**, not a document editor or
+an ancestor also named Chat. Reuse its identity during the run, but reacquire controls/row
+names after navigation. A missing/ambiguous control is a reason to stop or perform one narrow
+fresh discovery, not to guess a row or click coordinates.
+
+| Purpose | Observed selector / authoritative read |
+| --- | --- |
+| Header / conversation identity | AutomationId `title`; exact Name includes title and working directory. |
+| Return to list | AutomationId `backToHistory`, Button. |
+| Actual draft | AutomationId `WpfTextView`, Name `Ask Copilot`, inside the exact chat pane; read its document text, not its Name. |
+| Generation indicator | AutomationId `CancelButton`, Name `Cancel`; inspect in the displayed target conversation, not the list. |
+| Session list / rows | AutomationId `session`; each row's open control is `ItemOpenButton`, Button. |
+| Selected row | Name `Active session: <title>, <relative time>`; selected is not synonymous with generating. |
+| Other row | Name `Session: <title>, <relative time>`; obtain the complete fresh Name before input. |
+| Context action | Name `Rename`, MenuItem. |
+| Inline title editor | Name `Rename`, Edit; fresh ValuePattern value is the title, not a cached property or accessibility label. |
+
+Read only the header, draft, Cancel state, matching row and rename editor needed for the next
+decision. Prefer direct UIA property/ValuePattern reads or scoped `find-all`/`get-text` over
+`inspect`/`read-visible-text` on the entire VS window. Do not fetch history/database rows just
+to locate a conversation already verified in the UI. Do not capture screenshots when these
+controls are readable. Use the existing worker for self-renaming rather than rebuilding these
+UI steps in an ad hoc script.
+
+### This responding chat: bundled independent idle-handoff worker
+
+Use `scripts\Invoke-IdleChatRename.ps1` relative to this installed skill's directory. It is the
+canonical bundled implementation, not a script to recreate or an instruction to edit the
+chat store. It requires 64-bit Windows PowerShell, readable UIA, the selected `agentdebug-ui.exe`
+and `ui-interaction\scripts\AgentCursor.ps1`. Do not bypass execution policy if scripts are
+blocked; report the limitation and offer a manual idle rename instead.
+
+1. Obtain approval for the exact title and for an independent worker that can outlive this
+   chat/tool call. A rename request alone is not blanket consent for a detached process. Keep
+   the original conversation displayed while preparing; do not enter its rename editor.
+2. Read fresh host PID, UTC process-start ticks, explicit hex HWND (`0x...`), exact current
+   header (including working directory), and old title from the intended host. The helper pins
+   these facts and scopes to the visible `Chat`/`GenericPane`, not another pane named Chat.
+   A nonempty draft or existing rename editor is a refusal; leave it untouched.
+3. Finish all preparation and choose the exact final handoff message. Include a fresh per-run
+   marker in that short message so an earlier response cannot release a later worker. Hash its
+   UTF-8 bytes with SHA256 after normalizing CRLF and lone CR to LF and trimming surrounding
+   whitespace. Hash the entire final message, not just its marker. It must say **scheduled,
+   pending verification**, not that the title is already saved. Do not log the message text.
+4. Build one parameter map using only freshly verified values:
+
+   | Parameter | Value |
+   | --- | --- |
+   | `UiExe`, `CursorScript` | Exact verified UI executable and installed cursor-helper paths. |
+   | `HostProcessId`, `HostStartTicks`, `WindowHandle` | Pinned host PID, `.StartTime.ToUniversalTime().Ticks`, and explicit hex HWND. |
+   | `ExpectedHeader`, `OldTitle`, `NewTitle` | Exact observed header/old title and exact approved new title (1..120 characters). |
+   | `ReadyMessageHash` | SHA256 of the entire final handoff message from step 3. |
+   | `ResultPath` | Unique new absolute JSON path in an existing private session folder outside Git. |
+   | `DelaySeconds` | Use `2` for an independent launch; the backward-compatible default remains `20`. |
+
+   Run the helper once with that map and `-ValidateOnly`; require `validated:true` and
+   `mutationAttempted:false`. It checks identity/header/draft and performs no input or writes.
+   Defaults remain `IdleTimeoutSeconds=120`, `StableIdleSeconds=3`, `PollMilliseconds=500`,
+   `VerificationSeconds=5`; shortening the initial delay does not bypass the idle checks.
+5. Launch the **same installed helper** with the same map, without `-ValidateOnly`, in a separate
+   hidden Windows PowerShell process (`-NoLogo -NoProfile -NonInteractive -STA`). Use a short-lived
+   `Start-Process` launcher with no `-Wait`, unique private stdout/stderr files and a recorded
+   worker PID/start time. Preserve argument values exactly; an `-EncodedCommand` invocation can
+   transport properly quoted paths/parameters, but is not execution-policy bypass. Use the tool's
+   independent/detached launch mechanism only with the permission from step 1.
+
+   **Do not run the worker itself as a tracked async tool/job or wait for it in this response.**
+   That kept this chat working during the live test and prevented the idle gate from opening.
+   Verify once that the worker is alive, its private result reports `Waiting`, and the launcher
+   has exited before handoff. A failed/missing startup result is not a successful schedule.
+
+   **Launch recipe:** In a short-lived independent tool invocation, let `$workerScript` be
+   the installed helper's absolute path and `$renameParameters` the map from step 4, with
+   `DelaySeconds=2` and without `ValidateOnly`. Use the following launcher rather than a
+   tracked invocation of the worker itself. The permission in step 1 is required. If the tool
+   has a detached/independent switch, use it for this short launcher, not a wait/poll job.
+
+   ```powershell
+   $ErrorActionPreference = 'Stop'
+   if ([IntPtr]::Size -ne 8) { throw 'Use 64-bit Windows PowerShell for this launcher.' }
+   $powerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+   $stdout = $renameParameters.ResultPath + '.stdout.txt'
+   $stderr = $renameParameters.ResultPath + '.stderr.txt'
+   foreach ($path in @($stdout, $stderr)) {
+       if (Test-Path -LiteralPath $path) { throw 'Choose fresh private output paths.' }
+   }
+   $serialized = [Management.Automation.PSSerializer]::Serialize($renameParameters)
+   $payload = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($serialized))
+   $quotedScript = $workerScript.Replace("'", "''")
+   $command = '$p = [Management.Automation.PSSerializer]::Deserialize(' +
+       '[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String(''' + $payload +
+       '''))); & ''' + $quotedScript + ''' @p'
+   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+   $worker = Start-Process -FilePath $powerShellExe -ArgumentList @(
+       '-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', $encoded
+   ) -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+   [pscustomobject]@{
+       workerPid = $worker.Id
+       workerStartTicks = $worker.StartTime.ToUniversalTime().Ticks
+       resultPath = $renameParameters.ResultPath
+       stdoutPath = $stdout
+       stderrPath = $stderr
+   } | ConvertTo-Json
+   ```
+
+   Wait only for this short launcher to finish and record its output. Check worker PID/start
+   time and startup result once; if the result is not ready, make only bounded read-only
+   startup checks, not UI polling or rename retries. Do not keep a tracked startup check
+   alive for the worker's idle/rename phase. Never print the serialized parameters/command.
+6. Finish any enabled generic notification/speech and cursor handback before the final message.
+   Never send a Completed alert for merely scheduling. Then emit exactly the hashed handoff
+   message and **end the response**: no further tools, polling, progress or follow-up messages
+   while waiting for idle. The worker waits for that visible message, stable absence of Cancel,
+   the same header, an empty draft and no editor before navigating. Changed context aborts.
+   After that gate it makes one cursor-guarded, verified foreground request; denial aborts
+   before navigation. It does not loop activation or retry a rename.
+7. After a later user turn, read the private result rather than starting another rename. Claim
+   completion only for `state:Completed` with `idleVerified`, `readyMessageSeen`,
+   `foregroundVerified`, `typedTitleVerified`, `savedTitleVerified`, `reopenedTitleVerified`,
+   `reopenedContextVerified` and `cursorCleanupVerified` all true. Missing/pending/failed results
+   are not success. Inspect `failure`, `phase`, idle observations and phase/CLI timings; report
+   the observed failure without exposing chat text. Do not treat stderr file size alone as an
+   error: Windows PowerShell can emit module-preparation progress there.
+
+The worker commits once, checks that the editor closed, verifies the saved row, and reopens
+the same conversation with its title and exact handoff context verified. It never submits a
+message, retries an uncertain rename, forces CLI writes, restarts VS or edits chat storage.
+On a failure after mutation begins, report the recorded state and ask for manual assistance;
+do not blindly repeat Enter, Escape or the rename.
+
+**Observed validation:** Direct self-renaming during generation left the editor open twice.
+Renaming another idle chat succeeded; one independently deferred idle self-rename also
+succeeded. A tracked worker timed out before navigation. These support the workaround, not a
+proven VS root cause or universal fix. The optimized independent rename-and-restore cycle
+subsequently passed all idle/foreground/title/context/cursor checks. The new direct-idle test
+needed clipboard-guard recovery and restored its original title/context, but its older caller
+message was not exposed for the return check; this was not a clean full-pass test. Timings are
+host-specific observations, not guaranteed durations or proof of a universal speedup.
+
+### Another idle chat: direct native UI, no delayed worker required
+
+Use this fixed order once identity, idle state and title approval are established:
+**Back -> exact row -> Rename -> read old -> select/paste -> read typed -> Enter once ->
+editor closed + saved row -> reopen target + verify -> return to caller + verify.**
+
+1. Capture the caller's exact title/header and distinctive context so you can return. Preserve
+   drafts. Click `backToHistory` once and require header `Sessions`. For a request such as
+   "the second chat", enumerate visible UI rows in their actual list order, not database order.
+   Identify that row before any title proposal; duplicate names require disambiguation.
+2. Open the target only if needed to establish identity, idle state or an appropriate title.
+   Read capped, distinctive content, require no visible Cancel in that target, and preserve
+   its draft. If proposing a title, return to the verified caller before asking for approval;
+   after approval reacquire the target and recheck header/idle state, not its full transcript.
+   If the same target was already verified in this run and remains unambiguous/idle, do not
+   reread its full contents.
+   Return with `backToHistory`; require `Sessions` and reacquire that exact row's full Name.
+3. Right-click that uniquely matched row, then invoke the unique observed `Rename` MenuItem.
+   Do not right-click a guessed coordinate or whichever duplicate appears first. Require one
+   visible `Rename` Edit with ValuePattern and read its value; it must equal the observed old
+   title before typing. If the target starts generating or its state is unknown, defer.
+4. Focus the editor and select all once. Paste the approved title with clipboard preservation
+   (`paste-text --restoreDelayMs 1000` on the verified binary), then read a **fresh** editor
+   ValuePattern value. Require exact equality and verified clipboard preservation. Do not use
+   ValuePattern setting as an unverified substitute for typing, infer success from a CLI flag,
+   or lower the clipboard wait merely to save time.
+   Preservation requires `clipboardSnapshotComplete:true`; `clipboardRestored:true` means
+   restored content, while an omitted restoration field with a complete snapshot means the
+   clipboard was empty. Reject false, unknown or incomplete results, not that documented no-op.
+5. Press Enter **once**. Require both the editor to disappear and the exact saved title to
+   appear on the same uniquely identified row. Reacquire the full saved row Name; its relative
+   timestamp may have changed. If the editor stays open, stop: do not repeat Enter/Escape,
+   invoke CLI force or restart VS. Honor validation failures without silently changing title.
+6. Open the saved target row once. Verify its new header and distinctive original context,
+   then Back and reopen the original caller by its verified identity. Verify the caller's
+   header/context and perform cursor/focus handback. Report incomplete checks as unverified.
+   Earlier messages can be virtualized out of the exposed tree; use short, currently rendered
+   distinctive context rather than repeatedly dumping/scanning the whole chat for an old hash.
+   If context cannot be reacquired, report that limitation instead of declaring the wrong chat
+   or claiming full verification from its header alone.
+
+Batch adjacent input actions in one red-cursor block, but keep the old/typed/saved/reopened
+read-backs: these are safety boundaries, not avoidable overhead. No delayed worker, detached
+process, 20-second sleep, full-tree dump or repeated database search is needed for this route.
+
+To undo a UI rename, use the appropriate idle-only UI route with the prior approved title
+when asked. Do not assume CLI undo has recorded a native UI rename.
+
+### CLI alternative: stored-session rename and undo
+
+Keep the existing CLI safety contract. For this responding chat use the independent idle
+worker above, never an automatic forced CLI rename. This route's dry-run, force, undo-log and
+restart rules do not apply automatically to a native UI rename.
+
 1. Run `rename <id> "<title>" --dry-run` first and show the user the old and new title. The id must
    be the exact session id (from `sessions` or `search`).
 2. If the user confirms, run it without `--dry-run`. A title is trimmed, control characters are
    removed, and it must be 1 to 120 characters (longer is refused, not cut). Put `--` before a title
    that starts with `-`.
-3. **Never rename the chat you are working in.** The tool cannot tell which chat is the current one;
-   it only checks for activity in the last 10 minutes (changes to the chat's event log or
+3. The tool cannot tell which chat is the current one; it only checks for activity in the last
+   10 minutes (changes to the chat's event log or
    `workspace.yaml`, or a recent turn) and refuses with exit code 4. Do **not** add `--force`
    yourself: tell the user why it was refused, and run it with `--force` only if the user explicitly
    says to. (Tested: a forced rename of a recently used chat works and Visual Studio does not
    write the old title back, but that is the user's call, not yours.)
-4. Always end by telling the user: **"New title appears after Visual Studio restarts."** The chat
-   list is read once at start-up.
+4. For this CLI route, always end by telling the user: **"New title appears after Visual Studio
+   restarts."** This is the stored-title CLI behavior documented by the toolkit, not proof
+   that a native UI rename also needs a restart.
 5. `undo-rename <id>` restores the previous title and summary of the last rename (repeat to go back
    further). It refuses with exit code 4 if the title, the `user_named` line or the summary changed
    after the rename (someone or Visual Studio edited it); do not force that without the user's
@@ -280,4 +508,5 @@ go to stderr as `error (<code>): <message>`.
   request, several of which can serve one reply).
 - Large or recently written chats can be slow to `show` (the event log is scanned for the solution).
 - The tool never prints a whole chat; use `turns` ranges for more, in small steps.
-- Rename and undo are the only writes, and only for one session by exact id.
+- CLI rename and undo are the only CLI writes, and only for one session by exact id. Native UI
+  renaming is a separate user-requested workflow above, with its own identity/read-back checks.

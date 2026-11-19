@@ -4,53 +4,53 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
-2026-11-19: user explicitly approved the shown 16-file feedback draft and index regeneration.
-All 16 source files match the approved draft hashes; the generated eight-skill index is current.
-User separately approved skills-only installation: UI v23 / debugger v12 / orchestrator v23 /
-notifications v4 and unversioned read-aloud are now installed. All 35 source files across these
-five skills match their installed SHA256 hashes; post-check reports RESULT: UpToDate with
--SkipToolkits. User subsequently approved commit/push of both reviewed repositories, then
-authorized the five pre-existing toolkit files in a separate commit. No pull or prune was
-performed. Managed UI/VS remain toolkit `68bbd1c`; new toolkit source changes are not installed.
+2026-11-19: user explicitly approved applying packaged vs-chat-history v13 after unified-diff
+review. Source now bundles the canonical `vs-chat-history/scripts/Invoke-IdleChatRename.ps1`;
+the old root path forwards unchanged parameters/output, and expanded tests stay repository-only.
+The installer already recursively discovers the runtime; no installer/toolkit change is needed.
+README, code summary, script catalog, append-only design notes and generated index are aligned.
 
-Applied changes: existing-marker executable discovery, observational RDP limitation guidance,
-opt-in V2 phase/heartbeats, overall-task handoff classification, and speech failure/availability
-diagnostics. Added/indexed two reusable regression scripts and a live acceptance matrix.
-All five applied PS files parse; read-only watcher regressions, index and whitespace checks pass.
-Speech/auto-TTS mocks passed against the byte-identical reviewed drafts; the fixture-writing
-speech suite was not rerun during application. Applied non-speaking diagnostics report four
-enabled voices and audioTested:false. No audible recovery is established. Unchanged sender
-offline privacy/fixed-text checks previously passed. Pre-existing unguarded speech cleanup
-can escape sanitized diagnostics; report-only, unchanged.
+Current-chat renaming requires an explicitly approved independent worker, exact final-message
+hash, stable idle, pinned host/header and empty draft. Other verified idle chats use optimized
+direct UI steps. No rename during generation, store edits, automatic restart or uncertain retry.
+Clipboard omission is valid only with a complete snapshot; denied foreground activation stops
+before navigation. "Active session" identifies selection, not generation.
 
-Toolkit source work is complete: effective-target foreground/session failure diagnostics and
-exact tool paths in the existing successful-build marker. Individually approved audit fixes
-preserve unknown-checkout-commit support while rejecting inconsistent binary commits, and
-inject observation sources into fake restore/chat tests. Final independent audit reports no
-remaining in-scope findings; TRX confirms 252 passes. Primary rebuilt six projects and passed
-72 explicitly non-interactive cases. Its earlier broad selector ran desktop fixtures: 113
-passed, two placement cases failed with unverified foreground activation (`stale-context`);
-cause is not established. The unfiltered suite was not run. Protected toolkit baseline hashes,
-unchanged HEAD and unstaged index were verified before publication. A fresh publication rebuild
-and non-interactive run again passed 72/72. No installed toolkit was rebuilt or MCP restarted.
+Validation: strict clipboard/focus/idle/hash/title/timing, compatibility and mocked documented
+launcher regressions pass against the applied source and installed payload. Skill/forwarder/tests
+exactly match their approved drafts; bundled runtime differs only by its file-creation terminal
+newline, not code. Index check is UpToDate; pre-install check identified exactly the skill and
+new runtime. No application build applies in this docs/PowerShell repository.
 
-Publication scope: 18 skills files and 14 feedback-toolkit files; a separate toolkit commit
-contains the five newly authorized pre-existing files. Its graphs remain dated snapshots at
-`67f28aa`, not regenerated for these changes. Its historical audit log records 245 passes and
-eight failures, not current validation. Commit identities belong in Git history.
-Next gate after publication: separate approval before toolkit installation or an MCP restart.
-Live restored/minimized/disconnected RDP reproduction, remote audible recovery and actual
-managed-marker installation remain unverified; never claim an RDP fix or lower failure rates.
-Radio T25/framework changes remain out of scope. The latest remote pre-check succeeded and
-reported UpToDate; installation used the approved local worktree without pulling.
+Prior live evidence remains: optimized independent temporary self-rename/restore passed every
+idle/foreground/title/context/cursor check; UI phases took 20.271s and 21.491s. Full cycle took
+182.353s, including 118.679s first idle waiting. The other chat was restored with target context
+verified, but its older caller-message return check was unavailable; user accepted that limit
+and requested no additional rerun. Both titles are restored; no live worker remains.
 
-Notification v3 remains published as `3dc61ec`; the local installation is now v4 as above.
-Earlier offline privacy/setup, isolated installer credential copy/prune protection, and
-interactive missing-XML guidance passed.
-After explicit same-account copy approval, XML is beside installed scripts; the original is
-retained unchanged and neither is in Git. Fresh enable and user-confirmed [TEST] phone delivery
-passed, not a new normal-title MacroDroid-routing confirmation. Pushes and auto TTS are ON for
-this chat only. Historical notes below are superseded by this current-focus snapshot.
+User separately approved installation. Installed v13 using `-Force -SkipToolkits`; both skill
+and bundled runtime SHA256 hashes match the repository. Installed-payload regressions pass;
+post-check reports `RESULT: UpToDate`. Updated instructions apply in a new chat session.
+User explicitly approved retrying commit and push of the manually reviewed ten-file batch.
+An earlier native Git fetch could not connect to github.com:443; GitHub API reads verified
+upstream main at `ad543ac`. Publication must verify the remote commit, not assume a successful
+push. Commit identity belongs in Git history. Private test controllers/results/logs remain
+outside Git and are not distributed with the skill. No new UI rename, toolkit update or MCP
+restart in this delivery batch.
+
+Prior feedback batch is published: skills `ad543ac`, toolkit fixes `be9e735`, separate historical
+metadata/log `66ecbfc`; both remote identities and clean trees were verified at publication.
+User independently reported matching installed `66ecbfc` identities, 92 focused plus 20 additional
+compatibility passes, passing PowerShell regressions and equal seven-poll baseline/heartbeat
+runs. Treat that as current evidence for the validated environment, not this host's installation
+or proof of live recovery. Historical 252/72 results are not fresh validation. This host's last
+installer check still reported AgentDebugToolkit Behind at `68bbd1c`.
+
+Remaining: two unexplained desktop-sensitive failures, approved disposable RDP reproduction,
+original NoVoice/audible recovery, live agent handoff/dedup behavior and prolonged/retry waits.
+No device/framework changes; Radio T25 remains out of scope. Pushes and auto TTS are enabled for
+this chat only; phone delivery is not inferred from server acceptance. Historical notes below
+are superseded by this current-focus snapshot.
 
 2026-11-18 closeout (supersedes historical pending statuses below): user explicitly accepted
 the intermittent desktop-test limitation and authorized toolkit commit/push/install. Published

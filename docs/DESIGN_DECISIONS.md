@@ -300,3 +300,36 @@ approved labels, deduplication and server-acceptance versus phone-delivery disti
 **Verification limits:** Mock speech/progress tests, parsing, an invalid-window progress check
 and unchanged sender privacy tests pass against external drafts. No restored/minimized/disconnected
 RDP reproduction, remote audible recovery, hardware test or agent-compliance improvement is claimed.
+
+## 2026-11-19 - Separate native UI self-renaming from stored-session CLI renaming
+
+**Decision:** In vs-chat-history v12, allow explicitly requested current-chat renaming through
+Visual Studio's own session-list UI, composed with ui-interaction. Require an unambiguous VS
+instance/session, an approved title, typed-text read-back, saved-title verification and reopening
+the same conversation. Preserve drafts and stop on ambiguous identity or interrupted navigation.
+
+**Rationale:** The old absolute self-rename prohibition was more restrictive than the recorded
+CLI evidence: the 2026-10-30 active-chat rename/undo/restart test succeeded. That does not verify
+the proposed UI route, which avoids direct external metadata writes and lets VS own the change.
+Do not silently force a CLI rename if UI verification fails. Keep CLI activity/force safeguards,
+restart caveats and undo logs route-specific; UI renames do not produce toolkit undo entries.
+
+**Validation:** The approved draft's metadata, version and whitespace checks passed. Live UI
+self-renaming remains unverified until the controlled session-list rename/reopen test completes.
+
+## 2026-11-19 - Defer self-renaming until idle and bundle its runtime
+
+**Decision:** vs-chat-history v13 supersedes v12's direct running-chat procedure. Require an
+explicitly approved independent worker and exact final-message/stable-idle gate for this
+responding chat; another verified idle chat retains the direct native UI route. Commit once,
+verify clipboard/foreground/title/context/cursor state and stop on uncertainty, without a
+forced CLI fallback or automatic VS restart. Generation state is not the selected-row label.
+
+**Packaging:** Keep one canonical runtime under `vs-chat-history/scripts/`, copied by the
+existing recursive installer. Preserve the root script as a parameter-compatible forwarder;
+tests stay repository-only. Do not distribute private live-test controllers, packets or logs.
+
+**Evidence:** Direct self-renaming left the editor open twice; a tracked worker prevented idle.
+The independent optimized temporary rename/restore passed all checks. The other-chat recovery
+restored its title/context but did not fully verify the caller context; the user accepted that
+limitation. This supports a workaround, not a proven VS root cause or universal speed guarantee.
