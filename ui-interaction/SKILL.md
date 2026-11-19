@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 22`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 23`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -98,6 +98,8 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     handback path. Documentation only; new toolkit capabilities are not assumed.
   - v22 - Gates new workflows on executable identity/capabilities and documents bounded inspection,
     paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
+  - v23 - Resolves managed executable paths from the successful-build marker when available and
+    distinguishes observational remote-session diagnostics from an RDP activation fix.
 
 # UI Interaction
 
@@ -120,6 +122,14 @@ navigate where I meant it to"), that judgment stays with the caller. This skill 
   `bin\Debug\net8.0-windows\`. It is built by the toolkit's `scripts\agent\Build-Toolkit.ps1`, which
   `Install-Skills.ps1` runs; if the exe is missing, use Step 0's toolkit check rather than a manual
   `dotnet build`.
+- **Managed executable discovery:** read the selected managed clone's `.built-version` JSON.
+  Updated build markers expose `tools.ui.executablePath` (and `tools.vs`, `tools.console`,
+  `tools.server` for the other tools). Use the exact absolute path, confirm the file exists,
+  then run that binary's `info` and check its reported tool/path/capabilities. A marker is a
+  discovery aid, not proof of binary identity or provider support. Older markers lack `tools`;
+  use the documented project/output path above only after confirming the file exists. Report
+  malformed/missing paths rather than searching arbitrary Debug/Release/portable copies.
+  Explicitly selected portable packages still take precedence over managed discovery.
 - **Explicit portable package:** if the user supplies a package location, use
   `<package>\ui\agentdebug-ui.exe` and that package's docs instead. Record the exact executable
   path; Step 0 checks the managed clone/build, not a separately copied package or its verb
@@ -582,6 +592,17 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   provider support and do not make a cell an actual row. `set-grid-cell` remains editing, not
   general row selection. Report unsupported providers rather than silently installing a
   native-message/remote-memory workaround.
+- **Remote Desktop and foreground denial.** Restoring the target window is not a verified fix
+  for minimized/disconnected RDP. When available, read failure `foregroundDiagnostics` for
+  this process's session/protocol/connection observations and per-field errors. Unknown remains
+  unknown; a local `mstsc` client is not proof this agent runs remotely, and a remote process
+  cannot establish whether its external client is minimized. Record those conditions separately.
+  If interactive access is unavailable, stop input and explain the limitation; read-only UIA or
+  debugger checks may still work. Request user restoration/reconnection only when needed. Never
+  loop activation, change RDP registry settings/security policies, transfer sessions or silently
+  reconnect/disconnect a client. Test restored/minimized/disconnected conditions only in an
+  approved disposable remote setup. Without that reproduction, report the limitation as
+  unverified rather than claiming lower failure rates or a fix.
 - **`read-visible-text` output is flat.** It returns one de-duplicated list of strings in visual order, with no label for which element each string came from, so it cannot tell chat messages from tool-call details or other UI text. Collapsed or expandable content (for example, folded tool-call details) is not expanded, so its inner text does not appear. Do not treat its output as a complete transcript. To check a specific element's text, use a scoped `inspect` or `get-text` on that element. When reading a long virtualized list, re-read after each `scroll-container` position, because one read covers only what is currently rendered.
 - **Virtualized WPF DataGrid controls** — use the `set-grid-cell` verb; some grids need an
   explicit `--applyStrategy`/`--applyValue` to commit the edit.

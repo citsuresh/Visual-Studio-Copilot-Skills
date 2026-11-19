@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 22`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 23`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -182,6 +182,8 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     optional push, optional TTS and the immediately available question or final reply.
   - v22 - Reuses exact-binary capability checks and explicit restore guidance, bounds raw UIA
     fallbacks, and distinguishes verified UI selection from a verified submitted card answer.
+  - v23 - Adds opt-in phase/heartbeat visibility without extra UI probes and classifies blocked,
+    waiting and completed overall handoffs independently of watcher/subtask completion.
 
 # Agent Orchestrator
 
@@ -325,6 +327,11 @@ completion alerts for individual polls, watcher launches or unfinished implement
 
 Before a user handoff, finish reading the reply and any necessary verification, prepare the
 question/options or final response, return requested host focus and stop the session indicator.
+Classify the overall request: running work is not completion; an unresolved blocker requiring
+the user gets Blocker, an approval/choice gets Question, and only a fully verified finished
+deliverable gets Completed. Never label the investigation successful because one subtask passed.
+Check this on error/early exits too; deduplicate unchanged blockers and do not send both Question
+and Blocker for one handoff. A failed alert attempt must not trigger recursive notifications.
 Only then send the qualifying generic push, wait, perform the active TTS announcement, wait,
 and immediately open the question or publish the ready reply. No preparation may intervene.
 If the supervisor can answer the target agent's question within the user's authorization, do
@@ -503,13 +510,15 @@ always available even if the toolkit source isn't up to date; they still call th
   `PromptKind` and answer it). `-NoDetail` skips that final step, and with it the upgrade. It sees a card or prompt only in the last few messages while the list is near its end; run it
   with `-CrossCheck` after a Visual Studio or Copilot update.
 - **`Watch-CopilotChatV1.ps1` — the full-tree watcher.** Heavy (about 70 % of a core), a full tree dump
-  per poll. Use it directly only when you want live progress lines, `-ProgressFile`, `-NotifyOnDone`
+  per poll. Use it directly only when you need its verbose per-poll lines, `-NotifyOnDone`
   or `-RequireWorkingFirst`.
 
 The header of each script lists its pros and cons, and `scripts\tests\` lists their test cases (start
 at `tests\README.md`; read the script's file before changing it). Everything below that describes
-states, markers, `-RequireWorkingFirst`, `AwaitingReply`, `-ProgressFile` and `-NotifyOnDone` is V1
-behavior; V2 takes `-RequireBusyFirst`, `-QuietSeconds` and `-TraceFile` instead (see its header). V1 is also committed
+states, markers, `-RequireWorkingFirst`, `AwaitingReply` and `-NotifyOnDone` is V1
+behavior; V2 takes `-RequireBusyFirst`, `-QuietSeconds` and `-TraceFile` (see its header). V1's
+`-ProgressFile` stores poll text; updated V2's same-named option stores JSON-lines heartbeats as
+documented below, not V1 output. V1 is also committed
 in the AgentDebugToolkit repo at `tools\Watch-CopilotChat.ps1` (old name, not renamed yet; it can be
 out of sync). V1 classifies state from the UIA tree (NOT by button-name heuristics like
 "does a Cancel button exist" — a `ChoicePrompt` card also has its own Cancel button, so that check
@@ -545,6 +554,17 @@ that finish before the first poll (`WorkingSeen: false` in the result tells you 
 
 How to wait cheaply: the cost of a wait is the number of tool calls, not the minutes (measured, see `scripts\tests\Monitoring-cost.md`). Start ONE long watcher call as a background command (`Watch-CopilotChatV2.ps1 -TimeoutSeconds 1800` or more; it accepts up to 7200) and end your turn: its completion notice is the only other call. Do not poll with repeated short foreground calls, and do not start a monitoring sub-agent just to wait; a sub-agent costs about 50,000 tokens of start-up on top of the launch and report calls.
 
+**Long-operation visibility:** announce the current phase before a long wait. Updated V2 accepts
+`-HeartbeatSeconds 30` for host progress and/or `-ProgressFile <local jsonl path>` for machine-readable
+progress; older installed scripts do not. It records phase/state, operation, elapsed seconds,
+last successful probe/time (null until observed), outer probe retry count and cleanup ownership.
+It reuses the normal probes, adds no polling and sends no pushes. Default polling remains silent.
+Heartbeats are emitted between probes/phase changes, not while an in-flight UIA call is stuck;
+they do not establish device progress or provide a hard watchdog. File-only progress defaults to
+30 seconds. Treat watcher Idle as ObservationReady, Timeout as StillWaiting, Pending as NeedsInput,
+and read/visibility failures explicitly; none of those classifies the overall task as completed.
+Before handback, report actual cleanup state, including any focus/indicator cleanup that failed.
+
 **Long-wait pattern (when you need to wait for something that is not a Copilot reply, such as a build or a timer).** Send ONE Copilot turn that runs `Start-Sleep` for the wait, and keep ONE background `Watch-CopilotChatV2.ps1` waiting for that turn to end. Nothing of yours runs while it waits. Measured (see `scripts\tests\Monitoring-cost.md`): 672 s, 135 polls, zero tokens used while waiting. The only calls are the send, the background watcher, and its completion notice.
 
 **Idle is not always "done".** An agent can end its turn by asking for approval in plain text, with
@@ -558,30 +578,19 @@ a `false` is not proof the task is complete, and a `true` can be a false alarm (
 reply that merely quotes "let me know whether" while discussing it), so read the tail before
 acting.
 
-Two options help a supervisor that cannot stream output: `-ProgressFile <path>` appends every
+Two V1 options help a supervisor that cannot stream output: `-ProgressFile <path>` appends every
 `[poll ...]` line to a file as well as the console, and `-NotifyOnDone` beeps when the watch ends
 (Pending, Idle or Timeout). When `AwaitingReply` is true the result also has `LastMessageTail`,
 the last 600 characters, because `LastMessage` keeps the start of a long message. The default maximum poll interval is 30s, so a reply that finishes
 mid-sleep is noticed within about half a minute.
 
-**Run it asynchronously (`mode="async"`), not synchronously, so progress can be relayed to the
-user while it's still running** — a sync call only surfaces output after the whole script
-returns (or times out), leaving the user with no visibility for minutes at a time. Instead:
-1. Start the script with the `powershell` tool using `mode="async"` (short `initial_wait`, e.g.
-   15-20s).
-2. Call `read_powershell` repeatedly (delay ~20-30s each) to pull the accumulated `[poll #N ...]`
-   lines emitted so far.
-3. After each `read_powershell`, report the latest poll line(s) to the user in your response,
-   **including the sleep duration until the next poll** (e.g. "poll #2: still WORKING, sleeping
-   17s until poll #3") so the user knows how long the next wait is, not just that you're waiting
-   again.
-4. **As soon as a poll line shows `state=IDLE` (even at `idle-stability=1`, before the script's own
-   2-consecutive-poll confirmation), stop waiting on the script and act immediately** — call
-   `stop_powershell`, then independently re-inspect (`Get-CopilotChatTranscript.ps1`) or check
-   `git status`/`git log` right away, rather than sleeping through another full poll cycle just to
-   watch the script confirm what you can already see. The script's stability requirement exists to
-   avoid false positives from momentary UI flicker, but a caller who's actively watching can (and
-   should) verify directly instead of waiting idle.
+**Launch one asynchronous watcher, not repeated short foreground waits.** When host output is
+useful, enable the optional heartbeat/progress file above. Do not increase UI polling or create
+extra chat turns merely for a heartbeat. Wait for the runner's completion notice, then read the
+result once and independently verify the reply. A heartbeat or a single transient Idle sample
+is not permission to stop the watcher early, bypass its stability checks or announce success.
+Runner output may be buffered; a local progress file provides inspectable facts, not guaranteed
+real-time chat streaming. A timeout ends this wait, not the supervised task or debuggee.
 
 If the watcher is missing, use only a verified raw fallback: scope a probe to the needed chat
 control and, on a capable binary, use `inspect --hwnd <h> --maxDepth 25 --nameContains <label>

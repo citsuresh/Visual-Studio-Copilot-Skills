@@ -4,22 +4,49 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
-2026-11-19 skill alignment is applied to source after temporary unified-diff review and explicit
-approval: UI v22, debugger v11 and orchestrator v22. All three source hashes exactly match the
-approved drafts. Exact-executable capability gates, bounded/paged UIA reads, state/selection/
-restore safety, explicit VS targeting, break context and long waits are documented. Card-answer
-submit/echo verification remains mandatory. Bundled helpers and toolkit binaries are unchanged.
-Installed UI/VS identities are clean-source `68bbd1c`; capability IDs, static debugger help and
-draft metadata/Markdown checks passed. After separate approval, all three skills were installed
-with `-SkipToolkits`; installed hashes exactly match source and post-check is `RESULT: UpToDate`.
-No app/UI/debugger mutation or new live provider test ran. Commit/push of this seven-file
-alignment batch is explicitly approved; publication identity belongs in Git history.
-Updated skill discovery may require a new chat.
-Real WinForms/x86/hardware smoke coverage and the accepted intermittent desktop-test limitation
-remain outstanding. A rebuilt MCP executable has not restarted any running server.
+2026-11-19: user explicitly approved the shown 16-file feedback draft and index regeneration.
+All 16 source files match the approved draft hashes; the generated eight-skill index is current.
+User separately approved skills-only installation: UI v23 / debugger v12 / orchestrator v23 /
+notifications v4 and unversioned read-aloud are now installed. All 35 source files across these
+five skills match their installed SHA256 hashes; post-check reports RESULT: UpToDate with
+-SkipToolkits. User subsequently approved commit/push of both reviewed repositories, then
+authorized the five pre-existing toolkit files in a separate commit. No pull or prune was
+performed. Managed UI/VS remain toolkit `68bbd1c`; new toolkit source changes are not installed.
 
-Notification v3 is published as `3dc61ec`, installed and hash-verified. Offline privacy/setup,
-isolated installer credential copy/prune protection, and interactive missing-XML guidance passed.
+Applied changes: existing-marker executable discovery, observational RDP limitation guidance,
+opt-in V2 phase/heartbeats, overall-task handoff classification, and speech failure/availability
+diagnostics. Added/indexed two reusable regression scripts and a live acceptance matrix.
+All five applied PS files parse; read-only watcher regressions, index and whitespace checks pass.
+Speech/auto-TTS mocks passed against the byte-identical reviewed drafts; the fixture-writing
+speech suite was not rerun during application. Applied non-speaking diagnostics report four
+enabled voices and audioTested:false. No audible recovery is established. Unchanged sender
+offline privacy/fixed-text checks previously passed. Pre-existing unguarded speech cleanup
+can escape sanitized diagnostics; report-only, unchanged.
+
+Toolkit source work is complete: effective-target foreground/session failure diagnostics and
+exact tool paths in the existing successful-build marker. Individually approved audit fixes
+preserve unknown-checkout-commit support while rejecting inconsistent binary commits, and
+inject observation sources into fake restore/chat tests. Final independent audit reports no
+remaining in-scope findings; TRX confirms 252 passes. Primary rebuilt six projects and passed
+72 explicitly non-interactive cases. Its earlier broad selector ran desktop fixtures: 113
+passed, two placement cases failed with unverified foreground activation (`stale-context`);
+cause is not established. The unfiltered suite was not run. Protected toolkit baseline hashes,
+unchanged HEAD and unstaged index were verified before publication. A fresh publication rebuild
+and non-interactive run again passed 72/72. No installed toolkit was rebuilt or MCP restarted.
+
+Publication scope: 18 skills files and 14 feedback-toolkit files; a separate toolkit commit
+contains the five newly authorized pre-existing files. Its graphs remain dated snapshots at
+`67f28aa`, not regenerated for these changes. Its historical audit log records 245 passes and
+eight failures, not current validation. Commit identities belong in Git history.
+Next gate after publication: separate approval before toolkit installation or an MCP restart.
+Live restored/minimized/disconnected RDP reproduction, remote audible recovery and actual
+managed-marker installation remain unverified; never claim an RDP fix or lower failure rates.
+Radio T25/framework changes remain out of scope. The latest remote pre-check succeeded and
+reported UpToDate; installation used the approved local worktree without pulling.
+
+Notification v3 remains published as `3dc61ec`; the local installation is now v4 as above.
+Earlier offline privacy/setup, isolated installer credential copy/prune protection, and
+interactive missing-XML guidance passed.
 After explicit same-account copy approval, XML is beside installed scripts; the original is
 retained unchanged and neither is in Git. Fresh enable and user-confirmed [TEST] phone delivery
 passed, not a new normal-title MacroDroid-routing confirmation. Pushes and auto TTS are ON for

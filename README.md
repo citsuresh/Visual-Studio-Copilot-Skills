@@ -214,6 +214,13 @@ Each toolkit repo has an integer `VERSION` file and a `scripts\agent\Build-Toolk
 build writes the built commit to `.built-version` (git-ignored). The installer prints one line per
 toolkit, `TOOLKIT: <Name> <Status> (...)`:
 
+Updated AgentDebugToolkit build markers additionally expose exact managed executable paths in
+`tools.ui.executablePath`, `tools.vs.executablePath`, `tools.console.executablePath` and
+`tools.server.executablePath`. Prefer these over guessing project names; legacy markers have
+no `tools` map. Confirm the selected file exists and run its own `info` to verify identity and
+capabilities. The marker is discovery metadata, not proof of provider support or package trust;
+an explicitly selected portable package remains a separate installation.
+
 | Status | Meaning | What the installer does |
 |---|---|---|
 | `UpToDate` | Cloned, built from the current commit, nothing newer upstream | nothing |

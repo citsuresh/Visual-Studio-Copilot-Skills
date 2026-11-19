@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 22,
-      "whatsNew": "Reuses exact-binary capability checks and explicit restore guidance, bounds raw UIA fallbacks, and distinguishes verified UI selection from a verified submitted card answer."
+      "version": 23,
+      "whatsNew": "Adds opt-in phase/heartbeat visibility without extra UI probes and classifies blocked, waiting and completed overall handoffs independently of watcher/subtask completion."
     },
     "project-memory-management": {
       "version": 3,
@@ -14,12 +14,12 @@
       "whatsNew": "Generated read-aloud pointers delegate ready-handoff timing to that skill instead of prescribing speech after replies; enabled push precedes enabled TTS and the ready handoff."
     },
     "push-notifications": {
-      "version": 3,
-      "whatsNew": "Default the encrypted XML beside the installed scripts and protect its filename from installer copying/pruning; existing credentials require an explicitly approved local migration."
+      "version": 4,
+      "whatsNew": "Classify the overall task at every final handoff, including blocked exits, without treating a finished subtask or a running operation as investigation completion."
     },
     "ui-interaction": {
-      "version": 22,
-      "whatsNew": "Gates new workflows on executable identity/capabilities and documents bounded inspection, paged UIA readers, verified state/selection changes and explicit minimized-window restoration."
+      "version": 23,
+      "whatsNew": "Resolves managed executable paths from the successful-build marker when available and distinguishes observational remote-session diagnostics from an RDP activation fix."
     },
     "ui-navigation-orchestrator": {
       "version": 8,
@@ -30,8 +30,8 @@
       "whatsNew": "The skills repo clone is found through %USERPROFILE%\\.copilot\\skills-source.json and VsChatHistoryToolkit through %USERPROFILE%\\.copilot\\toolkits\\VsChatHistoryToolkit, instead of fixed C:\\MyFiles\\Git paths, and Step 0 gains a toolkit..."
     },
     "vs-debug": {
-      "version": 11,
-      "whatsNew": "Documents executable capability checks, static help, explicit VS-instance targeting, optional break context and seconds-based long waits without changing evaluation permissions."
+      "version": 12,
+      "whatsNew": "Uses successful-build marker executable discovery and makes long-wait progress, timeout and cleanup reporting explicit without implying hardware progress or success."
     }
   }
 }

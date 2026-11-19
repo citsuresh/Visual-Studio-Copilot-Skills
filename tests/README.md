@@ -15,3 +15,13 @@ disabled. Dummy markers verify source credential exclusion, installed credential
 nested script updates, ordinary orphan pruning and a final up-to-date check. It restores the
 environment and removes its fixture in `finally`; it never reads real credentials or uses network.
 Passing this test does not mark the separate manual scenarios as passing.
+
+`scripts\agent\Test-ReadAloud.ps1` mocks speech and checks preserved failure markers/exit codes,
+stage-specific bounded diagnostics without text disclosure, non-speaking `-Diagnose`, and
+auto-TTS Active/Unknown silence. It creates/removes only its own wrapper fixture and never
+produces audio or notifications. `scripts\agent\Test-WatcherProgress.ps1` extracts the progress
+functions through the PowerShell AST and checks silent defaults, throttling, operational facts
+and terminal states without UI calls, file writes or waiting. Both accept external draft paths.
+Neither test proves remote audio, RDP foreground behavior, or agent compliance with handoff rules.
+
+Additional live acceptance cases are in [Feedback-session.tests.md](Feedback-session.tests.md).

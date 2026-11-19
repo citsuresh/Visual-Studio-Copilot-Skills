@@ -5,7 +5,7 @@ description: 'Attach the Visual Studio debugger to a running application via Age
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 11`. Compare against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 12`. Compare against the source-of-truth copy at
   `<skills repo>\vs-debug\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's GitHub
   upstream, once at the start of a session.
@@ -63,6 +63,8 @@ description: 'Attach the Visual Studio debugger to a running application via Age
     packages, and expression-evaluation caveats. Documentation only; no toolkit verb changed.
   - v11 - Documents executable capability checks, static help, explicit VS-instance targeting,
     optional break context and seconds-based long waits without changing evaluation permissions.
+  - v12 - Uses successful-build marker executable discovery and makes long-wait progress,
+    timeout and cleanup reporting explicit without implying hardware progress or success.
 
 # VS Debug
 
@@ -95,6 +97,12 @@ record of it.
 - **CRITICAL environment gotcha:** clear `DOTNET_ROOT`
   (`Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue`) before invoking `agentdebug-vs.exe`
   or `dotnet build`/`restore`, same as `ui-interaction`.
+- **Managed executable discovery:** use the selected AgentDebugToolkit clone's `.built-version`
+  `tools.vs.executablePath` when present. Confirm that absolute file exists and run its own `info`
+  to verify tool/path/capabilities; the UI tool's path or identity does not identify this binary.
+  Older markers have no `tools` map: verify the documented `AgentDebugToolkit.Debugger.VisualStudio`
+  output path before using it, never guess a similarly named directory or switch installations.
+  Explicit portable selection retains precedence; malformed/stale entries must be reported.
 - Full verb contract: `%USERPROFILE%\.copilot\toolkits\AgentDebugToolkit\docs\CLI_CONTRACT.md`.
 - **UI automation is a fallback, not a default.** As of Phase 21/22, `agentdebug-vs.exe` itself
   covers PID-targeted attach/break/detach, reliable state reporting, and thread/frame/locals/
@@ -209,6 +217,12 @@ attach/breakpoint/step/get-callstack call.
   preserving the same verified VS target; report other failures. Never resume the debuggee
   merely because a wait timed out. Use an asynchronous shell when supported; after a break,
   call `debugger-status --context true` and `get-callstack` on that same instance.
+  Before a long wait, report its phase, selected instance and timeout unit. Report elapsed time,
+  last successful status observation, actual polling-timeout retry count and cleanup ownership
+  at the next available handoff. Unknown facts stay unknown. A single blocking COM/UIA call
+  cannot supply guaranteed heartbeats; do not increase debugger polling or invent hardware
+  progress to fill silence. Timeout means still waiting, not failed hardware or completion.
+  Keep running work distinct from a blocked exit and use the enabled handoff alert accordingly.
 - **list-threads** — enumerate the current program's threads (real OS/runtime thread ids, not
   CLI-invented handles). Requires break mode; fails `no-current-program` if nothing is being
   debugged.

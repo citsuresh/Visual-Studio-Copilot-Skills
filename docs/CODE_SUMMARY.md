@@ -7,11 +7,20 @@ skill folder into `%USERPROFILE%\.copilot\skills\` so they're available to the C
 
 No C# solution detected in this repo; tracked in docs-only mode (no code graph).
 
+Feedback diagnostics: updated AgentDebugToolkit build markers provide exact managed tool paths;
+skills still verify the selected binary's own identity/capabilities. V2 orchestration optionally
+emits phase/heartbeat facts without extra UI probes; watcher observations never declare overall
+task completion. Read-aloud retains legacy failure markers and adds bounded, text-free diagnostics
+plus non-speaking availability checks, with no voice selection or notification coupling.
+
 Reusable session helpers are indexed in `docs/SCRIPTS.md`. `scripts/agent/Compare-TrxCoverage.ps1`
 checks that complete passing TRX files jointly cover exactly a reference case set, rejecting
 duplicates and missing/unexpected cases without running tests or changing files.
 `scripts/agent/Test-InstallSkillsCredential.ps1` verifies credential exclusion, preservation,
 nested copying and pruning in a disposable fake profile, without real credentials or network.
+`scripts/agent/Test-ReadAloud.ps1` mocks speech and auto-TTS with a disposable wrapper fixture;
+`scripts/agent/Test-WatcherProgress.ps1` tests AST-isolated progress cadence and terminal semantics
+without UI calls or file writes. Neither establishes remote audible/foreground recovery.
 
 ## Update index and hooks
 

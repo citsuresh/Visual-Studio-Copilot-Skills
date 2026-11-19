@@ -275,3 +275,28 @@ The three applied skills hash-match their approved temporary drafts. These doc c
 establish real WinForms/x86/hardware coverage; no application or debugger action was performed.
 After separate installation approval, all three installed skill hashes match source and the
 post-install check reports `RESULT: UpToDate`; toolkit executables were not rebuilt.
+
+## 2026-11-19 - Observability without claiming recovery or overall completion
+
+**Decision:** Reuse AgentDebugToolkit's existing successful-build marker for exact managed tool
+paths; do not introduce a competing install manifest or infer identity from checkout status.
+Keep RDP session observations distinct from external client state and from a verified fix.
+Preserve legacy Git-unavailable builds and their empty marker commit, while requiring the four
+reported binary commits to agree. Consistency does not establish a match to unknown checkout
+identity; do not turn an unavailable source fact into verified provenance.
+V2 progress is opt-in and reuses ordinary probes; it reports operational facts and cleanup
+ownership, never device progress or overall task completion. Preserve silent defaults and the
+single-watcher/stable-result contract rather than repeated short polls or early-Idle cancellation.
+
+**Speech:** Keep the legacy NoVoice/exit-code contract but report sanitized reason/stage/host
+facts, not spoken text or raw exception messages. Non-speaking availability is not an audible
+test. Voice choice, default output/settings, and push mode remain unchanged. Preserve both the
+failure marker and diagnostics through auto-TTS. User-confirmed audible recovery remains separate.
+
+**Handoffs:** Classify the overall request at every error/final exit: running work is not
+Completed; a user-action blocker gets Blocker, an approval gets Question. Fixed generic payloads,
+approved labels, deduplication and server-acceptance versus phone-delivery distinctions remain.
+
+**Verification limits:** Mock speech/progress tests, parsing, an invalid-window progress check
+and unchanged sender privacy tests pass against external drafts. No restored/minimized/disconnected
+RDP reproduction, remote audible recovery, hardware test or agent-compliance improvement is claimed.

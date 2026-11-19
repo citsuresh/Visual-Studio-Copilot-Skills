@@ -24,7 +24,7 @@
     V2 pros:
       - Light while polling: about 7 percent of one core, about 0.3 to 1.5 seconds per probe on a long chat
         (V1: about 70 percent and about 4 seconds per poll), so it hardly disturbs the Visual Studio being driven.
-      - Silent while polling (no per-poll tokens); -TraceFile is opt-in.
+      - Silent by default; -TraceFile, -HeartbeatSeconds and -ProgressFile are opt-in.
       - Never activates, restores, scrolls, clicks or types, so it works with the window overlapped or minimized.
       - Needs no agentdebug-ui.exe for the wait itself (in-process UI Automation).
       - Also reports NotVisible, WindowGone and ProbeError, which V1 does not.
@@ -46,7 +46,7 @@
       - With -RequireBusyFirst, a reply that finishes before the first probe is reported only after
         -StartGraceSeconds (V1 notices the new footer at once).
       - The completion-footer pattern is fixed in the script.
-      - No -AsJson (pipe the object to ConvertTo-Json) and no progress file.
+      - No -AsJson (pipe the object to ConvertTo-Json). Progress is emitted between probes only.
 
     HOW THE POLL WORKS
       The chat pane (class GenericPane, name Chat) has two kinds of direct children: the message list (class
@@ -82,7 +82,8 @@
     TEST CASES: tests\Watch-CopilotChatV2.tests.md next to this script lists every scenario, how to set it up, the
     expected result and the last result. Read it before changing the probes and update it afterwards.
 
-    SAFETY: it never clicks, types, scrolls, activates or restores a window. It writes only -TraceFile, if given.
+    SAFETY: it never clicks, types, scrolls, activates or restores a window. It writes only the explicitly
+    requested -TraceFile and/or -ProgressFile. Progress failure is reported, not silently ignored.
     The detail step starts V1, which only reads (agentdebug-ui inspect).
 .PARAMETER Hwnd
     Window handle, e.g. "0x121B1A".
@@ -106,6 +107,14 @@
 
 .PARAMETER TraceFile
     Optional file; one line per poll: time, probe duration, flags.
+
+.PARAMETER HeartbeatSeconds
+    Opt-in host progress interval (5..3600 seconds); 0 preserves silent polling. No extra UI probes.
+
+.PARAMETER ProgressFile
+    Optional append-only JSON-lines progress file. With HeartbeatSeconds 0, writes at most once
+    every 30 seconds plus phase transitions, without host progress lines. Contains operational
+    facts, not chat text. An in-flight UIA call can delay a heartbeat; this is not a watchdog.
 
 .PARAMETER TitleContains
     Resolve the target window by title substring instead of passing -Hwnd (via
@@ -183,7 +192,12 @@ param(
     # One short beep when the wait ends (done or waiting for a person). -NoBeep silences it (the review wrapper does, and beeps once itself).
     [switch]$NoBeep,
 
-    [string]$TitleContains
+    [string]$TitleContains,
+
+    [ValidateScript({ $_ -eq 0 -or ($_ -ge 5 -and $_ -le 3600) })]
+    [int]$HeartbeatSeconds = 0,
+
+    [string]$ProgressFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -375,6 +389,29 @@ function Add-Detail($o) {
     }
 }
 
+function Write-WatchProgress {
+    param([string]$Phase, [string]$State, [string]$Operation, [switch]$Force)
+    if (-not $ProgressFile -and $HeartbeatSeconds -eq 0) { return }
+    $now = Get-Date
+    $interval = if ($HeartbeatSeconds -gt 0) { $HeartbeatSeconds } else { 30 }
+    if (-not $Force -and $script:lastHeartbeat -and
+        ($now - $script:lastHeartbeat).TotalSeconds -lt $interval) { return }
+    $record = [ordered]@{
+        phase = $Phase
+        state = $State
+        operation = $Operation
+        elapsedSeconds = [int]($now - $script:started).TotalSeconds
+        lastSuccessfulOperation = $script:lastSuccessfulOperation
+        lastSuccessfulUtc = $script:lastSuccessfulUtc
+        retryCount = $script:retryCount
+        cleanupState = 'read-only; caller owns focus and session indicators'
+    }
+    $line = $record | ConvertTo-Json -Compress
+    if ($ProgressFile) { Add-Content -LiteralPath $ProgressFile -Value $line -Encoding UTF8 }
+    if ($HeartbeatSeconds -gt 0) { Write-Host "[watch] $line" }
+    $script:lastHeartbeat = $now
+}
+
 function Finish([string]$State, [string]$Kind, [string]$Note) {
     $sorted = @($script:probeMs | Sort-Object)
     $o = [ordered]@{
@@ -389,7 +426,18 @@ function Finish([string]$State, [string]$Kind, [string]$Note) {
     if ($CrossCheck) { $o.Mismatches = $script:mismatches }
     $o.Note = $Note
     if (-not $NoBeep) { try { [console]::Beep(880, 200) } catch { } }   # beep first: the details below can take a while
-    if (-not $NoDetail -and $State -in 'Pending', 'Idle') { Add-Detail $o }
+    if (-not $NoDetail -and $State -in 'Pending', 'Idle') {
+        Write-WatchProgress -Phase detail -State Waiting -Operation 'read final chat observation' -Force
+        Add-Detail $o
+    }
+    $progressState = switch ($o.State) {
+        'Idle' { 'ObservationReady' }
+        'Pending' { 'NeedsInput' }
+        'Timeout' { 'StillWaiting' }
+        'ProbeError' { 'Failed' }
+        default { 'Blocked' }
+    }
+    Write-WatchProgress -Phase finished -State $progressState -Operation 'return watcher observation; overall task not classified' -Force
     [pscustomobject]$o
 }
 
@@ -398,6 +446,10 @@ $script:probeMs = New-Object System.Collections.Generic.List[int]
 $script:busySeen = $false
 $script:mismatches = 0
 $script:errors = 0
+$script:retryCount = 0
+$script:lastHeartbeat = $null
+$script:lastSuccessfulOperation = $null
+$script:lastSuccessfulUtc = $null
 # ChatSwitched marker: the session title of the chat being watched. Adopted from the first non-empty title, so a new
 # chat whose title only appears when its first message is sent does not count as a switch.
 $script:titleMarker = $null
@@ -405,6 +457,7 @@ $script:markerSet = $false
 $deadline = $script:started.AddSeconds($TimeoutSeconds)
 $quietSince = $null
 if ($TraceFile) { Set-Content -Path $TraceFile -Value "# Watch-CopilotChatV2 trace, hwnd $Hwnd, interval ${PollIntervalSeconds}s" -Encoding UTF8 }
+Write-WatchProgress -Phase polling -State Waiting -Operation 'observe Copilot chat' -Force
 
 while ($true) {
     $pollStart = Get-Date
@@ -423,11 +476,15 @@ while ($true) {
             return (Finish 'ProbeError' $null "The probe failed $($script:errors) times in a row while the window still exists: $($_.Exception.Message)")
         }
         if ((Get-Date) -ge $deadline) { return (Finish 'Timeout' $null "Still failing or busy after $TimeoutSeconds seconds.") }
+        $script:retryCount++
+        Write-WatchProgress -Phase polling -State Waiting -Operation 'retry failed read-only chat probe'
         Start-Sleep -Seconds 1
         continue
     }
     $script:errors = 0
     $script:probeMs.Add([int]$sw.Elapsed.TotalMilliseconds)
+    $script:lastSuccessfulOperation = 'read-only chat probe'
+    $script:lastSuccessfulUtc = (Get-Date).ToUniversalTime().ToString('o')
     $elapsed = ($pollStart - $script:started).TotalSeconds
 
     $agree = $true
@@ -477,6 +534,7 @@ while ($true) {
         }
     }
 
+    Write-WatchProgress -Phase polling -State Waiting -Operation 'wait for chat state change'
     if ((Get-Date) -ge $deadline) { return (Finish 'Timeout' $null "Still busy after $TimeoutSeconds seconds.") }
     $sleep = $PollIntervalSeconds - ((Get-Date) - $pollStart).TotalSeconds
     if ($sleep -gt 0) { Start-Sleep -Milliseconds ([int]($sleep * 1000)) }

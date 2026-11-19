@@ -29,9 +29,16 @@ handoff rule below; do not announce a question while still preparing it:
 - The voice is the Windows default. Never set, select or prefer a voice.
 - If the script file does not exist, say once that the `read-aloud` skill is not fully installed
   (`Install-Skills.ps1` installs it) and stay silent.
-- Exit code 2 with the output `NoVoice` means no usable voice: say so once and stay silent for the rest
-  of the chat. Exit code 1 means it could not start (message in the output): report that once and stay
-  silent.
+- Exit code 2 retains the legacy `NoVoice` marker; it means speech failed, not necessarily that
+  no voice is installed. Read the accompanying `SpeechDiagnostic` reason/stage, bitness and
+  HRESULT (when available), report the actionable limitation once, and pause speech. Do not
+  retry automatically. Exit code 1 means startup failed; report once and stay silent.
+- For diagnosis, `Speak-Text.ps1 -Diagnose` returns initialization/voice-availability facts
+  without speaking, changing a voice, ducking audio or altering settings. A successful check
+  is not proof of audible output. Check the same account, host bitness, default audio output
+  and RDP audio routing as the failing session. After the user corrects setup, require a fresh
+  enable/retest request and audible confirmation before claiming recovery. Never change push
+  mode because speech failed, and never retry a push merely to test TTS.
 - Wait for it to finish; do not run two at once.
 
 ## Ready handoff order (both modes)

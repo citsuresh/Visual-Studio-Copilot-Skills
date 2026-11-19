@@ -52,7 +52,7 @@ try {
         if ($LASTEXITCODE -eq 0) { "Spoken ($state)" }
         else {
             $code = $LASTEXITCODE
-            $why = if ($spoken.Count -gt 0) { $spoken[-1] } else { "Speak-Text.ps1 exit code $code" }
+            $why = if ($spoken.Count -gt 0) { $spoken -join '; ' } else { "Speak-Text.ps1 exit code $code" }
             "Silent (Error: $why)"
         }
     }

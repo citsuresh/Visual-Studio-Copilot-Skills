@@ -5,7 +5,7 @@ description: 'Optional generic-only Pushbullet phone alerts for task completion,
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 3`.
+- `CURRENT_SKILL_VERSION = 4`.
 - Changelog:
   - v1 - Opt-in current-chat Pushbullet alerts, start/enable and stop/disable aliases,
     fixed MacroDroid-compatible titles, approved repository prefixes, generic-only payloads
@@ -14,6 +14,8 @@ description: 'Optional generic-only Pushbullet phone alerts for task completion,
     dependency while keeping credential location, privacy rules and ready-handoff timing unchanged.
   - v3 - Default the encrypted XML beside the installed scripts and protect its filename from
     installer copying/pruning; existing credentials require an explicitly approved local migration.
+  - v4 - Classify the overall task at every final handoff, including blocked exits, without
+    treating a finished subtask or a running operation as investigation completion.
 
 # Push Notifications
 
@@ -146,6 +148,13 @@ claim a real task completed on the strength of such a test.
   alert was premature rather than leaving the user searching for a question that is not there.
 - **Blocker:** once when an actual blocker needs the user's intervention and prevents progress.
   Do not notify for every transient failure or for an issue the agent can resolve itself.
+- **Final-handoff checklist:** classify the overall requested task, not just the last command.
+  If required work is still running, send no Completed alert. If an unresolved blocker prevents
+  further progress and requires the user, send Blocker before the blocked final reply, including
+  exits after partial investigation. A finished subtask does not change a blocked overall task
+  into Completed. If progress is possible but an approval/choice is needed, use Question instead.
+  With pushes off, retain the same truthful written status but send nothing. Use only the fixed
+  generic sender text; never put the blocker, operation or partial results into the push.
 - Choose one event for a single handoff; do not send both Question and Blocker for the same
   situation. Do not send Completed while that handoff is waiting for input. Deduplicate unchanged
   pending questions/blockers and repeated background status reports.
