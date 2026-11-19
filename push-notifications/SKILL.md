@@ -5,7 +5,7 @@ description: 'Optional generic-only Pushbullet phone alerts for task completion,
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 4`.
+- `CURRENT_SKILL_VERSION = 5`.
 - Changelog:
   - v1 - Opt-in current-chat Pushbullet alerts, start/enable and stop/disable aliases,
     fixed MacroDroid-compatible titles, approved repository prefixes, generic-only payloads
@@ -16,6 +16,8 @@ description: 'Optional generic-only Pushbullet phone alerts for task completion,
     installer copying/pruning; existing credentials require an explicitly approved local migration.
   - v4 - Classify the overall task at every final handoff, including blocked exits, without
     treating a finished subtask or a running operation as investigation completion.
+  - v5 - Distinguish server acceptance from phone delivery and offer optional user-confirmed
+    receipt checks without automatic resends or changing notification consent.
 
 # Push Notifications
 
@@ -168,6 +170,16 @@ claim a real task completed on the strength of such a test.
 
 - The sender verifies the returned note title/body and reports server acceptance. That is not
   proof of phone delivery or MacroDroid execution; only report those after user confirmation.
+- Report `ServerAccepted=true, PhoneDelivery=Unverified` as "server accepted; phone delivery
+  unverified", never "delivered" or "user notified".
+- Optional delivery check, only when requested: use the next authorized generic notification
+  (or one explicitly requested test), then ask whether that specific alert appeared on the phone.
+  Complete any active TTS and open the receipt question immediately, preserving ready-handoff
+  order. The receipt question is part of the same handoff: do not send another push for it.
+  Record confirmation only for that alert; separately ask about phone automation if verification
+  of that behavior was requested. No answer or a missing alert leaves delivery unverified, not
+  successful. Do not poll private phone data, add a receiver, resend automatically, or enable
+  automatic pushes as a side effect of a delivery check.
 - Pushbullet's normal self-pushes may share one Android category such as `Me`. Distinct titles
   support user-configured MacroDroid rules; do not claim independent Android categories or
   silently configure phone automation. Never claim hard real-time or guaranteed alert delivery.

@@ -4,6 +4,29 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
+2026-11-19: Applied the user's reviewed generic hardware-session feedback to three skills:
+read-aloud explicitly reports failed audio as not notifying the user; push-notifications v5
+distinguishes acceptance from delivery and supports optional user-confirmed receipt; orchestrator
+v24 documents async result retrieval, live step/iteration evidence and verified reusable cleanup.
+No helper implementation, framework code or hardware was changed. Four reported framework
+patterns are recorded as unverified candidates in `docs/framework-improvements.md`.
+README, code summary and generated skills index reflect the changes. Offline mocked speech/
+auto-TTS and sender/privacy regressions pass; approved source/draft hashes match and the index
+check passes. These checks do not prove audible speech, phone delivery or hardware cleanup.
+User chose publication only, without local installation, and approved commit/push of the
+reviewed eight-file feedback batch. Commit identity belongs in Git history; remote publication
+must be verified separately rather than inferred from this snapshot. No new reusable script
+was written.
+
+Earlier in this session, approved Bootstrap synced project memory from v27 to v28. All four
+core docs and the 11-entry script index exist. Docs-only mode has no solutions/graphs/Key Flows;
+optional domain patterns, known findings and feature checklist are absent. Graph viewer matches
+the installed skill. GraphTools is current; AgentDebugToolkit is two commits behind and was not
+updated. Speech and pushes remain off in this chat. Bootstrap's instructions change is separate
+from the feedback publication batch; no old session's mode or action approval carries forward.
+
+### Prior-session snapshot (historical; not current-chat mode or action approval)
+
 2026-11-19: user explicitly approved applying packaged vs-chat-history v13 after unified-diff
 review. Source now bundles the canonical `vs-chat-history/scripts/Invoke-IdleChatRename.ps1`;
 the old root path forwards unchanged parameters/output, and expanded tests stay repository-only.
@@ -147,9 +170,9 @@ returned and the cursor indicator cleared after the successful handoff.
 
 
 
-This repo remains docs-only. Its project marker is v27; applying source skill v28 does not itself
-rerun Bootstrap. Five reusable scripts are indexed, including the notification helpers and a
-read-only exact TRX coverage comparator saved from this verification.
+This repo remains docs-only. Bootstrap has now synced its project marker to v28. Eleven reusable
+scripts are indexed, including notification helpers, the exact TRX coverage comparator and the
+bundled idle-chat rename worker.
 
 ## Recently changed
 

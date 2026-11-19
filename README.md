@@ -198,6 +198,20 @@ Finish preparation first, then send the qualifying push, perform active TTS, and
 the question/final reply. Push and TTS remain independent opt-in modes. Stop pushes with
 **disable push notifications** or **stop push notifications**.
 
+Server acceptance is not phone delivery. The optional receipt check asks the user about one
+authorized alert without resending or enabling pushes. A speech error likewise means the user
+was not notified by audio; intentional `Silent (Active)` is not an error. Check the default voice,
+audio output device and remote-session audio routing before requesting a fresh speech retest.
+
+## Long-running tests and recovery
+
+The [agent-orchestrator guidance](agent-orchestrator/SKILL.md#long-running-commands-test-progress-and-hardware-cleanup)
+covers tracked async commands over about two minutes, live run-correlated logs when console output
+is buffered, step/parameter-iteration reporting, and reusable hardware cleanup with verified final
+state. These are instructions, not new runner or cleanup implementations; hardware actions still
+need authorization. [Framework improvement candidates](docs/framework-improvements.md) record
+reported patterns only, without claiming local confirmation or implementing framework changes.
+
 ## Toolkits
 
 Several skills call three companion command-line tools. Each is a public git repo; the installer

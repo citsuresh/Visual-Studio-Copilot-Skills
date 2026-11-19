@@ -103,8 +103,15 @@ rules as Speaking (no code, paths or tables; never set a voice):
 The summary must be plain ASCII text with no double quotes, curly quotes, backticks or dollar signs,
 because it is passed inside a double-quoted PowerShell string. It speaks only when Visual Studio is not in
 front, and prints one line: Spoken (Inactive), Silent (Active), Silent (Unknown) or Silent (Error: reason).
-Unknown or Error means silence: do not retry or
-speak yourself, but report Error once, and NoVoice once as under Speaking. Do not skip the call because
+`Silent (Active)` is intentional silence because the user is at the window; it is not an audio error.
+`Silent (Unknown)` means the host state could not be established; no audio notification is verified.
+`Silent (Error: ...)`, including `NoVoice` or an audio failure, means audio is broken for this
+attempt and the user was NOT notified by speech. State that clearly in the written reply; never
+describe the audio handoff as done or the user as notified. A separately verified push remains
+independent. Briefly suggest checking the Windows default voice, default audio output device and
+remote-session audio routing. Follow Speaking's diagnostic and fresh-enable/retest rules; do not
+retry automatically, force speech or change audio settings. Report the error once and pause speech.
+Do not skip the call because
 the reply was short or the last call said Active. If the script file does not exist, say once that the
 `read-aloud` skill is not fully installed and stay silent.
 

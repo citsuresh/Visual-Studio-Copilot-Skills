@@ -13,6 +13,11 @@ emits phase/heartbeat facts without extra UI probes; watcher observations never 
 task completion. Read-aloud retains legacy failure markers and adds bounded, text-free diagnostics
 plus non-speaking availability checks, with no voice selection or notification coupling.
 
+Generic hardware-session guidance distinguishes failed audio from intentional foreground silence
+and server acceptance from user-confirmed phone receipt. Orchestration documents tracked async
+commands, live step/parameter-iteration evidence and verified reusable cleanup, not new runtime
+helpers. `docs/framework-improvements.md` lists reported, unverified framework candidates only.
+
 Reusable session helpers are indexed in `docs/SCRIPTS.md`. `scripts/agent/Compare-TrxCoverage.ps1`
 checks that complete passing TRX files jointly cover exactly a reference case set, rejecting
 duplicates and missing/unexpected cases without running tests or changing files.
@@ -54,7 +59,7 @@ Scoped title reads and optional `-DelaySeconds 2` reduce overhead; timings are h
 | Skill | Purpose |
 |---|---|
 | `project-memory-management` | Deprecated predecessor; use `project-memory-management-graph` in docs-only mode instead. |
-| `project-memory-management-graph` | Begin Session, Bootstrap, End Session and Initialize; supports docs-only repos or registered per-solution Roslyn graphs through GraphTools. Includes user-curated feature-checklist guidance and regression-audit protocols. Ships `scripts/Speak-Text.ps1`, now only a forwarder to the `read-aloud` skill's copy so the path written by Bootstrap v25 and v26 keeps working; Step 7c (v27) writes a short pointer bullet to the `read-aloud` skill into the Persistent Project Memory section. |
+| `project-memory-management-graph` | Begin Session, Bootstrap, End Session and Initialize; supports docs-only repos or registered per-solution Roslyn graphs through GraphTools. Includes user-curated feature-checklist guidance and regression-audit protocols. Ships `scripts/Speak-Text.ps1`, now only a forwarder to the `read-aloud` skill's copy so the path written by Bootstrap v25 and v26 keeps working; Step 7c (v28) writes a short pointer delegating ready-handoff timing to `read-aloud`, with enabled push preceding enabled TTS. |
 | `agent-orchestrator` | Supervise a Copilot agent in another Visual Studio window; composes UI interaction and debugger skills. Reuses exact-binary capability checks and bounded raw probes; generic UIA selection never replaces card submit/echo verification. Bundled scripts are unchanged: `Send-CopilotPrompt`, `Watch-CopilotChatV2` (default: light poll), `Watch-CopilotChatV1` (full tree/details), `Get-CopilotChatTranscript`, `Select-ChoicePromptOption` and `Compare-RepoSnapshot`; learned scripts are indexed in `scripts/SCRIPTS.md`. |
 | `ui-interaction` | Shared AgentDebugToolkit UI primitives: scoped selectors, exact-binary capability checks, opt-in bounded inspection, UIA row/tree pages, authoritative state reads, verified toggle/replacement-selection changes and explicit restore. Partial observations remain unknown; budgets are cooperative, not hard deadlines. Preserves typed-input read-back and the shared cursor indicator `scripts/AgentCursor.ps1` (blue = orchestrator, green = UI run, red = input), also used by `ui-navigation-orchestrator`. |
 | `ui-navigation-orchestrator` | Navigate WinForms/WPF apps with a per-target-repo navigation-tree cache; composes `ui-interaction` and `vs-debug`. |

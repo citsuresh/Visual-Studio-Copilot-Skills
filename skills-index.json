@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 23,
-      "whatsNew": "Adds opt-in phase/heartbeat visibility without extra UI probes and classifies blocked, waiting and completed overall handoffs independently of watcher/subtask completion."
+      "version": 24,
+      "whatsNew": "Documents tracked async command results, live test-step and parameter-iteration evidence, and reusable verified hardware cleanup without assuming runner output streams."
     },
     "project-memory-management": {
       "version": 3,
@@ -14,8 +14,8 @@
       "whatsNew": "Generated read-aloud pointers delegate ready-handoff timing to that skill instead of prescribing speech after replies; enabled push precedes enabled TTS and the ready handoff."
     },
     "push-notifications": {
-      "version": 4,
-      "whatsNew": "Classify the overall task at every final handoff, including blocked exits, without treating a finished subtask or a running operation as investigation completion."
+      "version": 5,
+      "whatsNew": "Distinguish server acceptance from phone delivery and offer optional user-confirmed receipt checks without automatic resends or changing notification consent."
     },
     "ui-interaction": {
       "version": 23,

@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 23`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 24`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -184,6 +184,8 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     fallbacks, and distinguishes verified UI selection from a verified submitted card answer.
   - v23 - Adds opt-in phase/heartbeat visibility without extra UI probes and classifies blocked,
     waiting and completed overall handoffs independently of watcher/subtask completion.
+  - v24 - Documents tracked async command results, live test-step and parameter-iteration
+    evidence, and reusable verified hardware cleanup without assuming runner output streams.
 
 # Agent Orchestrator
 
@@ -591,6 +593,37 @@ result once and independently verify the reply. A heartbeat or a single transien
 is not permission to stop the watcher early, bypass its stability checks or announce success.
 Runner output may be buffered; a local progress file provides inspectable facts, not guaranteed
 real-time chat streaming. A timeout ends this wait, not the supervised task or debuggee.
+
+### Long-running commands, test progress and hardware cleanup
+
+- For a command that may exceed about two minutes, prefer `powershell` with `mode="async"`
+  rather than a long synchronous `initial_wait`. A user can move a synchronous call to the
+  background, so never rely solely on its initial response returning the final result. Retain
+  the returned `shellId`, verify startup once, and use `read_powershell` with that same ID to
+  retrieve output and the final exit status after completion. Read at meaningful checkpoints
+  when progress is needed; do not busy-poll or restart a command because output is quiet.
+  Keep the process attached; background execution is not permission to detach it.
+- Test runners can buffer test console output until the run ends. Before launching a long
+  test, identify its actual live log/trace or existing analyzer and the run's starting offset.
+  Tail only new records for that run, using the existing helper's documented arguments or,
+  for a plain text log, `Get-Content -LiteralPath <verified-log> -Tail 0 -Wait`. Use a separate
+  tracked async tail, stop that tail when the run finishes, and still retrieve the test runner's
+  final exit status and results. Do not mistake old records, a tail's exit or missing output
+  for test completion. If no live source exists, say progress is unavailable; do not infer a hang.
+- Every test progress update must name the current step AND current parameter-loop iteration
+  (index plus actual parameter values), taken from run-correlated trace records. Track loop
+  changes while tailing, not just step lines. If the iteration cannot be established, say
+  "iteration unknown" rather than guessing from elapsed time, step counts or a prior run.
+  Distinguish last-observed progress from the runner's present state when records are stale.
+- Before hardware execution, identify the target repository's stable, reusable cleanup-only
+  command and document its invocation as the recovery step after every failed or aborted run.
+  Require explicit target/repository arguments; missing arguments must fail non-interactively
+  with a clear parameter name and usage example before device access. Do not invent a command,
+  combine cleanup-only with another test or normal-state exercise, or execute it without the
+  required hardware authorization. Cleanup must independently read back and print the final
+  device state against the documented safe baseline; exit code zero alone is not verification.
+  A timeout, null cleanup handle or failed read-back leaves state unverified: report that
+  explicitly, preserve the original test failure, and report cleanup failure separately.
 
 If the watcher is missing, use only a verified raw fallback: scope a probe to the needed chat
 control and, on a capable binary, use `inspect --hwnd <h> --maxDepth 25 --nameContains <label>
