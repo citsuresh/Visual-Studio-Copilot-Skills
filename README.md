@@ -27,6 +27,7 @@ Personal GitHub Copilot Agent Skills for Visual Studio:
 | `read-aloud/` | Optional current-chat speech: "enable tts" / "start tts" speaks short summaries with the Windows default voice; "disable tts" / "stop tts" stops it. Independent auto tts (`enable auto tts` / `start auto tts`; off: `disable auto tts` / `stop auto tts`) speaks only when the host Visual Studio is inactive; plain tts wins if both are on. Finish preparation, send any qualifying enabled push, then speak and immediately show the ready question/reply. Works without Bootstrap. Ships `scripts/Speak-Text.ps1`, `scripts/Speak-IfAway.ps1`, `scripts/Test-HostVsActive.ps1` and `scripts/AudioDucker.cs`; optional audio ducking uses `%USERPROFILE%\.copilot\tts-settings.json` (`{"duck":true,"duckPercent":25}`), compiled in memory with no build step. Unversioned and not in `skills-index.json`. |
 | `install-skills/` | Lets Copilot install| `install-skills/` | Lets Copilot install or update all the skills in this repo for you ("install skills from `<repo url>`", "check the repo and update all the skills"): `Install-Skills.ps1 -Check -Remote`, then `-Remote -Force` (and `-Prune` only after asking you). Installed by `Install-Skills.ps1` like the others. |
 | `push-notifications/` | Optional Pushbullet alerts: "start push notifications" / "enable push notifications" turn on current-chat Completed/Question/Blocker alerts; "stop push notifications" / "disable push notifications" turn them off. Stable titles support MacroDroid; bodies contain only an approved repository name and fixed generic text. Missing credentials leave pushes off with setup guidance and require a fresh enable/start command afterward. |
+| `vs-copilot-chat-voice/` | Companion policy for [VS Copilot Chat Voice](https://github.com/citsuresh/VsCopilotChatVoice): explicit one-shot prototype reading with prepared Concise/Detailed content and verified VS ownership. Automatic reply/progress delivery requires an unavailable production bridge and authoritative Speaker state. Skill installation does not activate speech or install the application. |
 | `Install-Skills.ps1` | Copies all skills into your personal Copilot skills folder. Auto-discovers any skill folder in this repo (containing a `SKILL.md`), so new skills added later need no script changes. Also records this clone's path in `%USERPROFILE%\.copilot\skills-source.json` and clones, updates and builds the companion toolkits under `%USERPROFILE%\.copilot\toolkits\` (see "Toolkits" below). |
 | `skills-index.json` | Generated, about 2 KB: each skill's current `version` and a one-line `whatsNew` (taken from its changelog). The skills' first-use update check reads this instead of the whole `SKILL.md` (up to 113 KB). Never edit it by hand. `install-skills` has no version and is not listed. |
 | `scripts/Update-SkillsIndex.ps1` | Regenerates `skills-index.json` from the `SKILL.md` files (no AI, no commit message). `-Check` only compares and exits 1 if the index is out of date; `-Stage` also runs `git add`. `Install-Skills.ps1 -Check` prints the result as an `INDEX:` line. |
@@ -58,6 +59,11 @@ to use" below), and their helper scripts and test cases live in each skill's `sc
   first two.
 - For `vs-chat-history`: [VsChatHistoryToolkit](https://github.com/citsuresh/VsChatHistoryToolkit)
   (`chathistory.exe`), at `%USERPROFILE%\.copilot\toolkits\VsChatHistoryToolkit`, checked in the skill's Step 0.
+- For `vs-copilot-chat-voice`: a separately supplied compatible Windows x64/net48 prototype
+  reader and freshly verified owning VS HWND for an explicitly requested one-shot read.
+  No production toolkit/discovery or persistent Speaker-state bridge is shipped. VoiceType
+  is optional, separate microphone software with no verified CLI/API; it is not required for
+  reading. No automatic mode is enabled by installing the skill or VSIX.
 
 ## Installing
 
@@ -162,8 +168,9 @@ the first time they are used, to check whether a newer version exists: the check
 clone's and the GitHub upstream's `skills-index.json` (a 2 KB read; it falls back to reading just the
 version line of `SKILL.md` if there is no index), and, if one is newer, tells you what's new and asks
 whether to run `Install-Skills.ps1 -Remote -Force`. It never updates without asking, and it is not
-periodic. `install-skills` checks GitHub on request; `read-aloud` and `push-notifications` have no
-Step 0 version check. The memory skills also keep their separate per-project marker check. Skills that use a
+periodic. `install-skills` checks GitHub on request; `read-aloud`, `push-notifications` and
+`vs-copilot-chat-voice` have no Step 0 version check. The memory skills also keep their separate
+per-project marker check. Skills that use a
 toolkit run a second, read-only check in the same step (`Install-Skills.ps1 -Check -Remote
 -MaxAgeHours 6`, filtered to their own `TOOLKIT:` line), also when the skill version matches: a missing,
 unbuilt or outdated toolkit is reported and the skill asks before running the installer.

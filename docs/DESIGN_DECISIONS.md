@@ -333,3 +333,17 @@ tests stay repository-only. Do not distribute private live-test controllers, pac
 The independent optimized temporary rename/restore passed all checks. The other-chat recovery
 restored its title/context but did not fully verify the caller context; the user accepted that
 limitation. This supports a workaround, not a proven VS root cause or universal speed guarantee.
+
+## 2026-11-20 - Separate Chat Voice policy from unavailable production transport
+
+**Decision:** Keep the `vs-copilot-chat-voice` companion source in this skills repository,
+separate from the application. Start with explicit prototype one-shot consent and policy;
+gate automatic final/progress delivery on a verified bridge and authoritative Speaker state.
+
+**Rationale:** The current reader auto-plays one prepared reply per launch; the initialized
+VSIX shell supplies neither a persistent feed nor remembered automatic state. Installation
+is not activation, and a prerequisite check is not working voice integration.
+
+**Alternatives:** Do not build an application bridge here, emulate a feed by repeated launches,
+reuse generic TTS, invent a toolkit path or persist a second Speaker preference. Reuse existing
+installer autodiscovery and index generation; defer helpers until their contracts are verified.

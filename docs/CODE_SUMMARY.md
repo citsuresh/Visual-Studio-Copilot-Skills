@@ -56,6 +56,11 @@ Scoped title reads and optional `-DelaySeconds 2` reduce overhead; timings are h
 
 ## Skills in this repo
 
+`vs-copilot-chat-voice` adds assistant-side policy for the separate VsCopilotChatVoice
+application: explicit one-shot prototype handoffs, dual-version content and live VS ownership.
+Automatic delivery and authoritative Speaker state require the unavailable production bridge.
+No runtime helper or application binary is bundled; the existing installer/index discover v1.
+
 | Skill | Purpose |
 |---|---|
 | `project-memory-management` | Deprecated predecessor; use `project-memory-management-graph` in docs-only mode instead. |

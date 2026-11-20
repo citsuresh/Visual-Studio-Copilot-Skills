@@ -29,6 +29,10 @@
       "version": 13,
       "whatsNew": "Replaces experimental direct self-renaming with the bundled independent idle-handoff worker; other idle chats retain the direct UI route."
     },
+    "vs-copilot-chat-voice": {
+      "version": 1,
+      "whatsNew": "Define explicit prototype handoffs and capability-gated production voice policy without claiming an available bridge or automatic response subscription."
+    },
     "vs-debug": {
       "version": 12,
       "whatsNew": "Uses successful-build marker executable discovery and makes long-wait progress, timeout and cleanup reporting explicit without implying hardware progress or success."
