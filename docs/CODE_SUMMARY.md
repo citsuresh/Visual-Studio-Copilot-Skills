@@ -26,6 +26,8 @@ nested copying and pruning in a disposable fake profile, without real credential
 `scripts/agent/Test-ReadAloud.ps1` mocks speech and auto-TTS with a disposable wrapper fixture;
 `scripts/agent/Test-WatcherProgress.ps1` tests AST-isolated progress cadence and terminal semantics
 without UI calls or file writes. Neither establishes remote audible/foreground recovery.
+`scripts/agent/Test-SendCopilotPrompt.ps1` tests quoted native arguments with a disposable
+argument-echo process and input read-back/send gating with mocks, without accessing any chat.
 `vs-chat-history/scripts/Invoke-IdleChatRename.ps1` is the canonical bundled one-shot UI
 worker: waits for an approved final-message hash and stable idle before renaming a pinned
 host/session, verifies clipboard/foreground/title/save/reopen and writes private timed facts.

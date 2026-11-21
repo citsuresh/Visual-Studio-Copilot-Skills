@@ -1,10 +1,15 @@
 # Test cases for the agent-orchestrator scripts
 
-These scripts drive a real Visual Studio Copilot chat through UI Automation, so they cannot run as unit tests.
+These scripts drive a real Visual Studio Copilot chat through UI Automation; their live workflows
+need integration tests, while isolated logic can also be tested offline.
 Each `<Script>.tests.md` lists the scenarios to run by hand (or by an orchestrating agent) when the script is
 changed, when a new version of it is written, or after a Visual Studio / Copilot update. Read the file for the
 script you are changing BEFORE editing it, and update it AFTER: a scenario that found a bug stays in the list as
 a regression test.
+
+`scripts/agent/Test-SendCopilotPrompt.ps1` at the repository root additionally tests the sender's
+native argument transport and input read-back with mocks and a disposable argument-echo process.
+It does not access a chat, move focus, type, or send a prompt; offline checks do not replace live cases.
 
 | Script | Test cases |
 | --- | --- |

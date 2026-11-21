@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 24,
-      "whatsNew": "Documents tracked async command results, live test-step and parameter-iteration evidence, and reusable verified hardware cleanup without assuming runner output streams."
+      "version": 25,
+      "whatsNew": "Preserves quoted prompt text across Windows native argument transport and requires an independent input read-back before Send."
     },
     "project-memory-management": {
       "version": 3,

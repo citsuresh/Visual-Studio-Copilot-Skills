@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 24`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 25`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -186,6 +186,9 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     waiting and completed overall handoffs independently of watcher/subtask completion.
   - v24 - Documents tracked async command results, live test-step and parameter-iteration
     evidence, and reusable verified hardware cleanup without assuming runner output streams.
+  - v25 - Preserves quoted prompt text across Windows native argument transport and requires
+    an independent input read-back before Send. Offline tests cover argument round trips and
+    input verification; no live chat send is implied.
 
 # Agent Orchestrator
 
@@ -425,7 +428,9 @@ Use `Send-CopilotPrompt.ps1`:
 ```
 
 It activates the window, optionally starts a new session, clears the input, pastes, and reads it
-back. It clicks Send **only** if the input matches the prompt exactly, and retries otherwise
+back through ValuePattern or TextPattern independently of the CLI's paste verification.
+Windows native argument quoting preserves literal double quotes and backslashes, including on
+Windows PowerShell 5.1. It clicks Send **only** if the input matches the original prompt exactly, and retries otherwise
 (stray keystrokes typed into the window during a paste were observed being sent along with the
 prompt). `Sent: false` means nothing was sent — read `Error` and `InputText`. Omit `-NewSession`
 to reply in the current conversation. It also refuses, before typing anything, while the chat
@@ -486,6 +491,9 @@ preference, confirmed this session):
   traversal/focus state). This is a fact about this specific control, not a generic
   ui-interaction gotcha, so it's recorded here rather than there.
 - `--paste` avoids issues with special characters/newlines that synthetic typing can mangle.
+- Windows PowerShell 5.1 can strip or split embedded double quotes in direct native calls.
+  Use `Send-CopilotPrompt.ps1` for quoted text; its native transport preserves the arguments and
+  independently reads the input before clicking Send. The raw example is not quote-safe there.
 - `--verify` confirms the text landed (skipped automatically for synthetic-keyboard-only controls
   — this is expected, not a bug).
 - **Never embed literal newlines in `--text`** — `type`/`submit-chat-message` reject embedded

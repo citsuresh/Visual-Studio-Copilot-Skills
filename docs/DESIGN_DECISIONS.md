@@ -347,3 +347,16 @@ is not activation, and a prerequisite check is not working voice integration.
 **Alternatives:** Do not build an application bridge here, emulate a feed by repeated launches,
 reuse generic TTS, invent a toolkit path or persist a second Speaker preference. Reuse existing
 installer autodiscovery and index generation; defer helpers until their contracts are verified.
+
+## 2026-11-21 - Sender native argument transport and independent input verification
+
+**Decision:** The sender uses ProcessStartInfo with Windows argument escaping and separately
+reads the input through ValuePattern or TextPattern before Send. Unsupported/ambiguous reads fail.
+
+**Rationale:** Windows PowerShell 5.1 native invocation stripped embedded quotes or split quoted
+spaces. CLI verification can only compare against the already-corrupted native argument; it does
+not establish that the input equals the original PowerShell string.
+
+**Alternatives considered:** Escaping only double quotes in a native splat was rejected because
+backslashes adjacent to quotes and trailing backslashes also require Windows argument escaping.
+Offline native round trips and mocked read-back were tested; no live chat send was performed.

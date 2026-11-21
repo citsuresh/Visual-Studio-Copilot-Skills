@@ -8,6 +8,9 @@
     it back. If the input contains anything other than the exact prompt (for example stray
     keystrokes typed into the window during the paste), it clears and retries. If it still
     does not match after -Retries attempts, it does NOT send and returns Sent=false.
+    Native arguments preserve double quotes and backslashes on Windows PowerShell 5.1.
+    A separate ValuePattern/TextPattern read confirms the input; unsupported or ambiguous
+    input reads fail without clicking Send.
 
 .PARAMETER Hwnd
     Target window handle, e.g. "0x60AAA". Optional when -TitleContains is given. A handle goes
@@ -109,10 +112,55 @@ if (-not $Hwnd -and -not $TitleContains) {
     throw "Pass -Hwnd or -TitleContains."
 }
 
+function ConvertTo-NativeArgument {
+    param([string]$Argument)
+    $escaped = [regex]::Replace($Argument, '(\\*)"', '$1$1\"')
+    return '"' + [regex]::Replace($escaped, '(\\+)$', '$1$1') + '"'
+}
+
 function Invoke-Ui {
     param([string[]]$Arguments)
-    $raw = (& $ExePath @Arguments 2>&1 | Out-String).Trim()
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName = $ExePath
+    $process.StartInfo.Arguments = (@($Arguments | ForEach-Object { ConvertTo-NativeArgument $_ }) -join ' ')
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    $process.StartInfo.StandardOutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $process.StartInfo.StandardErrorEncoding = New-Object System.Text.UTF8Encoding($false)
+    try {
+        if (-not $process.Start()) { throw 'Could not start the UI executable.' }
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $raw = ($stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()).Trim()
+    }
+    finally { $process.Dispose() }
     try { return $raw | ConvertFrom-Json } catch { return [pscustomobject]@{ success = $false; error = 'unparseable-output'; message = $raw } }
+}
+
+function Get-ChatInputElements {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $window = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr][Convert]::ToInt64($Hwnd, 16))
+    $condition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::NameProperty, $InputName)
+    return @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition))
+}
+
+function Get-ChatInputText {
+    $inputs = @(Get-ChatInputElements)
+    if ($inputs.Count -ne 1) { throw 'Chat input is missing or ambiguous; text was not verified and Send was not clicked.' }
+    $pattern = $null
+    if ($inputs[0].TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+        $text = $pattern.Current.Value
+    }
+    elseif ($inputs[0].TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$pattern)) {
+        $text = $pattern.DocumentRange.GetText(-1)
+    }
+    else { throw 'Chat input exposes neither ValuePattern nor TextPattern; text was not verified and Send was not clicked.' }
+    if ($null -eq $text) { throw 'Chat input returned null text; Send was not clicked.' }
+    return $text
 }
 
 function Write-Result {
@@ -261,13 +309,18 @@ try {
         Clear-ChatInput
         $typed = Invoke-Ui @('type', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--text', $Text, '--paste', '--verify')
         if ($typed.success) {
-            $actual = $Text
-            $lastError = $null
-            break
+            $actual = Get-ChatInputText
+            if ([string]::Equals(($actual.Replace("`r`n", "`n").Replace("`r", "`n")), $Text, [StringComparison]::Ordinal)) {
+                $lastError = $null
+                break
+            }
+            $lastError = 'read-back-mismatch: the chat input did not match the original prompt.'
         }
-        $actual = $typed.actual
-        $lastError = "$($typed.error): $($typed.message)"
-        Write-Host "[attempt $attempt] paste did not verify ($($typed.error)); actual='$actual'" -ForegroundColor Yellow
+        else {
+            $actual = $typed.actual
+            $lastError = "$($typed.error): $($typed.message)"
+        }
+        Write-Host "[attempt $attempt] paste did not verify ($lastError); actual='$actual'" -ForegroundColor Yellow
     }
 
     if ($lastError) {
