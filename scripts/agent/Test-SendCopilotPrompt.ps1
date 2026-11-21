@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Offline sender native-argument, input read-back and draft-guard regression checks; no chat interaction.
+Offline sender native-argument, input read-back, draft-guard and own-host guard regression checks; no chat interaction.
 .PARAMETER SenderPath
 Sender whose functions and send-loop statements are tested through its AST.
 .PARAMETER TemporaryRoot
@@ -25,7 +25,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Write-Result')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -134,7 +134,7 @@ $enableCursor = $ast.Find({ param($node)
 Assert-True ($preflight.Extent.EndOffset -lt $enableCursor.Extent.StartOffset) 'Draft refusal must precede cursor/input actions.'
 $OverwriteInput = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($preflight.Extent.Text)))) 'Explicit overwrite should bypass draft refusal.'
-Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'OverwriteInput') 'New switch must preserve prior positional parameter order.'
+Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-2] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
 $callerPath = Join-Path (Split-Path -Parent $SenderPath) 'Invoke-CopilotReview.ps1'
 $callerAst = [Management.Automation.Language.Parser]::ParseFile($callerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
@@ -146,15 +146,61 @@ $sendCommand = $callerAst.Find({ param($node)
 Assert-True ($null -ne $sendCommand) 'Review wrapper sender call not found.'
 $captureCall = [scriptblock]::Create($sendCommand.Extent.Text.Replace($sendCommand.CommandElements[0].Extent.Text, "'Capture-SendCall'"))
 function Capture-SendCall {
-    param($Hwnd, [switch]$Quiet, $Text, $ExePath, [switch]$OverwriteInput)
-    return [pscustomobject]@{ OverwriteInput = [bool]$OverwriteInput }
+    param($Hwnd, [switch]$Quiet, $Text, $ExePath, [switch]$OverwriteInput, [switch]$AllowOwnHost)
+    return [pscustomobject]@{ OverwriteInput = [bool]$OverwriteInput; AllowOwnHost = [bool]$AllowOwnHost }
 }
 $Hwnd = '0x1234'
 $text = 'mock prompt'
 foreach ($OverwriteInput in @($false, $true)) {
-    $captured = & $captureCall
-    Assert-True ($captured.OverwriteInput -eq $OverwriteInput) 'Review wrapper did not forward overwrite choice unchanged.'
+    foreach ($AllowOwnHost in @($false, $true)) {
+        $captured = & $captureCall
+        Assert-True ($captured.OverwriteInput -eq $OverwriteInput) 'Review wrapper did not forward overwrite choice unchanged.'
+        Assert-True ($captured.AllowOwnHost -eq $AllowOwnHost) 'Review wrapper did not forward own-host choice unchanged.'
+    }
 }
+Assert-True (($callerAst.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Wrapper switch must preserve prior positional parameter order.'
+
+$ownerProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $PID"
+$callerIds = @(Get-CallerProcessIds)
+Assert-True ($callerIds[0] -eq $PID -and $callerIds -contains [int]$ownerProcess.ParentProcessId) 'Caller process chain must include this process and its parent.'
+$script:ListWindowsError = ''
+$script:fixtureWindows = @(
+    [pscustomobject]@{ Hwnd = '0x1234'; Pid = 100; ProcessName = 'devenv' },
+    [pscustomobject]@{ Hwnd = '0x2000'; Pid = 200; ProcessName = 'devenv' },
+    [pscustomobject]@{ Hwnd = '0x3000'; Pid = 300; ProcessName = 'notepad' }
+)
+function Get-TopLevelWindows {
+    if ($null -eq $script:fixtureWindows) { $script:ListWindowsError = 'listing failed'; return $null }
+    return ,@($script:fixtureWindows)
+}
+$script:fixtureCallers = @(7, 100)
+function Get-CallerProcessIds { if ($null -eq $script:fixtureCallers) { throw 'chain unreadable' }; return $script:fixtureCallers }
+$Hwnd = '0x1234'
+Assert-True ((Get-OwnHostError) -match 'OwnHostWindow') 'The caller host window was not refused.'
+$Hwnd = '0x2000'
+Assert-True ($null -eq (Get-OwnHostError)) 'A different devenv process (main or Insiders) must remain targetable.'
+$Hwnd = '0x3000'
+Assert-True ($null -eq (Get-OwnHostError)) 'A non-devenv process must remain targetable.'
+$Hwnd = '0x9999'
+Assert-True ((Get-OwnHostError) -match 'no longer exists') 'A stale handle was accepted.'
+$Hwnd = '0x2000'
+$script:fixtureWindows = $null
+Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unreadable window list did not fail closed.'
+$script:fixtureWindows = @([pscustomobject]@{ Hwnd = '0x2000'; Pid = 200; ProcessName = 'devenv' })
+$script:fixtureCallers = $null
+Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unreadable process chain did not fail closed.'
+$ownGuard = $ast.EndBlock.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'Get-OwnHostError'
+} | Select-Object -First 1
+Assert-True ($null -ne $ownGuard -and $ownGuard.Extent.EndOffset -lt $preflight.Extent.StartOffset) 'Own-host refusal must precede draft inspection and cursor actions.'
+$script:fixtureWindows = @([pscustomobject]@{ Hwnd = '0x2000'; Pid = 100; ProcessName = 'devenv' })
+$script:fixtureCallers = @(7, 100)
+$AllowOwnHost = $false
+$result = & ([scriptblock]::Create($ownGuard.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'OwnHostWindow') 'Default own-host guard did not return a refusal.'
+$AllowOwnHost = $true
+Assert-True ($null -eq (& ([scriptblock]::Create($ownGuard.Extent.Text)))) 'Explicit AllowOwnHost should bypass the guard.'
+Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
 
 $tryStatement = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] } | Select-Object -Last 1
 $statements = @($tryStatement.Body.Statements)
@@ -205,4 +251,4 @@ foreach ($case in @('matching', 'different case', 'missing quotes', 'NoSend')) {
         Assert-True ($result.Attempts -eq 3 -and $result.Error -match 'read-back-mismatch') 'Mismatch retries/result changed.'
     }
 }
-Write-Output "PASS: $script:assertions assertions; native quoted-argument round trips, mocked read-back/send gating, draft refusal/rechecks and caller overwrite forwarding; no chat or UI actions."
+Write-Output "PASS: $script:assertions assertions; native quoted-argument round trips, mocked read-back/send gating, draft refusal/rechecks, own-host refusal and caller switch forwarding; no chat or UI actions."

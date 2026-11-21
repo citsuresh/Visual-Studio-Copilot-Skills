@@ -360,3 +360,17 @@ not establish that the input equals the original PowerShell string.
 **Alternatives considered:** Escaping only double quotes in a native splat was rejected because
 backslashes adjacent to quotes and trailing backslashes also require Windows argument escaping.
 Offline native round trips and mocked read-back were tested; no live chat send was performed.
+
+## 2026-11-21 - Sender refuses its own host Visual Studio by default
+
+**Decision:** The sender compares the target window's process id (from the window list) with the
+script's own process id and its parent chain, and refuses a match unless `-AllowOwnHost` is passed.
+An unreadable window list or process chain refuses too.
+
+**Rationale:** An agent that targets its own chat would clear or send into the conversation it runs
+in. The process chain identifies exactly that host without restricting targets to Exp: other main
+or Insiders devenv processes remain valid.
+
+**Alternatives considered:** Allowing only Experimental instances was rejected because main and
+Insiders targets are legitimate. A parent chain broken by a detached launch cannot be detected, which
+is documented. Mocked checks and a read-only real-window check were run; no live send was performed.

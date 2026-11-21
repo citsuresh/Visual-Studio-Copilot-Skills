@@ -13,6 +13,9 @@
     input reads fail without clicking Send.
     Existing drafts, including whitespace-only text, are refused by default before input changes.
     Pass -OverwriteInput only when replacing the draft is intentional.
+    The window of the Visual Studio process hosting this script (a parent process) is refused by
+    default, so an agent cannot type into its own chat; -AllowOwnHost overrides that. Windows of
+    other processes, including other main or Insiders Visual Studio instances, are not affected.
 
 .PARAMETER Hwnd
     Target window handle, e.g. "0x60AAA". Optional when -TitleContains is given. A handle goes
@@ -62,6 +65,11 @@
     Permit clearing an existing draft. Without this switch a non-empty input is preserved,
     including when -NewSession is requested. Declared last to preserve positional parameters.
 
+.PARAMETER AllowOwnHost
+    Permit a target window owned by this script's own process or one of its parent processes (the
+    Visual Studio hosting the calling chat). Without it the send is refused before any input is read
+    or changed. Also skips the check when the window list or process chain cannot be read.
+
 .OUTPUTS
     PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error. When the window
     cannot be brought to the foreground and it no longer exists, Error says so (typically
@@ -103,7 +111,9 @@ param(
 
     [switch]$NoNavigate,
 
-    [switch]$OverwriteInput
+    [switch]$OverwriteInput,
+
+    [switch]$AllowOwnHost
 )
 
 $ErrorActionPreference = 'Stop'
@@ -178,6 +188,40 @@ function Get-ChatDraftError {
     if ($inputs.Count -ne 1) { return 'Chat input is missing or ambiguous; no input was changed.' }
     if ((Get-ChatInputText).Length -gt 0) {
         return 'InputNotEmpty: the chat input holds a draft. Nothing was typed; use -OverwriteInput to replace it.'
+    }
+    return $null
+}
+
+# This process and its ancestors; a parent that started after its child is a recycled PID, so the walk stops.
+function Get-CallerProcessIds {
+    $ids = New-Object 'System.Collections.Generic.List[int]'
+    $current = Get-CimInstance Win32_Process -Filter "ProcessId = $PID" -ErrorAction Stop
+    if (-not $current) { throw "Process $PID was not found." }
+    $ids.Add([int]$current.ProcessId)
+    for ($depth = 0; $depth -lt 32 -and $current.ParentProcessId; $depth++) {
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($current.ParentProcessId)" -ErrorAction Stop
+        if (-not $parent -or $parent.CreationDate -gt $current.CreationDate -or $ids.Contains([int]$parent.ProcessId)) { break }
+        $ids.Add([int]$parent.ProcessId)
+        $current = $parent
+    }
+    return $ids.ToArray()
+}
+
+# Fails closed: an unreadable window list or process chain refuses instead of guessing.
+function Get-OwnHostError {
+    $windows = Get-TopLevelWindows
+    if ($null -eq $windows) {
+        return "OwnHostCheckFailed: could not list windows to check the target's process ($script:ListWindowsError). Nothing was typed; use -AllowOwnHost to skip the check."
+    }
+    $wanted = [Convert]::ToInt64($Hwnd, 16)
+    $target = @($windows | Where-Object { [Convert]::ToInt64($_.Hwnd, 16) -eq $wanted })
+    if ($target.Count -ne 1) {
+        return "Window $Hwnd no longer exists (the app may have been restarted, so the handle is stale). Look it up again, or pass -TitleContains. Nothing was typed."
+    }
+    try { $callerIds = @(Get-CallerProcessIds) }
+    catch { return "OwnHostCheckFailed: could not read this script's process chain ($($_.Exception.Message)). Nothing was typed; use -AllowOwnHost to skip the check." }
+    if ($callerIds -contains [int]$target[0].Pid) {
+        return "OwnHostWindow: window $Hwnd belongs to process $($target[0].Pid), which hosts this script, so it would type into the calling chat itself. Nothing was typed; target another Visual Studio window, or pass -AllowOwnHost if that is intended."
     }
     return $null
 }
@@ -271,6 +315,11 @@ if (-not $Hwnd) {
         return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "More than one window title contains '$TitleContains': $list. Pass -Hwnd or a longer -TitleContains. Nothing was typed."
     }
     $Hwnd = [string]$candidates[0].Hwnd
+}
+
+if (-not $AllowOwnHost) {
+    $ownHostError = Get-OwnHostError
+    if ($ownHostError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $ownHostError }
 }
 
 if (-not $OverwriteInput) {

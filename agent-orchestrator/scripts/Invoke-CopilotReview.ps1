@@ -46,6 +46,9 @@
 .PARAMETER OverwriteInput
     Send even when the input holds text (it will be cleared).
 
+.PARAMETER AllowOwnHost
+    Permit targeting the Visual Studio process that hosts this script; the sender refuses it by default.
+
 .OUTPUTS
     PSCustomObject: Status (Done, NeedsUser, NotSent, NoReply, Timeout), Reason, Hwnd, Reply, Footer,
     IsClean, PromptKind, Question, Options, ScrolledToEnd, ElapsedSeconds.
@@ -85,7 +88,9 @@ param(
     [ValidateRange(200, 100000)]
     [int]$MaxReplyChars = 6000,
 
-    [string]$ExePath = "$env:USERPROFILE\.copilot\toolkits\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe"
+    [string]$ExePath = "$env:USERPROFILE\.copilot\toolkits\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe",
+
+    [switch]$AllowOwnHost
 )
 
 $ErrorActionPreference = 'Stop'
@@ -164,7 +169,7 @@ if ($Review) {
 $tag = 'msg-' + (-join ((97..122) | Get-Random -Count 8 | ForEach-Object { [char]$_ }))
 $text = "$text (${tag}: a label to find this message again, ignore it)"
 
-$send = & (Join-Path $PSScriptRoot 'Send-CopilotPrompt.ps1') -Hwnd $Hwnd -Quiet -Text $text -ExePath $ExePath -OverwriteInput:$OverwriteInput
+$send = & (Join-Path $PSScriptRoot 'Send-CopilotPrompt.ps1') -Hwnd $Hwnd -Quiet -Text $text -ExePath $ExePath -OverwriteInput:$OverwriteInput -AllowOwnHost:$AllowOwnHost
 if (-not $send.Sent) {
     return New-Result 'NotSent' "Send-CopilotPrompt.ps1 did not send: $($send.Error)"
 }

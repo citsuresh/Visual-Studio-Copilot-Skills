@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 26`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 27`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -192,6 +192,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
   - v26 - Refuses to clear an existing chat draft by default and exposes an explicit overwrite
     switch, forwarded by review callers. Whitespace-only drafts are preserved too; offline
     tests cover refusal, overwrite forwarding and draft rechecks without chat interaction.
+  - v27 - Refuses, before reading or typing anything, a target window owned by the calling
+    script's own process chain (the Visual Studio hosting the calling chat); `-AllowOwnHost`
+    overrides it and the review wrapper forwards it. Other devenv processes (main, Insiders,
+    Experimental) stay targetable. An unreadable window list or process chain fails closed.
+    Offline tests use mocks and a read-only real-window check; no chat send is implied.
 
 # Agent Orchestrator
 
@@ -438,6 +443,10 @@ Windows PowerShell 5.1. It clicks Send **only** if the input matches the origina
 prompt). Before input changes it refuses non-empty drafts, including whitespace-only text;
 `-OverwriteInput` deliberately restores the previous clear-and-replace behavior. The review
 wrapper forwards its existing switch. An unreadable or ambiguous input is not proof of emptiness.
+Before anything else it also refuses a window owned by the process chain that runs the script
+(`OwnHostWindow`), so an agent cannot type into its own chat; pass `-AllowOwnHost` only when that is
+intended. Windows of other processes, including other main or Insiders Visual Studio instances,
+are unaffected. A detached script with a broken parent chain cannot be recognized this way.
 `Sent: false` means nothing was sent — read `Error` and `InputText`. Omit `-NewSession`
 to reply in the current conversation. It also refuses, before typing anything, while the chat
 shows a working-directory mismatch or untrusted-workspace banner (see Step 4); don't pass

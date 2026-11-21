@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 26,
-      "whatsNew": "Refuses to clear an existing chat draft by default and exposes an explicit overwrite switch, forwarded by review callers."
+      "version": 27,
+      "whatsNew": "Refuses, before reading or typing anything, a target window owned by the calling script's own process chain (the Visual Studio hosting the calling chat); -AllowOwnHost overrides it and the review wrapper forwards it."
     },
     "project-memory-management": {
       "version": 3,
