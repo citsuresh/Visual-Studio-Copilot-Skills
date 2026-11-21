@@ -28,6 +28,8 @@ nested copying and pruning in a disposable fake profile, without real credential
 without UI calls or file writes. Neither establishes remote audible/foreground recovery.
 `scripts/agent/Test-SendCopilotPrompt.ps1` tests quoted native arguments with a disposable
 argument-echo process and input read-back/send gating with mocks, without accessing any chat.
+`scripts/agent/Test-ReadCopilotReply.ps1` runs the transcript and reader scripts against a fake UI
+executable serving synthetic trees to test structural reply classification, without any chat.
 `vs-chat-history/scripts/Invoke-IdleChatRename.ps1` is the canonical bundled one-shot UI
 worker: waits for an approved final-message hash and stable idle before renaming a pinned
 host/session, verifies clipboard/foreground/title/save/reopen and writes private timed facts.

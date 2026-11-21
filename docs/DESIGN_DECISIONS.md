@@ -374,3 +374,19 @@ or Insiders devenv processes remain valid.
 **Alternatives considered:** Allowing only Experimental instances was rejected because main and
 Insiders targets are legitimate. A parent chain broken by a detached launch cannot be detected, which
 is documented. Mocked checks and a read-only real-window check were run; no live send was performed.
+
+## 2026-11-21 - Reply classification uses structural markers before name patterns
+
+**Decision:** The transcript script tags each message item with a `Kind` derived from AutomationIds
+below it (PART_FlowScrollViewer body, toolCallExpander/HeaderSite tool, PART_LikeButton footer).
+The reader keeps bodies, drops tool items and headers, and applies the old footer/chrome regexes to
+unmarked items. Only when markers are present in the reply region is a short single-line item with at
+most two children treated as a file chip. A body viewer inside a tool expander does not make a body.
+
+**Rationale:** Names such as `Worked on 7 tasks` and file chips vary by build and escaped the
+name-based pattern. A legitimate one-word reply has one child, so child-count rules alone would drop
+it; the body marker must win. Turns can hold several bodies and tool items before the footer.
+
+**Alternatives considered:** Replacing the regex outright was rejected because builds without the
+markers would regress. `IsFooter` was left unchanged to keep the transcript's default output stable.
+Fake-UI tests and a read-only real-tree check were run; the scrolling reader was not run live.

@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 27`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 28`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -197,6 +197,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     overrides it and the review wrapper forwards it. Other devenv processes (main, Insiders,
     Experimental) stay targetable. An unreadable window list or process chain fails closed.
     Offline tests use mocks and a read-only real-window check; no chat send is implied.
+  - v28 - `Get-CopilotChatTranscript.ps1` adds structural `Kind`, `ChildCount` and `HasMarker` per
+    message (PART_FlowScrollViewer body, toolCallExpander/HeaderSite tool, PART_LikeButton footer),
+    and `Read-CopilotReply.ps1` classifies by them first so items such as "Worked on 7 tasks" and
+    file chips are no longer returned in `Reply`; bodies win over child-count heuristics and the
+    old regexes remain the fallback. Offline fake-UI tests plus a read-only real-tree check.
 
 # Agent Orchestrator
 
@@ -238,7 +243,7 @@ message, several matches the candidate list); `-Hwnd` wins when both are given.
 | `Send-CopilotPrompt.ps1` | Step 2: guard drafts, new session (optional), clear, paste, verify, then Send; `-OverwriteInput` permits draft replacement | Sends a prompt |
 | `Watch-CopilotChatV2.ps1` | Step 3 (default): light poll until Pending, Idle, or timeout; no prompt text | No |
 | `Watch-CopilotChatV1.ps1` | Step 3: full-tree poll; returns prompt question/options, `AwaitingReply`, banners | No |
-| `Get-CopilotChatTranscript.ps1` | Step 3: full text of the latest reply/replies | No |
+| `Get-CopilotChatTranscript.ps1` | Step 3: full text of the latest reply/replies, with structural `Kind` per message | No |
 | `Select-ChoicePromptOption.ps1` | Step 4: answer a `ChoicePrompt` card (verifies the echo) or, with `-Button`, a permission prompt | Clicks (moves the mouse) |
 | `Compare-RepoSnapshot.ps1` | Step 5: which files the agent really added/modified/deleted | Writes only the snapshot file |
 | `AgentCursor.ps1` (shared, in `ui-interaction\scripts\`) | "Hands off" indicator: blue dot = orchestration session active, red dot = input now | Temporarily swaps system cursors |

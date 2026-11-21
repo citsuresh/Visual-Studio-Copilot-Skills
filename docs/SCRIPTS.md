@@ -5,6 +5,7 @@ without the user's approval.
 
 | script | purpose | how to call | read-only or modifies | date |
 | --- | --- | --- | --- | --- |
+| `scripts/agent/Test-ReadCopilotReply.ps1` | Offline structural reply-classification, chip/tool exclusion, regex fallback and scroll-up merge checks for the transcript and reader scripts against a fake UI executable; no chat interaction | `.\scripts\agent\Test-ReadCopilotReply.ps1 [-ScriptsFolder <folder>] [-TemporaryRoot <existing-folder>]` | modifies only its own disposable fixture folder | 2026-11-21 |
 | `scripts/agent/Test-SendCopilotPrompt.ps1` | Offline sender argument transport, input read-back, draft guards, own-host target guard and review-wrapper switch forwarding; no chat interaction | `.\scripts\agent\Test-SendCopilotPrompt.ps1 [-SenderPath <script>] [-TemporaryRoot <existing-folder>]` | modifies only its own disposable argument-echo fixture; launches an isolated PowerShell process | 2026-11-21 |
 | `scripts/agent/Find-WrongLineEndings.ps1` | List lines whose line ending is not the expected one (lone LF in a CRLF file, or the reverse) after a tool edit | `.\scripts\agent\Find-WrongLineEndings.ps1 -Path <file>[,<file>] [-Ending CRLF\|LF]` | read-only | 2026-11-13 |
 | `scripts/agent/Compare-TrxCoverage.ps1` | Verify complete passing TRX runs jointly cover exactly the reference case names, without duplicates; reference names must be unique | `.\scripts\agent\Compare-TrxCoverage.ps1 -ReferenceTrx <reference.trx> -ResultTrx <run1.trx>[,<run2.trx>]` | read-only | 2026-11-18 |

@@ -32,7 +32,13 @@
     Path to agentdebug-ui.exe.
 
 .OUTPUTS
-    PSCustomObject per message: Index, IsFooter, Text. With -AsText, plain text separated by
+    PSCustomObject per message: Index, IsFooter, Text, plus structural metadata: Kind, ChildCount and
+    HasMarker. Kind comes from AutomationIds below the message item: Body (PART_FlowScrollViewer outside
+    any tool expander; the item's Name is the full text), Tool (toolCallExpander or HeaderSite; never
+    reply text), Footer (PART_LikeButton or the -CompletionPattern text), Header (GitHub Copilot or
+    Restore Checkpoint) or Other. Body wins over the other markers and over any child-count heuristic.
+    HasMarker is true when one of the three structural AutomationIds was present. IsFooter still
+    means only the -CompletionPattern text. With -AsText, plain text separated by
     blank lines; with -AsJson, a JSON array.
 
 .EXAMPLE
@@ -99,6 +105,26 @@ if (-not $data) {
     throw "inspect returned no parseable UIA tree for hwnd $Hwnd."
 }
 
+# Structure of one message item: which marker AutomationIds sit below it. A body viewer inside a
+# tool expander belongs to the tool, not to reply text.
+function Get-ItemStructure($Item) {
+    $hasBody = $false; $hasTool = $false; $hasLike = $false
+    $pending = New-Object System.Collections.Generic.Stack[object]
+    $pending.Push([pscustomobject]@{ Node = $Item; InTool = $false })
+    while ($pending.Count -gt 0) {
+        $entry = $pending.Pop()
+        $id = [string]$entry.Node.AutomationId
+        $inTool = $entry.InTool
+        if ($id -eq 'toolCallExpander' -or $id -eq 'HeaderSite') { $hasTool = $true; $inTool = $true }
+        elseif ($id -eq 'PART_FlowScrollViewer' -and -not $inTool) { $hasBody = $true }
+        elseif ($id -eq 'PART_LikeButton') { $hasLike = $true }
+        foreach ($child in @($entry.Node.Children)) {
+            if ($child) { $pending.Push([pscustomobject]@{ Node = $child; InTool = $inTool }) }
+        }
+    }
+    [pscustomobject]@{ HasBody = $hasBody; HasTool = $hasTool; HasLike = $hasLike }
+}
+
 # Depth-first, children in order, so messages come out in render order.
 $messages = [System.Collections.Generic.List[object]]::new()
 $stack = [System.Collections.Generic.Stack[object]]::new()
@@ -106,7 +132,14 @@ $stack.Push($data.root)
 while ($stack.Count -gt 0) {
     $node = $stack.Pop()
     if ($node.ClassName -eq 'ChatMessageItem' -and $node.Name) {
-        if ($node.Name -notmatch $PlaceholderPattern) { $messages.Add($node.Name) }
+        if ($node.Name -notmatch $PlaceholderPattern) {
+            $structure = Get-ItemStructure $node
+            $messages.Add([pscustomobject]@{
+                Text       = [string]$node.Name
+                ChildCount = @(@($node.Children) | Where-Object { $_ }).Count
+                Structure  = $structure
+            })
+        }
         continue
     }
     $children = @($node.Children)
@@ -116,10 +149,20 @@ while ($stack.Count -gt 0) {
 }
 
 $items = for ($i = 0; $i -lt $messages.Count; $i++) {
+    $message = $messages[$i]
+    $structure = $message.Structure
+    $kind = if ($structure.HasBody) { 'Body' }
+        elseif ($structure.HasTool) { 'Tool' }
+        elseif ($structure.HasLike -or $message.Text -match $CompletionPattern) { 'Footer' }
+        elseif ($message.Text -match '^(GitHub Copilot|Restore Checkpoint)$') { 'Header' }
+        else { 'Other' }
     [pscustomobject]@{
-        Index    = $i
-        IsFooter = $messages[$i] -match $CompletionPattern
-        Text     = $messages[$i]
+        Index      = $i
+        IsFooter   = $message.Text -match $CompletionPattern
+        Text       = $message.Text
+        Kind       = $kind
+        ChildCount = $message.ChildCount
+        HasMarker  = [bool]($structure.HasBody -or $structure.HasTool -or $structure.HasLike)
     }
 }
 $items = @($items | Where-Object { $IncludeFooter -or -not $_.IsFooter })

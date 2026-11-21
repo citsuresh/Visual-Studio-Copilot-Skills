@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 27,
-      "whatsNew": "Refuses, before reading or typing anything, a target window owned by the calling script's own process chain (the Visual Studio hosting the calling chat); -AllowOwnHost overrides it and the review wrapper forwards it."
+      "version": 28,
+      "whatsNew": "Get-CopilotChatTranscript.ps1 adds structural Kind, ChildCount and HasMarker per message (PART_FlowScrollViewer body, toolCallExpander/HeaderSite tool, PART_LikeButton footer), and Read-CopilotReply.ps1 classifies by them first so items..."
     },
     "project-memory-management": {
       "version": 3,

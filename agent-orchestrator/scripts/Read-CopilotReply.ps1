@@ -17,8 +17,14 @@
 
     Skipped when building the reply text: the "GitHub Copilot" header, "Restore Checkpoint" markers,
     and tool-activity summaries such as "9 tasks done", "Read 3 items" and "Run command (2 completed)".
-    The completion footer ("The response used ... / The response cost N credits.") is returned
-    separately in Footer.
+    Items are classified by structure first (Get-CopilotChatTranscript.ps1 Kind): a message body
+    (PART_FlowScrollViewer) is always kept, even when its text looks like chrome or is one short word;
+    tool and task items (toolCallExpander or HeaderSite, for example "Worked on 7 tasks") and headers
+    are never reply text. An item without a marker still goes through -FooterPattern and -ChromePattern,
+    and, once structural markers appear in the reply, a short single-line item with at most two children
+    (a file chip such as README.md) is dropped. Without any structural marker the old pattern-only
+    behavior applies. The completion footer ("The response used ... / The response cost N credits.", or
+    a PART_LikeButton item) is returned separately in Footer.
 
     When the reply is longer than the visible chat area, the prompt message is not rendered at the bottom of the
     list, so it cannot be found there. The script then scrolls up in steps (85, 70, 55, 40, 25, 10, 0 percent) until the
@@ -75,7 +81,12 @@ param(
     # Tool-activity summaries and chrome that are not part of the answer text.
     [string]$ChromePattern = '^(GitHub Copilot|Restore Checkpoint|\d+ tasks? done|Read \d+ items?|Run command.*|Used \d+ tools?.*|Searched .*|Thinking.*)$',
 
-    [string]$TitleContains
+    [string]$TitleContains,
+
+    # Unmarked items at most this long, on one line and with at most two children, are chips once structural markers are
+    # present. 0 turns the chip rule off.
+    [ValidateRange(0, 2000)]
+    [int]$ChipMaxLength = 260
 )
 
 $ErrorActionPreference = 'Stop'
@@ -139,19 +150,23 @@ else {
 $scrolledUp = $false
 if ($start -lt 0 -and $AfterPrompt -and -not $NoScroll) {
     $bottomTexts = $texts
+    $bottomItems = $items
     foreach ($pct in 85, 70, 55, 40, 25, 10, 0) {
         $null = Invoke-Cli @('scroll-container', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'session', '--verticalPercent', [string]$pct)
         Start-Sleep -Milliseconds 300
-        $upTexts = @(@(& $transcript -Hwnd $Hwnd -Last 0 -IncludeFooter -ExePath $ExePath) | ForEach-Object { $_.Text })
+        $upItems = @(& $transcript -Hwnd $Hwnd -Last 0 -IncludeFooter -ExePath $ExePath)
+        $upTexts = @($upItems | ForEach-Object { $_.Text })
         $found = -1
         for ($i = $upTexts.Count - 1; $i -ge 0; $i--) {
             if ($upTexts[$i].IndexOf($AfterPrompt, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $found = $i; break }
         }
         if ($found -ge 0) {
-            $merged = New-Object System.Collections.Generic.List[string]
-            foreach ($m in @($upTexts | Select-Object -Skip ($found + 1))) { $merged.Add($m) }
-            foreach ($m in $bottomTexts) { if (-not $merged.Contains($m)) { $merged.Add($m) } }
-            $texts = $merged.ToArray()
+            $merged = New-Object System.Collections.Generic.List[object]
+            $mergedTexts = New-Object System.Collections.Generic.List[string]
+            foreach ($m in @($upItems | Select-Object -Skip ($found + 1))) { $merged.Add($m); $mergedTexts.Add($m.Text) }
+            foreach ($m in $bottomItems) { if (-not $mergedTexts.Contains($m.Text)) { $merged.Add($m); $mergedTexts.Add($m.Text) } }
+            $items = $merged.ToArray()
+            $texts = $mergedTexts.ToArray()
             $start = 0
             $scrolledUp = $true
             break
@@ -164,10 +179,18 @@ if ($start -lt 0 -and $AfterPrompt -and -not $NoScroll) {
 $footer = $null
 $replyParts = New-Object System.Collections.Generic.List[string]
 if ($start -ge 0) {
-    for ($i = $start; $i -lt $texts.Count; $i++) {
+    # Structural mode only when the reply region carries marker AutomationIds; otherwise patterns decide, as before.
+    $structured = $false
+    for ($i = $start; $i -lt $items.Count; $i++) { if ($items[$i].PSObject.Properties['HasMarker'] -and $items[$i].HasMarker) { $structured = $true; break } }
+    for ($i = $start; $i -lt $items.Count; $i++) {
         $t = $texts[$i]
+        $kind = if ($items[$i].PSObject.Properties['Kind']) { [string]$items[$i].Kind } else { 'Other' }
+        if ($kind -eq 'Body') { $replyParts.Add($t); continue }
+        if ($kind -eq 'Footer') { $footer = $t; continue }
+        if ($kind -eq 'Tool' -or $kind -eq 'Header') { continue }
         if ($t -match $FooterPattern) { $footer = $t; continue }
         if ($t -match $ChromePattern) { continue }
+        if ($structured -and $ChipMaxLength -gt 0 -and $items[$i].ChildCount -le 2 -and $t.Length -le $ChipMaxLength -and $t -notmatch '[\r\n]') { continue }
         $replyParts.Add($t)
     }
 }

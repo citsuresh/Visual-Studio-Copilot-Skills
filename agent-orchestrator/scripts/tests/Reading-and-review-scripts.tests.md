@@ -15,6 +15,7 @@ Read [README.md](README.md) first. "Last result" is from 2026-10-31 unless state
 | R-07 | REGRESSION: a long reply, so the prompt message is not rendered at the bottom of the chat list. `-AfterPrompt '<phrase>'` | `PromptFound` true, `ScrolledUpToFindPrompt` true, `PartialReply` true (messages rendered at neither scroll position are missing), the list is back at the bottom afterwards. Before the fix: `PromptFound` false and an empty `Reply` | Pass 2026-10-31 (toolkit chat, prompt far above newer messages: found after scrolling up, 10 messages merged, 58 s) |
 | R-07 | `Read-CopilotReply.ps1 -TitleContains` / `Get-CopilotChatTranscript.ps1 -TitleContains` with no matching window, and with neither `-Hwnd` nor `-TitleContains` | Throws "No window title contains '...'. Nothing was touched." / "Pass -Hwnd or -TitleContains." | Pass 2026-11-02 (Read-CopilotReply from the repo; Get-CopilotChatTranscript from the temp copy of v15) |
 | R-08 | `-TitleContains` with several matches, and with a live chat | Candidate list thrown; with one match the same result as with the hwnd | Several: Pass for the shared helper 2026-11-02. Live chat: not run |
+| R-09 | REGRESSION: a turn with several bodies, tool items (`Worked on 7 tasks`), file chips (`README.md`, a 62-character path), a one-word body `Done` and a cost-only footer | `Reply` holds only the bodies (including short and chrome-looking ones); tools and chips are excluded; footer returned separately; unmarked chats keep the old pattern behavior; scroll-up merge unchanged | Pass 2026-11-21: `scripts/agent/Test-ReadCopilotReply.ps1` (19 assertions, fake UI); the old scripts fail it; live reader run not done (it scrolls the chat), live transcript kinds read-only OK |
 
 ## Get-CopilotChatTranscript.ps1
 
@@ -22,6 +23,7 @@ Read [README.md](README.md) first. "Last result" is from 2026-10-31 unless state
 | --- | --- | --- | --- |
 | T-01 | `-Hwnd <h>` on a chat | One row per rendered message: `Index`, `IsFooter`, `Text`; only rendered messages (virtualized) | Pass; with a card open it returned only the card's title as the last row |
 | T-02 | Chat scrolled up | Returns the rendered window only; scroll first (see Read-CopilotReply) | Known behavior |
+| T-03 | Message items with PART_FlowScrollViewer, toolCallExpander/HeaderSite, PART_LikeButton or none | `Kind` Body, Tool, Footer, Other (Header for GitHub Copilot or Restore Checkpoint); a viewer inside a tool expander does not make a Body; `IsFooter` unchanged | Pass 2026-11-21 offline and on a read-only transcript of the host chat (chips `Other` with 2 children) |
 
 ## Invoke-CopilotReview.ps1
 
