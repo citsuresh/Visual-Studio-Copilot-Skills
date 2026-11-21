@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Offline sender native-argument and explicit input read-back regression checks; no chat interaction.
+Offline sender native-argument, input read-back and draft-guard regression checks; no chat interaction.
 .PARAMETER SenderPath
 Sender whose functions and send-loop statements are tested through its AST.
 .PARAMETER TemporaryRoot
@@ -25,7 +25,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Write-Result')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Write-Result')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -102,6 +102,60 @@ foreach ($case in @('missing', 'ambiguous', 'unsupported', 'null')) {
     Assert-True $refused "Unverified input was accepted: $case"
 }
 
+$script:inputFixtures = @($inputElement)
+$script:textSupported = $true
+$Quiet = $false
+$AsJson = $false
+foreach ($draftText in @('user draft', ' ', 'original "quoted text"')) {
+    $script:textRead = $draftText
+    Assert-True ((Get-ChatDraftError) -match 'InputNotEmpty') 'A non-empty draft was accepted.'
+    Assert-True ($script:textRead -ceq $draftText) 'Draft inspection changed the text.'
+}
+$script:textRead = ''
+Assert-True ($null -eq (Get-ChatDraftError)) 'An empty input should be allowed.'
+$script:inputFixtures = @()
+Assert-True ($null -eq (Get-ChatDraftError -AllowMissing)) 'A hidden input should allow the navigation preflight.'
+Assert-True ((Get-ChatDraftError) -match 'missing or ambiguous') 'Final draft check accepted an absent input.'
+$script:inputFixtures = @($inputElement, $inputElement)
+Assert-True ((Get-ChatDraftError -AllowMissing) -match 'missing or ambiguous') 'Preflight accepted ambiguous input.'
+$script:inputFixtures = @($inputElement)
+$script:textRead = 'user draft'
+$OverwriteInput = $false
+$NewSession = $true
+$preflight = $ast.EndBlock.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'Get-ChatDraftError -AllowMissing'
+} | Select-Object -First 1
+Assert-True ($null -ne $preflight) 'Missing default draft preflight.'
+$result = & ([scriptblock]::Create($preflight.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'InputNotEmpty') 'Draft preflight did not refuse before a new session/send.'
+$enableCursor = $ast.Find({ param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Enable-AgentCursor'
+}, $true)
+Assert-True ($preflight.Extent.EndOffset -lt $enableCursor.Extent.StartOffset) 'Draft refusal must precede cursor/input actions.'
+$OverwriteInput = $true
+Assert-True ($null -eq (& ([scriptblock]::Create($preflight.Extent.Text)))) 'Explicit overwrite should bypass draft refusal.'
+Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'OverwriteInput') 'New switch must preserve prior positional parameter order.'
+$callerPath = Join-Path (Split-Path -Parent $SenderPath) 'Invoke-CopilotReview.ps1'
+$callerAst = [Management.Automation.Language.Parser]::ParseFile($callerPath, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+$sendCommand = $callerAst.Find({ param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+    $node.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Ampersand -and
+    $node.CommandElements[0].Extent.Text -match 'Send-CopilotPrompt\.ps1'
+}, $true)
+Assert-True ($null -ne $sendCommand) 'Review wrapper sender call not found.'
+$captureCall = [scriptblock]::Create($sendCommand.Extent.Text.Replace($sendCommand.CommandElements[0].Extent.Text, "'Capture-SendCall'"))
+function Capture-SendCall {
+    param($Hwnd, [switch]$Quiet, $Text, $ExePath, [switch]$OverwriteInput)
+    return [pscustomobject]@{ OverwriteInput = [bool]$OverwriteInput }
+}
+$Hwnd = '0x1234'
+$text = 'mock prompt'
+foreach ($OverwriteInput in @($false, $true)) {
+    $captured = & $captureCall
+    Assert-True ($captured.OverwriteInput -eq $OverwriteInput) 'Review wrapper did not forward overwrite choice unchanged.'
+}
+
 $tryStatement = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] } | Select-Object -Last 1
 $statements = @($tryStatement.Body.Statements)
 $start = -1
@@ -109,6 +163,14 @@ for ($index = 0; $index -lt $statements.Count; $index++) {
     if ($statements[$index].Extent.Text -eq '$attempt = 0') { $start = $index; break }
 }
 if ($start -lt 0) { throw 'Sender loop could not be isolated.' }
+$finalGuard = $statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'Get-ChatDraftError'
+} | Select-Object -Last 1
+Assert-True ($null -ne $finalGuard -and $finalGuard.Extent.EndOffset -lt $statements[$start].Extent.StartOffset) 'Missing draft recheck before clearing.'
+$OverwriteInput = $false
+$script:textRead = 'draft appeared during navigation'
+$result = & ([scriptblock]::Create($finalGuard.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'InputNotEmpty') 'Final guard did not preserve a newly exposed draft.'
 $sendLoop = [scriptblock]::Create((@($statements | Select-Object -Skip $start | ForEach-Object { $_.Extent.Text }) -join "`n"))
 $Hwnd = '0x1234'
 $InputName = 'Ask Copilot'
@@ -143,4 +205,4 @@ foreach ($case in @('matching', 'different case', 'missing quotes', 'NoSend')) {
         Assert-True ($result.Attempts -eq 3 -and $result.Error -match 'read-back-mismatch') 'Mismatch retries/result changed.'
     }
 }
-Write-Output "PASS: $script:assertions assertions; native quoted-argument round trips and mocked input verification/send gating; no chat or UI actions."
+Write-Output "PASS: $script:assertions assertions; native quoted-argument round trips, mocked read-back/send gating, draft refusal/rechecks and caller overwrite forwarding; no chat or UI actions."

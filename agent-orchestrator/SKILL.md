@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 25`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 26`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -189,6 +189,9 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
   - v25 - Preserves quoted prompt text across Windows native argument transport and requires
     an independent input read-back before Send. Offline tests cover argument round trips and
     input verification; no live chat send is implied.
+  - v26 - Refuses to clear an existing chat draft by default and exposes an explicit overwrite
+    switch, forwarded by review callers. Whitespace-only drafts are preserved too; offline
+    tests cover refusal, overwrite forwarding and draft rechecks without chat interaction.
 
 # Agent Orchestrator
 
@@ -227,7 +230,7 @@ message, several matches the candidate list); `-Hwnd` wins when both are given.
 
 | Script | Use it for | Changes anything? |
 | --- | --- | --- |
-| `Send-CopilotPrompt.ps1` | Step 2: new session (optional), clear, paste, verify, then Send | Sends a prompt |
+| `Send-CopilotPrompt.ps1` | Step 2: guard drafts, new session (optional), clear, paste, verify, then Send; `-OverwriteInput` permits draft replacement | Sends a prompt |
 | `Watch-CopilotChatV2.ps1` | Step 3 (default): light poll until Pending, Idle, or timeout; no prompt text | No |
 | `Watch-CopilotChatV1.ps1` | Step 3: full-tree poll; returns prompt question/options, `AwaitingReply`, banners | No |
 | `Get-CopilotChatTranscript.ps1` | Step 3: full text of the latest reply/replies | No |
@@ -432,7 +435,10 @@ back through ValuePattern or TextPattern independently of the CLI's paste verifi
 Windows native argument quoting preserves literal double quotes and backslashes, including on
 Windows PowerShell 5.1. It clicks Send **only** if the input matches the original prompt exactly, and retries otherwise
 (stray keystrokes typed into the window during a paste were observed being sent along with the
-prompt). `Sent: false` means nothing was sent — read `Error` and `InputText`. Omit `-NewSession`
+prompt). Before input changes it refuses non-empty drafts, including whitespace-only text;
+`-OverwriteInput` deliberately restores the previous clear-and-replace behavior. The review
+wrapper forwards its existing switch. An unreadable or ambiguous input is not proof of emptiness.
+`Sent: false` means nothing was sent — read `Error` and `InputText`. Omit `-NewSession`
 to reply in the current conversation. It also refuses, before typing anything, while the chat
 shows a working-directory mismatch or untrusted-workspace banner (see Step 4); don't pass
 `-IgnoreBanners` unless the user agreed.
@@ -463,8 +469,9 @@ shows a working-directory mismatch or untrusted-workspace banner (see Step 4); d
   has already pasted the text: the prompt sits unsent in the input box. Wait for the watcher to
   report Idle, then send. Never press Enter or click Stop to force it; Stop cancels the work in
   progress. (In one observed case the pasted text was later submitted as a queued message with
-  no action from the script, but do not rely on that.) Leftover pasted text is harmless: the
-  script clears the input and re-pastes on the next send.
+  no action from the script, but do not rely on that.) Leftover pasted text remains a draft:
+  another send is refused by default. Pass `-OverwriteInput` only when deliberately replacing
+  that unsent text.
 - **Keep each Copilot round small.** Give one work item per prompt, with its acceptance checks.
   Rounds that bundled several items, plus their own audits and repeated full test runs, took
   20 to 25 minutes and 50 to 85 credits each, and one stretch produced a single huge streamed tool
@@ -676,9 +683,9 @@ and token-heavy. On capable binaries, bound raw inspection with `--maxNodes`/`--
 and preserve incomplete/unknown results rather than classifying a partial tree as complete.
 These flags do not retrofit bundled watcher/transcript scripts: their current implementations
 are unchanged; do not pass nonexistent script parameters or assume those scripts are bounded.
-Before `Send-CopilotPrompt.ps1`, run `find-first --hwnd <h> --strategy Name
---value "Ask Copilot"` and send only if it is found: the script clears the input first, so a draft
-the user is typing there would be replaced.
+`Send-CopilotPrompt.ps1` independently checks the input text and refuses drafts by default.
+Finding the `Ask Copilot` placeholder alone does not establish an empty input. Pass
+`-OverwriteInput` only when replacing a draft has been explicitly approved.
 ## Step 4 — Detect and answer prompts correctly
 
 Three distinct interaction shapes exist. Getting this wrong causes confusion (plain-text replies

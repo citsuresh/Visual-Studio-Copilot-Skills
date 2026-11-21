@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 25,
-      "whatsNew": "Preserves quoted prompt text across Windows native argument transport and requires an independent input read-back before Send."
+      "version": 26,
+      "whatsNew": "Refuses to clear an existing chat draft by default and exposes an explicit overwrite switch, forwarded by review callers."
     },
     "project-memory-management": {
       "version": 3,

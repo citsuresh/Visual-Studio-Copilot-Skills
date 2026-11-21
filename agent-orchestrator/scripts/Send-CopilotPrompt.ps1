@@ -11,6 +11,8 @@
     Native arguments preserve double quotes and backslashes on Windows PowerShell 5.1.
     A separate ValuePattern/TextPattern read confirms the input; unsupported or ambiguous
     input reads fail without clicking Send.
+    Existing drafts, including whitespace-only text, are refused by default before input changes.
+    Pass -OverwriteInput only when replacing the draft is intentional.
 
 .PARAMETER Hwnd
     Target window handle, e.g. "0x60AAA". Optional when -TitleContains is given. A handle goes
@@ -56,6 +58,10 @@
     On success, return InputText as $null instead of echoing the whole prompt back. Failures
     still return the text that was read from the input, since it explains the failure.
 
+.PARAMETER OverwriteInput
+    Permit clearing an existing draft. Without this switch a non-empty input is preserved,
+    including when -NewSession is requested. Declared last to preserve positional parameters.
+
 .OUTPUTS
     PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error. When the window
     cannot be brought to the foreground and it no longer exists, Error says so (typically
@@ -95,7 +101,9 @@ param(
 
     [string]$TitleContains,
 
-    [switch]$NoNavigate
+    [switch]$NoNavigate,
+
+    [switch]$OverwriteInput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -161,6 +169,17 @@ function Get-ChatInputText {
     else { throw 'Chat input exposes neither ValuePattern nor TextPattern; text was not verified and Send was not clicked.' }
     if ($null -eq $text) { throw 'Chat input returned null text; Send was not clicked.' }
     return $text
+}
+
+function Get-ChatDraftError {
+    param([switch]$AllowMissing)
+    $inputs = @(Get-ChatInputElements)
+    if ($inputs.Count -eq 0 -and $AllowMissing) { return $null }
+    if ($inputs.Count -ne 1) { return 'Chat input is missing or ambiguous; no input was changed.' }
+    if ((Get-ChatInputText).Length -gt 0) {
+        return 'InputNotEmpty: the chat input holds a draft. Nothing was typed; use -OverwriteInput to replace it.'
+    }
+    return $null
 }
 
 function Write-Result {
@@ -254,6 +273,10 @@ if (-not $Hwnd) {
     $Hwnd = [string]$candidates[0].Hwnd
 }
 
+if (-not $OverwriteInput) {
+    $draftError = Get-ChatDraftError -AllowMissing
+    if ($draftError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $draftError }
+}
 
 # Red-dot cursor while this script activates the window, types and clicks; always restored.
 # Shared with ui-interaction; agent-orchestrator and ui-interaction are sibling skill folders.
@@ -295,6 +318,11 @@ try {
     }
     elseif (-not (Test-ChatInput -TimeoutMs 5000)) {
         return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'The chat input is not showing (-NoNavigate was given). Nothing was typed.'
+    }
+
+    if (-not $OverwriteInput) {
+        $draftError = Get-ChatDraftError
+        if ($draftError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $draftError }
     }
 
     $attempt = 0

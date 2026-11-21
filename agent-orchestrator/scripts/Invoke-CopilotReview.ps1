@@ -9,9 +9,8 @@
       1. Resolves the window (-Hwnd, or -TitleContains restricted to one process name, devenv by
          default, so Explorer or browser windows with the same folder name are never matched).
       2. Refuses to send, returning a status instead, when the chat is not showing (another tab such
-         as Git Changes is active), or when the input already holds text (Send-CopilotPrompt.ps1
-         clears the input first, which would destroy a draft someone is typing). -OverwriteInput
-         overrides the second check.
+         as Git Changes is active), or when the input already holds text. The sender independently
+         checks the draft again before clearing. -OverwriteInput overrides both draft checks.
       3. Appends a short unique reference tag to the prompt, sends it with Send-CopilotPrompt.ps1, and
          waits with Watch-CopilotChatV2.ps1 (default, -Poller V2: one cheap probe of the input area per poll,
          works with the window overlapped or minimized) or Watch-CopilotChatV1.ps1 (-Poller V1).
@@ -165,7 +164,7 @@ if ($Review) {
 $tag = 'msg-' + (-join ((97..122) | Get-Random -Count 8 | ForEach-Object { [char]$_ }))
 $text = "$text (${tag}: a label to find this message again, ignore it)"
 
-$send = & (Join-Path $PSScriptRoot 'Send-CopilotPrompt.ps1') -Hwnd $Hwnd -Quiet -Text $text -ExePath $ExePath
+$send = & (Join-Path $PSScriptRoot 'Send-CopilotPrompt.ps1') -Hwnd $Hwnd -Quiet -Text $text -ExePath $ExePath -OverwriteInput:$OverwriteInput
 if (-not $send.Sent) {
     return New-Result 'NotSent' "Send-CopilotPrompt.ps1 did not send: $($send.Error)"
 }
