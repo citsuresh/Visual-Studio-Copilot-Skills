@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 28,
-      "whatsNew": "Get-CopilotChatTranscript.ps1 adds structural Kind, ChildCount and HasMarker per message (PART_FlowScrollViewer body, toolCallExpander/HeaderSite tool, PART_LikeButton footer), and Read-CopilotReply.ps1 classifies by them first so items..."
+      "version": 29,
+      "whatsNew": "Watch-CopilotChatV2.ps1 also recognizes a plain Allow button as a pending permission (Pending, PermissionPrompt) when it and a Deny sibling are enabled and on screen, not only Allow this time."
     },
     "project-memory-management": {
       "version": 3,

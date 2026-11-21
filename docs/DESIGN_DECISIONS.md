@@ -390,3 +390,19 @@ it; the body marker must win. Turns can hold several bodies and tool items befor
 **Alternatives considered:** Replacing the regex outright was rejected because builds without the
 markers would regress. `IsFooter` was left unchanged to keep the transcript's default output stable.
 Fake-UI tests and a read-only real-tree check were run; the scrolling reader was not run live.
+
+## 2026-11-21 - V2 treats a plain Allow as a permission only beside a visible Deny
+
+**Decision:** `Watch-CopilotChatV2.ps1` already reported `Allow this time`. It now also reports a
+button named exactly `Allow` as a pending permission, but only when that button and a `Deny` button
+under the same parent are both enabled and on screen. Any read failure counts as not a prompt. No
+Cancel button is ever a permission: `CancelButton` still means busy only, and a pending approval that
+keeps the stop button visible is reported Pending because Pending is decided before Busy.
+
+**Rationale:** Some builds label the approval button `Allow`, so the watcher waited out its timeout. A
+bare name match would also catch historical approvals and unrelated dialogs, so the Deny sibling and
+the on-screen check keep the match tied to a live prompt. This mirrors the sibling rule in V1.
+
+**Alternatives considered:** Matching any Allow name was rejected as too loose. Treating Cancel as a
+permission signal was rejected because it is also the normal streaming state. Offline mock tests were
+run; no live approval prompt was available, so the exact structure is assumed from V1's rules.

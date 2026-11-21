@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 28`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 29`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -202,6 +202,10 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     and `Read-CopilotReply.ps1` classifies by them first so items such as "Worked on 7 tasks" and
     file chips are no longer returned in `Reply`; bodies win over child-count heuristics and the
     old regexes remain the fallback. Offline fake-UI tests plus a read-only real-tree check.
+  - v29 - `Watch-CopilotChatV2.ps1` also recognizes a plain `Allow` button as a pending permission
+    (Pending, PermissionPrompt) when it and a `Deny` sibling are enabled and on screen, not only
+    `Allow this time`. Historical or scrolled-out buttons, a lone `Allow`, and Cancel buttons do not
+    match. Offline mock tests; no live approval prompt was available.
 
 # Agent Orchestrator
 

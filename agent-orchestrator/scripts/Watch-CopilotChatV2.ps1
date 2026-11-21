@@ -40,7 +40,9 @@
       - It sees a card or prompt only in the LAST real message of the chat list, and only while the list is
         scrolled to its end (the list is virtualized; it never scrolls). A card above a scrolled-up view is missed.
       - A card is recognized by a button named "Submit" or "Next question", a permission prompt by "Allow this
-        time"; other wording is missed while polling (the final detail step can still catch it).
+        time", or by a plain "Allow" button that is enabled and on screen next to an enabled, on-screen "Deny"
+        button of the same parent (an "Allow" without that Deny, or scrolled out of view, is ignored, as are
+        unrelated Cancel buttons); other wording is missed while polling (the final detail step can still catch it).
       - The detail step needs agentdebug-ui.exe and Watch-CopilotChatV1.ps1 next to this script; without them
         the result has DetailNote instead of details.
       - With -RequireBusyFirst, a reply that finishes before the first probe is reported only after
@@ -56,6 +58,7 @@
         - stop button (AutomationId CancelButton)   -> Copilot is busy (it stays on while Copilot waits for a
           permission and between tool steps, where the "Working" text is absent)
         - "Allow this time" button                  -> Pending, PermissionPrompt
+        - "Allow" button beside a "Deny" button     -> Pending, PermissionPrompt (both enabled and on screen)
         - "Submit" / "Next question" button         -> Pending, ChoiceCard
         - "Ask Copilot" placeholder                 -> the chat pane is showing (input empty)
 
@@ -220,6 +223,7 @@ function Cond($prop, [string]$value) { New-Object System.Windows.Automation.Prop
 $inputCond = New-Object System.Windows.Automation.OrCondition(
     (Cond $idProp 'CancelButton'),
     (Cond $nameProp 'Allow this time'),
+    (Cond $nameProp 'Allow'),
     (Cond $nameProp 'Submit'),
     (Cond $nameProp 'Next question'),
     (Cond $nameProp 'Ask Copilot'))
@@ -237,11 +241,25 @@ if (-not ('CopilotWait.NativeCheck' -as [type])) {   # define once per process; 
 # Title is the session title shown in the chat pane header (AutomationId "title"); $null when that element was not found.
 function New-Flags { @{ Busy = $false; Permission = $false; Card = $false; Chat = $false; Footer = $false; Title = $null } }
 
+# A plain "Allow" counts as a pending permission only when it is enabled and on screen next to an enabled,
+# on-screen "Deny" button of the same parent; a lone or scrolled-out "Allow" (an old approval, an unrelated
+# dialog) does not. Any read failure means "not a prompt".
+function Test-PendingAllow($e) {
+    try {
+        if ($e.Current.IsOffscreen -or -not $e.Current.IsEnabled) { return $false }
+        $parent = $walker.GetParent($e)
+        if (-not $parent) { return $false }
+        $deny = $parent.FindFirst($children, (Cond $nameProp 'Deny'))
+        return [bool]($deny -and -not $deny.Current.IsOffscreen -and $deny.Current.IsEnabled)
+    }
+    catch { return $false }
+}
+
 function Add-Match($f, $e) {
     $id = $e.Current.AutomationId
     $name = $e.Current.Name
     if ($id -eq 'CancelButton') { $f.Busy = $true; $f.Chat = $true }
-    elseif ($name -eq 'Allow this time') { $f.Permission = $true; $f.Chat = $true }
+    elseif ($name -eq 'Allow this time' -or ($name -eq 'Allow' -and (Test-PendingAllow $e))) { $f.Permission = $true; $f.Chat = $true }
     elseif ($name -eq 'Submit' -or $name -eq 'Next question') { $f.Card = $true; $f.Chat = $true }
     elseif ($id -eq 'session' -or $name -eq 'Ask Copilot') { $f.Chat = $true }
 }
