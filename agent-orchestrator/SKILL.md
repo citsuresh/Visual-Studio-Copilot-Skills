@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 29`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 30`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -206,6 +206,10 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     (Pending, PermissionPrompt) when it and a `Deny` sibling are enabled and on screen, not only
     `Allow this time`. Historical or scrolled-out buttons, a lone `Allow`, and Cancel buttons do not
     match. Offline mock tests; no live approval prompt was available.
+  - v30 - V2 accepts an already-idle footer after two consecutive prompt-free polls without
+    `RequireBusyFirst`, and timeout notes report observed wait facts instead of claiming busy.
+    `RequireBusyFirst` keeps its existing busy/grace and quiet rules. The header documents timeout
+    budgeting; virtual-clock mock tests cover polling decisions without UI interaction.
 
 # Agent Orchestrator
 
@@ -544,6 +548,12 @@ always available even if the toolkit source isn't up to date; they still call th
   light probe said Idle but the detail step found an open prompt: the result is changed to Pending; read
   `PromptKind` and answer it). `-NoDetail` skips that final step, and with it the upgrade. It sees a card or prompt only in the last few messages while the list is near its end; run it
   with `-CrossCheck` after a Visual Studio or Copilot update.
+  Without `-RequireBusyFirst`, two consecutive polls with a footer at the end, no stop button and
+  no card or permission prompt return Idle even if busy was never seen. After sending a prompt,
+  keep `-RequireBusyFirst` so a previous footer cannot use that fast path; its existing busy/grace
+  and quiet rules remain unchanged. When a wait may start idle, budget `-TimeoutSeconds` above
+  `-QuietSeconds` plus `-StartGraceSeconds`, with room for poll/probe overhead. Timeout means no
+  terminal state was observed, not necessarily that the chat is busy; read the note's wait facts.
 - **`Watch-CopilotChatV1.ps1` — the full-tree watcher.** Heavy (about 70 % of a core), a full tree dump
   per poll. Use it directly only when you need its verbose per-poll lines, `-NotifyOnDone`
   or `-RequireWorkingFirst`.

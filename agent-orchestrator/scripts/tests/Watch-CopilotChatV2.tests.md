@@ -33,7 +33,7 @@ for prompts that asked for other labels). Read the real options before answering
 | V2-07 | REGRESSION: the list ends with an empty view-model placeholder item (`Microsoft.VisualStudio...`) after the card or footer | Card still found; a finished reply's footer still found (V2 skips trailing placeholders like V1) | Card: pass after the fix (skills chat). Footer behind a placeholder: not separately reproduced |
 | V2-08 | Chat tab not active (Git Changes tab on top in the same pane) | `State` NotVisible, immediately | Pass (AgentDebugToolkit window); `-CrossCheck` agreed |
 | V2-09 | `-Hwnd 0x1` (no such window) | `State` WindowGone within a second | Pass |
-| V2-10 | Chat stays busy past `-TimeoutSeconds` | `State` Timeout, returns within a few seconds of the limit, `Note` says still busy | Pass (30 s, 90 s runs) |
+| V2-10 | Chat stays busy past `-TimeoutSeconds` | `State` Timeout, returns within a few seconds of the limit; `Note` reports no terminal state and observed busy/footer/quiet facts | Historical live state/timing pass (30 s, 90 s runs); updated note passes offline 2026-11-22, not rerun live |
 | V2-11 | Any end state with `-NoDetail` | No Question/Options/AwaitingReply (null), returns in about 1 s, no V1 run | Pass |
 | V2-12 | Idle or Pending with `-ExePath C:\nope\agentdebug-ui.exe` | State still correct, `DetailNote` explains the missing exe, no exception | Pass |
 | V2-13 | Idle chat with `-CrossCheck` | `Mismatches` 0 | Not run on a clean idle chat (every idle chat probed was NotVisible or gone); card cases give 0 |
@@ -65,7 +65,36 @@ for prompts that asked for other labels). Read the real options before answering
 | V2-24 | `-TitleContains` that matches several windows | Throws the candidate list | Pass 2026-11-02 for the shared helper; not run through V2 |
 | V2-25 | `-TitleContains '<solution> - '` against a live chat, and `-Hwnd` given as well | Same result as with the hwnd; `-Hwnd` wins when both are given | Not run (needs a live chat) |
 
+## Already-idle timeout regression (2026-11-22)
+
+User-reported live diagnosis, not rerun here: an idle footer, no stop button and no prompt gave
+Timeout at 15 s with all four probes showing busy=0 and footerAtEnd=1; V1 simultaneously said Idle.
+A 45 s wait returned Idle at 21 s through the quiet rule. The old timeout note incorrectly claimed busy.
+
+Run the repository's `scripts\agent\Test-WatcherProgress.ps1 -WatcherPath <V2-source-or-draft>`
+offline. It extracts the actual polling loop, mocks flag sequences, window existence and V1 detail,
+and advances a virtual clock instead of sleeping. These tests do not exercise live UIA discovery.
+
+| ID | Setup / action | Expected | Last result |
+| --- | --- | --- | --- |
+| V2-26 | Already-idle footer on consecutive polls, no stop/card/permission; no `RequireBusyFirst`; timeout 15 s, quiet 20 s, interval 5 s. Also timeout 10 s, quiet 300 s, interval 2 s | Idle on poll 2 at 5 s / 2 s, BusySeen false; no detail with NoDetail | Draft offline pass 2026-11-22; not run live |
+| V2-27 | Footer, no footer, footer, no footer before timeout | No fast Idle; Timeout on poll 4, note says busy seen no, footer at end no, quiet countdown 15 of 20 | Draft offline pass 2026-11-22 |
+| V2-28 | Footer, failed probe, footer, footer | Failed probe resets streak; Idle only after two fresh successful polls (11 s, 3 successful probes, 4 attempts) | Draft offline pass 2026-11-22 |
+| V2-29 | Old footer on every poll with RequireBusyFirst; timeout 15 s, grace 30 s, quiet 20 s | Timeout, BusySeen false, footer at end yes, quiet countdown 0 of 20; no fast Idle | Draft offline pass 2026-11-22 |
+| V2-30 | Same gated footer with timeout 60 s; also grace 0 with timeout 15 s | Grace 30 plus quiet 20 still gives Idle at 50 s, not at grace expiry; zero grace still waits quiet and times out at 15 s | Draft offline pass 2026-11-22 |
+| V2-31 | No footer and no prompt throughout; separately busy then quiet without footer | Existing no-footer quiet fallback gives Idle at 20 s; busy then quiet resets countdown (10 of 20 at 15 s timeout), BusySeen true | Draft offline pass 2026-11-22 |
+| V2-32 | Busy then footer with RequireBusyFirst; separately footer, busy+footer, footer; persistent busy+footer | Existing busy-to-footer Idle remains immediate; stop button blocks fast Idle; persistent busy times out with quiet countdown 0 | Draft offline pass 2026-11-22 |
+| V2-33 | Footer followed by footer+card, footer+permission, or hidden chat; separately busy then changed title without footer | Pending ChoiceCard / PermissionPrompt wins over second footer; hidden chat gives NotVisible; existing ChatSwitched remains | Draft offline pass 2026-11-22 |
+| V2-34 | Probe fails at timeout; separately three consecutive failed probes | Timeout note names latest probe failure, never claims busy; three failures still give ProbeError | Draft offline pass 2026-11-22 |
+| V2-35 | Two idle footer probes, detail enabled; mocked V1 finds a permission prompt | Exactly one detail call; Pending, PermissionPrompt, Upgraded true | Draft offline pass 2026-11-22; real detail/UIA not exercised |
+
+Any live check for this change must be read-only against an already-idle chat: run the watcher
+with `-NoBeep` and optionally `-NoDetail` / `-CrossCheck`. Do not send prompts, type, click, scroll
+or activate a window to arrange these cases. Busy/prompt/switch cases above are offline only here.
+
 ## Procedure after changing V2
 
 Run V2-01, V2-02, V2-04, V2-05, V2-08, V2-09, V2-11, V2-12 and V2-14 at least. For a change to what the light
 probe looks at, also V2-06 and V2-07, and always with `-CrossCheck` (`Mismatches` 0).
+For this read-only idle-timeout change, run V2-26 through V2-35 offline; the restriction above takes
+precedence over historical live setup procedures. Leave unrun live cases explicitly unverified.

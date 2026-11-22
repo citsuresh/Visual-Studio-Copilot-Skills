@@ -72,14 +72,16 @@
     WHEN THE WAIT ENDS
       Pending     as soon as a card or permission prompt is seen.
       Idle        (a) once the stop button has been seen and is gone and the list ends in a completion footer, or
-                  (b) after -QuietSeconds with no stop button and no prompt.
+                  (b) without -RequireBusyFirst, after two consecutive polls with a footer at the end,
+                      no stop button and no card or permission prompt, or
+                  (c) after -QuietSeconds with no stop button and no prompt (after the start gate, if any).
       NotVisible  neither the list nor the input placeholder is showing (another tab, such as Git Changes, is active).
       ChatSwitched  the visible chat is no longer the one being watched (someone clicked "New chat" or opened another
                   session): the session title changed, the stop button is gone and there is no completion footer.
                   The watched chat may still be working; select it again and read it with Read-CopilotReply.ps1.
       WindowGone  the window no longer exists.
       ProbeError  three probes in a row failed while the window still exists.
-      Timeout     still busy after -TimeoutSeconds.
+      Timeout     no terminal state observed after -TimeoutSeconds; the note reports observed wait facts.
     Confirm an Idle reply with Read-CopilotReply.ps1, which scrolls to the end and reads it.
 
     TEST CASES: tests\Watch-CopilotChatV2.tests.md next to this script lists every scenario, how to set it up, the
@@ -107,6 +109,9 @@
 
 .PARAMETER TimeoutSeconds
     Give up after this long and report Timeout. Default 900.
+    When a wait may start on an idle chat, this should exceed -QuietSeconds plus -StartGraceSeconds
+    (especially with -RequireBusyFirst); allow extra time for poll/probe overhead. Without
+    -RequireBusyFirst, a stable footer can end the wait sooner through the two-poll rule.
 
 .PARAMETER TraceFile
     Optional file; one line per poll: time, probe duration, flags.
@@ -474,6 +479,7 @@ $script:titleMarker = $null
 $script:markerSet = $false
 $deadline = $script:started.AddSeconds($TimeoutSeconds)
 $quietSince = $null
+$idleFooterPolls = 0
 if ($TraceFile) { Set-Content -Path $TraceFile -Value "# Watch-CopilotChatV2 trace, hwnd $Hwnd, interval ${PollIntervalSeconds}s" -Encoding UTF8 }
 Write-WatchProgress -Phase polling -State Waiting -Operation 'observe Copilot chat' -Force
 
@@ -487,13 +493,14 @@ while ($true) {
         if ($CrossCheck) { $whole = Get-FlagsWhole }
     }
     catch {
+        $idleFooterPolls = 0
         # Only a window that really no longer exists is WindowGone; any other failure is a probe error.
         if (-not [CopilotWait.NativeCheck]::IsWindow($handle)) { return (Finish 'WindowGone' $null 'The window no longer exists.') }
         $script:errors++
         if ($script:errors -ge 3) {
             return (Finish 'ProbeError' $null "The probe failed $($script:errors) times in a row while the window still exists: $($_.Exception.Message)")
         }
-        if ((Get-Date) -ge $deadline) { return (Finish 'Timeout' $null "Still failing or busy after $TimeoutSeconds seconds.") }
+        if ((Get-Date) -ge $deadline) { return (Finish 'Timeout' $null "No terminal state after $TimeoutSeconds seconds; latest probe failed: $($_.Exception.Message)") }
         $script:retryCount++
         Write-WatchProgress -Phase polling -State Waiting -Operation 'retry failed read-only chat probe'
         Start-Sleep -Seconds 1
@@ -537,12 +544,20 @@ while ($true) {
     if ($f.Busy) {
         $script:busySeen = $true
         $quietSince = $null
+        $idleFooterPolls = 0
     }
     else {
         # Fast path: it was busy, the stop button is gone and the end of the list is a completion footer.
         if ($script:busySeen -and $f.Footer) {
             return (Finish 'Idle' $null 'The stop button is gone and the chat ends in a completion footer. Confirm the reply with Read-CopilotReply.ps1.')
         }
+        if (-not $RequireBusyFirst -and $f.Footer) {
+            $idleFooterPolls++
+            if ($idleFooterPolls -ge 2) {
+                return (Finish 'Idle' $null 'Two consecutive polls found a completion footer at the end with no stop button or prompt. Confirm the reply with Read-CopilotReply.ps1.')
+            }
+        }
+        else { $idleFooterPolls = 0 }
         $startGate = $RequireBusyFirst -and -not $script:busySeen -and ($elapsed -lt $StartGraceSeconds)
         if (-not $startGate) {
             if (-not $quietSince) { $quietSince = $pollStart }
@@ -553,7 +568,12 @@ while ($true) {
     }
 
     Write-WatchProgress -Phase polling -State Waiting -Operation 'wait for chat state change'
-    if ((Get-Date) -ge $deadline) { return (Finish 'Timeout' $null "Still busy after $TimeoutSeconds seconds.") }
+    if ((Get-Date) -ge $deadline) {
+        $busySeenText = if ($script:busySeen) { 'yes' } else { 'no' }
+        $footerText = if ($f.Footer) { 'yes' } else { 'no' }
+        $quietElapsed = if ($quietSince) { [int][Math]::Floor(($pollStart - $quietSince).TotalSeconds) } else { 0 }
+        return (Finish 'Timeout' $null "No terminal state after $TimeoutSeconds seconds (busy seen $busySeenText, footer at end $footerText, quiet countdown $quietElapsed of $QuietSeconds seconds).")
+    }
     $sleep = $PollIntervalSeconds - ((Get-Date) - $pollStart).TotalSeconds
     if ($sleep -gt 0) { Start-Sleep -Milliseconds ([int]($sleep * 1000)) }
 }
