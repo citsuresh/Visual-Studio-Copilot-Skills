@@ -4,6 +4,12 @@ Script: `..\Watch-CopilotChatV2.ps1` (the default watcher). Read [README.md](REA
 
 Setup used so far: a Visual Studio window with a Copilot chat in Agent mode (window titled for the
 AgentDebugToolkit solution, hwnd changes per start; look it up with `list-windows --titleContains`).
+WARNING: Launch a supervising watcher only as a tracked async shell command, keep shellId and
+read it on the completion notice; never use Start-Process, a hidden window or a scheduled task.
+Before yielding, state the expected finish time and exact recovery check. On a user message,
+answer first and check fresh footer/git/file evidence before trusting Idle. Individual tool waits
+stay under about two minutes. These launch/recovery instructions were reviewed offline for v31;
+the real lost-notice incident and live recovery were not reproduced.
 Send prompts with `Send-CopilotPrompt.ps1 -Hwnd <h> -Quiet -AsJson -Text '<prompt>'`, then run the watcher as
 shown. "Last result" is from 2026-10-31 unless stated.
 
@@ -93,6 +99,10 @@ with `-NoBeep` and optionally `-NoDetail` / `-CrossCheck`. Do not send prompts, 
 or activate a window to arrange these cases. Busy/prompt/switch cases above are offline only here.
 
 ## Procedure after changing V2
+
+2026-11-23 v31 header-only update: six relevant scripts parsed successfully; the existing offline
+Test-WatcherProgress.ps1 passed all 19 virtual-clock scenarios and progress/permission checks.
+Watcher runtime logic is unchanged. No live UIA, beep or tracked watcher run was performed.
 
 Run V2-01, V2-02, V2-04, V2-05, V2-08, V2-09, V2-11, V2-12 and V2-14 at least. For a change to what the light
 probe looks at, also V2-06 and V2-07, and always with `-CrossCheck` (`Mismatches` 0).

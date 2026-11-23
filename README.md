@@ -40,6 +40,14 @@ setup that wires the skill into a project's own short trigger prompts). The UI a
 supervision skills have no such workflows: they are used when a task needs them (see "Which skill
 to use" below), and their helper scripts and test cases live in each skill's `scripts/` folder.
 
+Agent-orchestrator v31 adds opt-in `Send-CopilotPrompt.ps1 -Steer` for an already-busy chat,
+with exact input read-back and no Stop/Send fallback. Existing drafts remain protected; refusal
+diagnostics report character codes rather than draft text. Run supervising watchers as tracked
+async shell commands and retain their `shellId` for completion/recovery. Offline verification:
+`& .\scripts\agent\Test-SendCopilotPrompt.ps1` (266 assertions) and
+`& .\scripts\agent\Test-WatcherProgress.ps1` (19 virtual-clock scenarios). Live supervisor tests
+also verified corrected sibling-layout steering, transcript submission and agent continuation.
+
 ## Prerequisites
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free

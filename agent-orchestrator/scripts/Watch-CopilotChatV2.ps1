@@ -4,6 +4,14 @@
     probe per poll. The default watcher; Watch-CopilotChatV1.ps1 is the older full-tree one.
 
 .DESCRIPTION
+    WARNING: Run this watcher through the shell tool with mode async; retain shellId and read it
+    on the completion notice. Never use Start-Process, a hidden window or a scheduled task:
+    an untracked watcher gives no completion notice (a reported run lost 5.4 hours waiting).
+    Before ending a waiting turn, state the expected finish time and exact recovery check.
+    When the user writes, answer first and check reply/footer freshness, git status and artifact
+    last-write times before trusting Idle. Keep individual tool waits under about two minutes.
+    Host interactivity/redirection cannot reliably detect shell tracking; this rule is documented.
+
     WHAT IT DOES, IN ORDER
       1. Polls the chat cheaply (about 0.5 s per probe, no console output) until the chat is Idle (finished),
          Pending (a question card or permission prompt waits for a person), or something is wrong.

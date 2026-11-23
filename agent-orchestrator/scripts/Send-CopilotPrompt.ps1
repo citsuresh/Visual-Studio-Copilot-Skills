@@ -13,9 +13,16 @@
     input reads fail without clicking Send.
     Existing drafts, including whitespace-only text, are refused by default before input changes.
     Pass -OverwriteInput only when replacing the draft is intentional.
+    Draft refusal Error includes UTF-16 length, code-point count and up to 32 distinct character
+    codes with occurrence counts, never draft text. ValuePattern takes precedence over TextPattern;
+    neither read is normalized. These diagnostics do not establish the cause of a refusal.
     The window of the Visual Studio process hosting this script (a parent process) is refused by
     default, so an agent cannot type into its own chat; -AllowOwnHost overrides that. Windows of
     other processes, including other main or Insiders Visual Studio instances, are not affected.
+    -Steer redirects an existing busy chat instead of sending a new turn. It preserves the same
+    draft guards and exact read-back, checks busy before typing, and invokes only SteerButton
+    after verification. It never clicks Stop or falls back to Send. Steer availability/click
+    failures contain no draft text.
 
 .PARAMETER Hwnd
     Target window handle, e.g. "0x60AAA". Optional when -TitleContains is given. A handle goes
@@ -38,7 +45,7 @@
     Extra clear-and-paste attempts after a verification mismatch. Default 2.
 
 .PARAMETER NoSend
-    Paste and verify only; do not click Send. Useful for testing.
+    Paste and verify only; do not click Send or Steer. Useful for testing.
 
 .PARAMETER IgnoreBanners
     Send even if the chat shows a HarnessWorkspaceMismatchBanner ("The open folder is outside
@@ -69,6 +76,16 @@
     Permit a target window owned by this script's own process or one of its parent processes (the
     Visual Studio hosting the calling chat). Without it the send is refused before any input is read
     or changed. Also skips the check when the window list or process chain cannot be read.
+
+.PARAMETER Steer
+    Redirect the currently visible busy chat using SteerButton (Name Steer, Button, InvokePattern).
+    Requires an enabled, visible input-area Stop or Steer button and no visible SendButton before
+    typing; requires enabled, visible SteerButton after exact read-back. Refuses -NewSession and
+    does not navigate or create a chat. Action buttons must be direct children of the Chat pane
+    (siblings of WpfTextViewHost), never input-host/message-list descendants. CancelButton may
+    have UIA Name Cancel. A missing/disabled button or lost busy state fails closed
+    with Sent=false and a text-free Error; verified unsent text is left as a protected draft.
+    Appended to preserve all prior positional parameter indices.
 
 .OUTPUTS
     PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error. When the window
@@ -113,7 +130,9 @@ param(
 
     [switch]$OverwriteInput,
 
-    [switch]$AllowOwnHost
+    [switch]$AllowOwnHost,
+
+    [switch]$Steer
 )
 
 $ErrorActionPreference = 'Stop'
@@ -186,8 +205,72 @@ function Get-ChatDraftError {
     $inputs = @(Get-ChatInputElements)
     if ($inputs.Count -eq 0 -and $AllowMissing) { return $null }
     if ($inputs.Count -ne 1) { return 'Chat input is missing or ambiguous; no input was changed.' }
-    if ((Get-ChatInputText).Length -gt 0) {
-        return 'InputNotEmpty: the chat input holds a draft. Nothing was typed; use -OverwriteInput to replace it.'
+    $draft = Get-ChatInputText
+    if ($draft.Length -gt 0) {
+        $counts = @{}
+        $codePointCount = 0
+        for ($i = 0; $i -lt $draft.Length; $i++) {
+            $code = [int]$draft[$i]
+            if ([char]::IsHighSurrogate($draft[$i]) -and $i + 1 -lt $draft.Length -and [char]::IsLowSurrogate($draft[$i + 1])) {
+                $code = [char]::ConvertToUtf32($draft[$i], $draft[$i + 1])
+                $i++
+            }
+            $counts[$code] = 1 + $counts[$code]
+            $codePointCount++
+        }
+        $codes = (@($counts.Keys | Sort-Object | Select-Object -First 32 | ForEach-Object {
+            'U+{0:X4}({1})' -f $_, $counts[$_]
+        }) -join ',')
+        return "InputNotEmpty: the chat input holds a draft. DraftLength=$($draft.Length); CodePointCount=$codePointCount; DistinctCodes=$($counts.Count); Codes=$codes. Nothing was typed; use -OverwriteInput to replace it."
+    }
+    return $null
+}
+
+function Get-ChatActionButtons {
+    $inputs = @(Get-ChatInputElements)
+    if ($inputs.Count -ne 1) { return @() }
+    $node = $inputs[0]
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    for ($depth = 0; $depth -lt 32; $depth++) {
+        $parent = $walker.GetParent($node)
+        if ($null -eq $parent) { break }
+        if ($parent.Current.ClassName -eq 'GenericPane' -and $parent.Current.Name -eq 'Chat') {
+            if ($node.Current.ClassName -eq 'ChatSessionList' -or $node.Current.AutomationId -eq 'session') { return @() }
+            $ids = New-Object System.Windows.Automation.OrCondition(
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'CancelButton')),
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SteerButton')),
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SendButton')))
+            $condition = New-Object System.Windows.Automation.AndCondition($ids,
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)))
+            return @($parent.FindAll([System.Windows.Automation.TreeScope]::Children, $condition))
+        }
+        $node = $parent
+    }
+    return @()
+}
+
+function Get-ChatSteerError {
+    param([switch]$RequireButton)
+    $buttons = @(Get-ChatActionButtons)
+    $visible = @($buttons | Where-Object { -not $_.Current.IsOffscreen })
+    $send = @($visible | Where-Object { $_.Current.AutomationId -eq 'SendButton' })
+    $steerButtons = @($visible | Where-Object { $_.Current.AutomationId -eq 'SteerButton' })
+    $busy = @($visible | Where-Object {
+        $_.Current.IsEnabled -and (
+            $_.Current.AutomationId -eq 'CancelButton' -or
+            ($_.Current.AutomationId -eq 'SteerButton' -and $_.Current.Name -eq 'Steer'))
+    })
+    if ($RequireButton) {
+        if ($send.Count -gt 0 -or $busy.Count -ne 1 -or $steerButtons.Count -ne 1 -or -not $steerButtons[0].Current.IsEnabled -or $steerButtons[0].Current.Name -ne 'Steer') {
+            return 'SteerUnavailable: no unique enabled input-area SteerButton in a busy chat; nothing was clicked.'
+        }
+        $pattern = $null
+        if (-not $steerButtons[0].TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+            return 'SteerUnavailable: SteerButton lacks InvokePattern; nothing was clicked.'
+        }
+    }
+    elseif ($send.Count -gt 0 -or $busy.Count -ne 1) {
+        return 'SteerRequiresBusy: the visible input area does not confirm a busy chat; nothing was typed or clicked.'
     }
     return $null
 }
@@ -327,6 +410,12 @@ if (-not $OverwriteInput) {
     if ($draftError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $draftError }
 }
 
+if ($Steer) {
+    if ($NewSession) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'SteerRequiresExistingChat: -Steer cannot be combined with -NewSession; nothing was typed or clicked.' }
+    $steerError = Get-ChatSteerError
+    if ($steerError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $steerError }
+}
+
 # Red-dot cursor while this script activates the window, types and clicks; always restored.
 # Shared with ui-interaction; agent-orchestrator and ui-interaction are sibling skill folders.
 $agentCursor = Join-Path $PSScriptRoot '..\..\ui-interaction\scripts\AgentCursor.ps1'
@@ -338,7 +427,7 @@ try {
     if (-not (Request-Foreground)) {
         return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
     }
-    if (-not $NoNavigate) { Select-ChatTabIfHidden }
+    if (-not $NoNavigate -and -not $Steer) { Select-ChatTabIfHidden }
 
     # Banner check before any input; banners only render while the chat is visible.
     if (-not $IgnoreBanners) {
@@ -359,13 +448,14 @@ try {
             return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'Chat input did not appear after creating a session.'
         }
     }
-    elseif (-not $NoNavigate) {
+    elseif (-not $NoNavigate -and -not $Steer) {
         $chatError = Ensure-ChatInput
         if ($chatError) {
             return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$chatError Nothing was typed."
         }
     }
     elseif (-not (Test-ChatInput -TimeoutMs 5000)) {
+        if ($Steer) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'SteerRequiresBusy: the existing chat input is no longer available; nothing was typed or clicked.' }
         return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'The chat input is not showing (-NoNavigate was given). Nothing was typed.'
     }
 
@@ -382,6 +472,10 @@ try {
         if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
             $lastError = Get-ForegroundFailureText
             continue
+        }
+        if ($Steer) {
+            $steerError = Get-ChatSteerError
+            if ($steerError) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $steerError }
         }
         Clear-ChatInput
         $typed = Invoke-Ui @('type', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--text', $Text, '--paste', '--verify')
@@ -409,8 +503,15 @@ try {
         return Write-Result -Sent $false -Attempts $attempt -InputText $actual -ErrorText $null
     }
 
-    $sent = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'SendButton')
+    $buttonId = 'SendButton'
+    if ($Steer) {
+        $steerError = Get-ChatSteerError -RequireButton
+        if ($steerError) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $steerError }
+        $buttonId = 'SteerButton'
+    }
+    $sent = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', $buttonId)
     if (-not $sent.success) {
+        if ($Steer) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText 'SteerClickFailed: SteerButton was not invoked; no fallback was attempted.' }
         return Write-Result -Sent $false -Attempts $attempt -InputText $actual -ErrorText "Send click failed: $($sent.error) $($sent.message)"
     }
     Write-Result -Sent $true -Attempts $attempt -InputText $actual -ErrorText $null

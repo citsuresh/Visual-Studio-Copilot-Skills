@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Offline sender native-argument, input read-back, draft-guard and own-host guard regression checks; no chat interaction.
+Offline sender native-argument, read-back, draft/own-host guards and busy-chat steering regression checks; no chat interaction.
 .PARAMETER SenderPath
 Sender whose functions and send-loop statements are tested through its AST.
 .PARAMETER TemporaryRoot
@@ -25,7 +25,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -106,6 +106,7 @@ $script:inputFixtures = @($inputElement)
 $script:textSupported = $true
 $Quiet = $false
 $AsJson = $false
+$Steer = $false
 foreach ($draftText in @('user draft', ' ', 'original "quoted text"')) {
     $script:textRead = $draftText
     Assert-True ((Get-ChatDraftError) -match 'InputNotEmpty') 'A non-empty draft was accepted.'
@@ -113,6 +114,43 @@ foreach ($draftText in @('user draft', ' ', 'original "quoted text"')) {
 }
 $script:textRead = ''
 Assert-True ($null -eq (Get-ChatDraftError)) 'An empty input should be allowed.'
+foreach ($useValue in @($false, $true)) {
+    $script:valueSupported = $useValue
+    foreach ($case in @(
+        @{ Draft = ' '; Length = 1; Points = 1; Codes = 'U+0020(1)' },
+        @{ Draft = ([string][char]10); Length = 1; Points = 1; Codes = 'U+000A(1)' },
+        @{ Draft = ([string][char]0x200B); Length = 1; Points = 1; Codes = 'U+200B(1)' },
+        @{ Draft = ([string][char]0xFEFF); Length = 1; Points = 1; Codes = 'U+FEFF(1)' },
+        @{ Draft = 'Ask Copilot'; Length = 11; Points = 11; Codes = 'U+0041(1)' },
+        @{ Draft = 'attachment.txt'; Length = 14; Points = 14; Codes = 'U+002E(1)' },
+        @{ Draft = ([char]::ConvertFromUtf32(0x1F600) + [char]::ConvertFromUtf32(0x1F600)); Length = 4; Points = 2; Codes = 'U+1F600(2)' },
+        @{ Draft = ([string][char]0xD800); Length = 1; Points = 1; Codes = 'U+D800(1)' }
+    )) {
+        $script:valueRead = $case.Draft
+        $script:textRead = $case.Draft
+        $draftError = Get-ChatDraftError
+        Assert-True ($draftError -match 'InputNotEmpty') 'Invisible/provider-like text must still be refused by default.'
+        Assert-True ($draftError.Contains("DraftLength=$($case.Length); CodePointCount=$($case.Points);")) 'Draft diagnostic lengths changed.'
+        Assert-True ($draftError.Contains($case.Codes)) 'Draft diagnostic omitted expected character codes/counts.'
+        Assert-True ($draftError -match 'Codes=(U\+[0-9A-F]+\([0-9]+\),?)+\. Nothing was typed;') 'Draft diagnostic must contain only codes/counts, not input text.'
+        Assert-True ((Get-ChatInputText) -ceq $case.Draft) 'Diagnostics changed the draft.'
+    }
+    $script:valueRead = ''
+    $script:textRead = ''
+    Assert-True ($null -eq (Get-ChatDraftError)) 'An empty pattern read must remain allowed.'
+}
+$script:valueRead = ''
+$script:textRead = 'TextPattern-only content'
+Assert-True ($null -eq (Get-ChatDraftError)) 'An empty ValuePattern must win over non-empty TextPattern.'
+$script:valueRead = 'ValuePattern-only content'
+$script:textRead = ''
+Assert-True ((Get-ChatDraftError) -match 'DraftLength=25;') 'A non-empty ValuePattern must win over empty TextPattern.'
+$script:valueSupported = $false
+$script:textRead = -join (33..72 | ForEach-Object { [char]$_ })
+$draftError = Get-ChatDraftError
+Assert-True ($draftError -match 'DistinctCodes=40;') 'Distinct-code diagnostic count changed.'
+Assert-True ([regex]::Matches($draftError, 'U\+[0-9A-F]+\(').Count -eq 32) 'Diagnostic output must be bounded to 32 distinct codes.'
+Assert-True (-not $draftError.Contains($script:textRead)) 'Diagnostic leaked the draft text.'
 $script:inputFixtures = @()
 Assert-True ($null -eq (Get-ChatDraftError -AllowMissing)) 'A hidden input should allow the navigation preflight.'
 Assert-True ((Get-ChatDraftError) -match 'missing or ambiguous') 'Final draft check accepted an absent input.'
@@ -134,7 +172,7 @@ $enableCursor = $ast.Find({ param($node)
 Assert-True ($preflight.Extent.EndOffset -lt $enableCursor.Extent.StartOffset) 'Draft refusal must precede cursor/input actions.'
 $OverwriteInput = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($preflight.Extent.Text)))) 'Explicit overwrite should bypass draft refusal.'
-Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-2] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
+Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-3] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
 $callerPath = Join-Path (Split-Path -Parent $SenderPath) 'Invoke-CopilotReview.ps1'
 $callerAst = [Management.Automation.Language.Parser]::ParseFile($callerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
@@ -200,7 +238,8 @@ $result = & ([scriptblock]::Create($ownGuard.Extent.Text))
 Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'OwnHostWindow') 'Default own-host guard did not return a refusal.'
 $AllowOwnHost = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($ownGuard.Extent.Text)))) 'Explicit AllowOwnHost should bypass the guard.'
-Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
+Assert-True (($ast.ParamBlock.Parameters[-2].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
+Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'Steer') 'Steer must be appended after existing positional parameters.'
 
 $tryStatement = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] } | Select-Object -Last 1
 $statements = @($tryStatement.Body.Statements)
@@ -251,4 +290,210 @@ foreach ($case in @('matching', 'different case', 'missing quotes', 'NoSend')) {
         Assert-True ($result.Attempts -eq 3 -and $result.Error -match 'read-back-mismatch') 'Mismatch retries/result changed.'
     }
 }
-Write-Output "PASS: $script:assertions assertions; native quoted-argument round trips, mocked read-back/send gating, draft refusal/rechecks, own-host refusal and caller switch forwarding; no chat or UI actions."
+function New-MockChatButton([string]$Id, [string]$Name, [bool]$Enabled = $true, [bool]$Offscreen = $false, [bool]$Invokable = $true) {
+    $button = [pscustomobject]@{
+        Current = [pscustomobject]@{ AutomationId = $Id; Name = $Name; IsEnabled = $Enabled; IsOffscreen = $Offscreen; ClassName = 'Button'; ControlType = [Windows.Automation.ControlType]::Button.Id }
+        Invokable = $Invokable
+    }
+    $button | Add-Member -MemberType ScriptMethod -Name TryGetCurrentPattern -Value {
+        param($patternId, $patternReference)
+        if ($patternId -eq [Windows.Automation.InvokePattern]::Pattern -and $this.Invokable) {
+            $patternReference.Value = [pscustomobject]@{}
+            return $true
+        }
+        return $false
+    }
+    return $button
+}
+$stopButton = New-MockChatButton 'CancelButton' 'Cancel'
+$steerButton = New-MockChatButton 'SteerButton' 'Steer'
+$sendButton = New-MockChatButton 'SendButton' 'Send'
+$actionFunction = $ast.Find({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ChatActionButtons'
+}, $true)
+. ([scriptblock]::Create($actionFunction.Extent.Text.Replace(
+    '$walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker', '$walker = $script:mockActionWalker')))
+$pane = [pscustomobject]@{ Current = [pscustomobject]@{ ClassName = 'GenericPane'; Name = 'Chat' }; Parent = $null; Children = @() }
+$area = [pscustomobject]@{ Current = [pscustomobject]@{ ClassName = 'WpfTextViewHost'; AutomationId = ''; ControlType = [Windows.Automation.ControlType]::Pane.Id }; Parent = $pane; Children = @() }
+$messageList = [pscustomobject]@{
+    Current = [pscustomobject]@{ ClassName = 'ChatSessionList'; AutomationId = 'session'; ControlType = [Windows.Automation.ControlType]::List.Id }
+    Parent = $pane
+    Children = @((New-MockChatButton 'SteerButton' 'Steer'), (New-MockChatButton 'CancelButton' 'Cancel'), (New-MockChatButton 'SendButton' 'Send'))
+}
+$area | Add-Member -MemberType ScriptMethod -Name FindAll -Value { param($scope, $condition) return @() }
+$pane | Add-Member -MemberType ScriptMethod -Name FindAll -Value {
+    param($scope, $condition)
+    $script:actionScope = $scope
+    $script:actionConditions = $condition.GetConditions()
+    $ids = @($script:actionConditions[0].GetConditions() | ForEach-Object { $_.Value })
+    $controlType = $script:actionConditions[1].Value
+    $nodes = @($this.Children)
+    if ($scope -eq [Windows.Automation.TreeScope]::Descendants) {
+        foreach ($child in @($this.Children)) {
+            if ($child.Current.ClassName -eq 'ChatSessionList') { $nodes += @($child.Children) }
+        }
+    }
+    return @($nodes | Where-Object { $_.Current.AutomationId -in $ids -and $_.Current.ControlType -eq $controlType })
+}
+$inputElement | Add-Member -NotePropertyName Parent -NotePropertyValue $area
+$script:mockActionWalker = New-Object PSObject
+$script:mockActionWalker | Add-Member -MemberType ScriptMethod -Name GetParent -Value {
+    param($node)
+    $script:parentReads++
+    return $node.Parent
+}
+$script:parentReads = 0
+$pane.Children = @($area, $messageList, $stopButton)
+$actionButtons = @(Get-ChatActionButtons)
+Assert-True ($actionButtons.Count -eq 1 -and $actionButtons[0].Current.AutomationId -eq 'CancelButton' -and $script:parentReads -eq 2) 'Sibling-layout regression: CancelButton must be discovered on the Chat pane, not inside WpfTextViewHost.'
+Assert-True ($null -eq (Get-ChatSteerError)) 'A direct-child CancelButton named Cancel must confirm busy.'
+$pane.Children = @($area, $messageList, $steerButton)
+$actionButtons = @(Get-ChatActionButtons)
+Assert-True ($actionButtons.Count -eq 1 -and $actionButtons[0].Current.AutomationId -eq 'SteerButton') 'SteerButton must be discovered as a sibling of WpfTextViewHost.'
+Assert-True ($null -eq (Get-ChatSteerError -RequireButton)) 'A direct-child SteerButton must be ready after verification.'
+$pane.Children = @($area, $messageList, $sendButton)
+$actionButtons = @(Get-ChatActionButtons)
+Assert-True ($actionButtons.Count -eq 1 -and $actionButtons[0].Current.AutomationId -eq 'SendButton') 'SendButton must be discovered as a sibling for idle rejection.'
+Assert-True ((Get-ChatSteerError) -match 'SteerRequiresBusy') 'A direct-child SendButton must refuse steering.'
+Assert-True ($script:actionScope -eq [Windows.Automation.TreeScope]::Children -and $script:actionConditions[1].Value -eq [Windows.Automation.ControlType]::Button.Id) 'Action discovery must constrain direct-child scope and control type.'
+$actionIds = @($script:actionConditions[0].GetConditions() | ForEach-Object { $_.Value })
+Assert-True (($actionIds -join ',') -ceq 'CancelButton,SteerButton,SendButton') 'Action discovery selectors changed.'
+$pane.Children = @($area, $messageList)
+Assert-True (@(Get-ChatActionButtons).Count -eq 0) 'Nested message-list buttons must be excluded from direct-child discovery.'
+Assert-True ((Get-ChatSteerError) -match 'SteerRequiresBusy') 'Historical Cancel/Steer buttons must not prove busy.'
+Assert-True ((Get-ChatSteerError -RequireButton) -match 'SteerUnavailable') 'Historical SteerButton must not be invoked.'
+$pane.Children = @($area, $messageList, $stopButton)
+$area.Current.ClassName = 'ChatSessionList'
+Assert-True (@(Get-ChatActionButtons).Count -eq 0) 'Historical message-list buttons must not prove busy.'
+$area.Current.ClassName = 'WpfTextViewHost'
+$area.Parent = $area
+$script:parentReads = 0
+Assert-True (@(Get-ChatActionButtons).Count -eq 0 -and $script:parentReads -eq 32) 'Missing pane/cyclic ancestry must fail closed with bounded traversal.'
+$area.Parent = $pane
+$script:inputFixtures = @($inputElement, $inputElement)
+Assert-True (@(Get-ChatActionButtons).Count -eq 0) 'Ambiguous inputs must not prove busy.'
+$script:inputFixtures = @($inputElement)
+function Get-ChatActionButtons { return $script:buttonFixtures }
+foreach ($case in @(
+    @{ Buttons = @(); Busy = $false; Ready = $false },
+    @{ Buttons = @($sendButton); Busy = $false; Ready = $false },
+    @{ Buttons = @($stopButton); Busy = $true; Ready = $false },
+    @{ Buttons = @($steerButton); Busy = $true; Ready = $true },
+    @{ Buttons = @($steerButton, $steerButton); Busy = $false; Ready = $false },
+    @{ Buttons = @($steerButton, $sendButton); Busy = $false; Ready = $false },
+    @{ Buttons = @($steerButton, $stopButton); Busy = $false; Ready = $false },
+    @{ Buttons = @((New-MockChatButton 'SteerButton' 'Steer' $false)); Busy = $false; Ready = $false },
+    @{ Buttons = @((New-MockChatButton 'SteerButton' 'Steer' $true $true)); Busy = $false; Ready = $false },
+    @{ Buttons = @((New-MockChatButton 'SteerButton' 'Wrong')); Busy = $false; Ready = $false },
+    @{ Buttons = @((New-MockChatButton 'SteerButton' 'Steer' $true $false $false)); Busy = $true; Ready = $false },
+    @{ Buttons = @((New-MockChatButton 'CancelButton' 'Stop' $false)); Busy = $false; Ready = $false }
+)) {
+    $script:buttonFixtures = $case.Buttons
+    Assert-True (($null -eq (Get-ChatSteerError)) -eq $case.Busy) 'Busy-state steer precondition changed.'
+    Assert-True (($null -eq (Get-ChatSteerError -RequireButton)) -eq $case.Ready) 'Steer readiness must require one visible enabled invokable button and no Send.'
+}
+$steerPreflight = $ast.EndBlock.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match '^if \(\$Steer\)'
+} | Select-Object -First 1
+Assert-True ($null -ne $steerPreflight -and $steerPreflight.Extent.EndOffset -lt $enableCursor.Extent.StartOffset) 'Steer preflight must precede cursor/navigation/input actions.'
+$Steer = $true
+$NewSession = $true
+$result = & ([scriptblock]::Create($steerPreflight.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'SteerRequiresExistingChat' -and [string]::IsNullOrEmpty($result.InputText)) 'Steer must refuse NewSession without input actions.'
+$NewSession = $false
+$script:buttonFixtures = @()
+$result = & ([scriptblock]::Create($steerPreflight.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'SteerRequiresBusy') 'Steer must refuse an unverified/idle target before typing.'
+$OverwriteInput = $false
+$script:textRead = ' '
+$result = & ([scriptblock]::Create($preflight.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Error -match 'InputNotEmpty') 'Steer must not bypass the whitespace draft preflight.'
+$script:textRead = 'draft appeared during navigation'
+$result = & ([scriptblock]::Create($finalGuard.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Error -match 'InputNotEmpty') 'Steer must not bypass the final draft recheck.'
+$AllowOwnHost = $false
+$script:fixtureWindows = @([pscustomobject]@{ Hwnd = $Hwnd; Pid = 100; ProcessName = 'devenv' })
+$result = & ([scriptblock]::Create($ownGuard.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Error -match 'OwnHostWindow') 'Steer must not bypass own-host refusal.'
+
+$tabNavigation = $statements | Where-Object { $_.Extent.Text -match '^if \(-not \$NoNavigate.*Select-ChatTabIfHidden' } | Select-Object -First 1
+$sessionNavigation = $statements | Where-Object { $_.Extent.Text -match '^if \(\$NewSession\)' } | Select-Object -First 1
+Assert-True ($null -ne $tabNavigation -and $null -ne $sessionNavigation) 'Navigation statements must be available for offline verification.'
+$navigation = [scriptblock]::Create($tabNavigation.Extent.Text + [Environment]::NewLine + $sessionNavigation.Extent.Text)
+function Select-ChatTabIfHidden { $script:events.Add('navigate') }
+function Ensure-ChatInput { $script:events.Add('ensure-session'); return $null }
+function Test-ChatInput { param($TimeoutMs) return $script:inputReady }
+$NoNavigate = $false
+$script:events = New-Object 'Collections.Generic.List[string]'
+$script:inputReady = $true
+$result = & $navigation
+Assert-True ($null -eq $result -and $script:events.Count -eq 0) 'Steer must not navigate/create a chat even without NoNavigate.'
+$script:inputReady = $false
+$result = & $navigation
+Assert-True (-not $result.Sent -and $result.Error -match 'SteerRequiresBusy' -and $script:events.Count -eq 0) 'Lost steer input must fail without navigation or misleading NoNavigate claims.'
+$Steer = $false
+$script:inputReady = $true
+$null = & $navigation
+Assert-True (($script:events -join ',') -ceq 'navigate,ensure-session') 'Default Send navigation behavior must remain unchanged.'
+$Steer = $true
+
+function Get-ChatActionButtons {
+    if ($script:pasted) { return $script:afterPasteButtons }
+    return $script:beforePasteButtons
+}
+function Clear-ChatInput { $script:events.Add('clear'); $script:pasted = $false }
+function Invoke-Ui {
+    param([string[]]$Arguments)
+    if ($Arguments[0] -eq 'type') {
+        $script:events.Add('type')
+        $script:pasted = $true
+        $script:pasteCount++
+        $script:textRead = if ($script:steerCase -eq 'mismatch' -or ($script:steerCase -eq 'retry' -and $script:pasteCount -eq 1)) { 'wrong read-back' } else { $Text }
+    }
+    elseif ($Arguments[0] -eq 'click') {
+        $buttonId = $Arguments[[array]::IndexOf($Arguments, '--value') + 1]
+        $script:events.Add('click:' + $buttonId)
+        if ($script:steerCase -eq 'click failure') { return [pscustomobject]@{ success = $false; error = 'element-not-found'; message = $Text } }
+    }
+    return [pscustomobject]@{ success = $true }
+}
+foreach ($script:steerCase in @('success', 'idle before paste', 'missing Steer', 'disabled Steer', 'busy lost after paste', 'mismatch', 'retry', 'NoSend', 'click failure', 'Quiet')) {
+    $script:events = New-Object 'Collections.Generic.List[string]'
+    $script:pasteCount = 0
+    $script:pasted = $false
+    $script:beforePasteButtons = @($stopButton)
+    $script:afterPasteButtons = @($steerButton)
+    if ($script:steerCase -eq 'idle before paste') { $script:beforePasteButtons = @($sendButton) }
+    if ($script:steerCase -eq 'missing Steer') { $script:afterPasteButtons = @($stopButton) }
+    if ($script:steerCase -eq 'disabled Steer') { $script:afterPasteButtons = @((New-MockChatButton 'SteerButton' 'Steer' $false)) }
+    if ($script:steerCase -eq 'busy lost after paste') { $script:afterPasteButtons = @($sendButton) }
+    $NoSend = $script:steerCase -eq 'NoSend'
+    $Quiet = $script:steerCase -eq 'Quiet'
+    $result = & $sendLoop 6>$null
+    $shouldSteer = $script:steerCase -in @('success', 'retry', 'Quiet')
+    $clicks = @($script:events | Where-Object { $_ -like 'click:*' })
+    Assert-True ($result.Sent -eq $shouldSteer) "Unexpected steer result: $script:steerCase"
+    Assert-True (@($clicks | Where-Object { $_ -ne 'click:SteerButton' }).Count -eq 0) 'Steer must never click Send or Stop.'
+    Assert-True ($clicks.Count -le 1) 'Steer must not retry/fall back after a click failure.'
+    if ($script:steerCase -eq 'idle before paste') {
+        Assert-True ($script:pasteCount -eq 0 -and $result.Error -match 'SteerRequiresBusy') 'Busy must be rechecked before clearing/pasting.'
+    }
+    elseif ($script:steerCase -in @('missing Steer', 'disabled Steer', 'busy lost after paste', 'click failure')) {
+        Assert-True ($result.Error -match '^Steer(Unavailable|ClickFailed):' -and -not $result.Error.Contains($Text) -and [string]::IsNullOrEmpty($result.InputText)) 'Steer failure must be explicit and text-free.'
+        Assert-True ($script:pasted -and $script:textRead -ceq $Text) 'Verified unsent text must be preserved as a draft.'
+    }
+    elseif ($script:steerCase -eq 'mismatch') {
+        Assert-True ($clicks.Count -eq 0 -and $result.Attempts -eq 3 -and $result.Error -match 'read-back-mismatch') 'Steer must retain exact read-back and bounded retries.'
+    }
+    elseif ($script:steerCase -eq 'NoSend') {
+        Assert-True ($clicks.Count -eq 0 -and [string]::IsNullOrEmpty($result.Error)) 'NoSend must suppress Steer submission.'
+    }
+    elseif ($script:steerCase -eq 'Quiet') {
+        Assert-True ([string]::IsNullOrEmpty($result.InputText) -and $clicks.Count -eq 1) 'Quiet must suppress successful steer text.'
+    }
+    else {
+        Assert-True ($clicks.Count -eq 1 -and $result.InputText -ceq $Text) 'Steer must submit only after exact independent read-back.'
+        if ($script:steerCase -eq 'retry') { Assert-True ($result.Attempts -eq 2) 'Steer paste retry count changed.' }
+    }
+}
+Write-Output "PASS: $script:assertions assertions; native quoted-argument round trips, mocked read-back/send/steer gating, busy/button checks, draft refusal/rechecks, own-host refusal and caller switch forwarding; no chat or UI actions."

@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 30,
-      "whatsNew": "V2 accepts an already-idle footer after two consecutive prompt-free polls without RequireBusyFirst, and timeout notes report observed wait facts instead of claiming busy."
+      "version": 31,
+      "whatsNew": "Requires tracked async watchers and explicit wait/recovery checks, adds text-free draft refusal diagnostics and opt-in busy-chat steering without weakening draft protection, and forbids unverified cause claims."
     },
     "project-memory-management": {
       "version": 3,

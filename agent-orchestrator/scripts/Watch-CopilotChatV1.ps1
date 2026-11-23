@@ -4,6 +4,14 @@
     user input, goes idle with a new final message, or a timeout is reached.
 
 .DESCRIPTION
+    WARNING: Run a supervising watcher through the shell tool with mode async; retain shellId
+    and read it on the completion notice. Never use Start-Process, a hidden window or a scheduled
+    task: an untracked watcher gives no completion notice (a reported run lost 5.4 hours waiting).
+    Before ending a waiting turn, state the expected finish time and exact recovery check.
+    When the user writes, answer first and check reply/footer freshness, git status and artifact
+    last-write times before trusting Idle. Keep individual tool waits under about two minutes.
+    V2's internal one-shot V1 detail read is not a separate supervising watcher.
+
     TEST CASES: tests\Watch-CopilotChatV1.tests.md next to this script.
 
     WHICH WATCHER? This is V1, the full-tree watcher. Watch-CopilotChatV2.ps1 is the light one and the

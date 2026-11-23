@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 30`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 31`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -210,6 +210,20 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     `RequireBusyFirst`, and timeout notes report observed wait facts instead of claiming busy.
     `RequireBusyFirst` keeps its existing busy/grace and quiet rules. The header documents timeout
     budgeting; virtual-clock mock tests cover polling decisions without UI interaction.
+  - v31 - Requires tracked async watchers and explicit wait/recovery checks, adds text-free draft
+    refusal diagnostics and opt-in busy-chat steering without weakening draft protection, and
+    forbids unverified cause claims.
+    A reported untracked watcher lost 5.4 hours waiting for a completion notice that never came.
+    The empty-input refusal cause remains unknown; offline tests cover diagnostic character codes,
+    ValuePattern precedence and unchanged whitespace/zero-width draft refusal. No live UI was used.
+    Steer checks busy state, retains exact read-back and clicks only SteerButton, never Stop or
+    Send as a fallback. Step 2 documents steering and a bounded stuck-agent progress check.
+    User-reported live POC verified SteerButton submission, input clearing and agent continuation;
+    this script integration is tested offline only, not against a live window.
+    A follow-up live refusal exposed sibling layout: CancelButton (Name Cancel), SteerButton and
+    SendButton are direct Chat pane children, not input-host descendants. Discovery now scans
+    only those children; a matching offline regression fails against the old scope and excludes
+    historical message-list buttons. The corrected script has not been rerun live here.
 
 # Agent Orchestrator
 
@@ -479,21 +493,41 @@ shows a working-directory mismatch or untrusted-workspace banner (see Step 4); d
   one (it waits up to 30s for the input). Do the same by hand when you use raw verbs:
   `click --strategy Name --value Chat --controlType TabItem`, then `createNewThread`.
 - **`-Quiet`** returns `InputText` as `$null` on success, so a long prompt is not echoed back
-  into your context. Failures still return it.
+  into your context. Failures still return it, except text-free Steer availability/click failures.
 - **Brief the agent so it does not stop to ask.** Many repos make the agent ask permission for
   each follow-up fix, which costs one round trip per fix. Put the decisions you can already make
   in the task text: what is pre-approved ("apply in-scope fixes without asking"), what is not
   ("do not touch files X, Y; do not commit, stage or push"), and what counts as blocked ("stop
   and report only if a build, test or permission prevents progress"). Only pre-approve what the
   user has authorized; commit and push need the user's explicit say-so.
-- **Do not send while the chat is working.** During a run Visual Studio replaces the Send button
-  with Stop, so `Send-CopilotPrompt.ps1` fails with `element-not-found ... SendButton` after it
-  has already pasted the text: the prompt sits unsent in the input box. Wait for the watcher to
-  report Idle, then send. Never press Enter or click Stop to force it; Stop cancels the work in
-  progress. (In one observed case the pasted text was later submitted as a queued message with
-  no action from the script, but do not rely on that.) Leftover pasted text remains a draft:
-  another send is refused by default. Pass `-OverwriteInput` only when deliberately replacing
-  that unsent text.
+- **Steer a running agent; send a new turn only when idle.** Steering is the supported way to
+  redirect an agent or ask for progress without stopping its current work. Use
+  Send-CopilotPrompt.ps1 -Hwnd <verified-hwnd> -Steer -Quiet -Text '<authorized redirect>'.
+  With a busy chat, an empty input shows Stop; entered text replaces it with Steer (Name Steer,
+  AutomationId SteerButton, Button with InvokePattern), and SendButton is absent. The user's
+  live POC verified that clicking SteerButton cleared the input, added the message to the
+  transcript, and the agent answered and continued without stopping. The new script path is
+  validated offline only. It checks busy before typing, preserves all draft/own-host/banner
+  guards and exact read-back, and clicks only SteerButton; missing/disabled Steer or lost busy
+  state returns Sent=false with a text-free reason. It does not navigate/create a chat and
+  refuses Steer with NewSession. NoSend still means paste/verify without submission.
+  Without Steer, wait for verified Idle before normal Send. Never press Enter or click Stop
+  to force submission, and never fall back from Steer to Send. Verified unsent text stays a
+  protected draft; OverwriteInput is only for deliberate replacement of that text.
+- **Stuck-agent progress check.** First verify the busy target and fresh footer/transcript,
+  git status and relevant artifact times; answer any user message before these checks. State
+  the expected response deadline (for example, launch time plus 90 seconds, with time zone)
+  and exact recovery check before yielding. Steer this fixed single-line question:
+  'Progress check only: report your current step, last completed step, and any blocker; do not change scope, stop work, or run extra tools; then continue the existing task.'
+  Verify Sent=true and that this exact new question appears in the current transcript. Wait
+  using one tracked async watcher (Watch-CopilotChatV2.ps1 -Hwnd <verified-hwnd>
+  -RequireBusyFirst -TimeoutSeconds 90 -NoDetail -NoBeep) and retain/read its shellId as in
+  Step 3; keep individual tool waits below about two minutes. A working agent can answer Steer without becoming Idle:
+  read the fresh transcript at the stated deadline, not only the completion footer. If no
+  reply to that delivered question arrives by the deadline, classify it as stuck for supervision
+  and report the timeout/last-observed artifact facts. This is an operational escalation, not
+  proof of the underlying cause. Failed delivery or unreadable transcript means unverified,
+  not stuck. Do not automatically Stop, resend, broaden scope or overwrite a draft.
 - **Keep each Copilot round small.** Give one work item per prompt, with its acceptance checks.
   Rounds that bundled several items, plus their own audits and repeated full test runs, took
   20 to 25 minutes and 50 to 85 credits each, and one stretch produced a single huge streamed tool
@@ -536,6 +570,22 @@ Then click Send:
 (`SendButton`'s `AutomationId` IS reliable, unlike the input.)
 
 ## Step 3 — Poll for state (Working / Pending / Idle)
+
+WARNING: Run the watcher as a tracked async shell command: shell tool mode async, retain the
+returned shellId, and read that same ID on the completion notice. Never launch the supervising
+watcher via Start-Process, a hidden window or a scheduled task: an untracked watcher gives no
+completion notice. A reported real run lost 5.4 hours when the supervisor ended its turn waiting
+for a notice that never came. V2's internal one-shot V1 detail read is not a separate supervising
+watcher. Host interactivity or output redirection cannot reliably prove shell tracking, so no
+heuristic startup detection is used.
+
+Before ending any turn that waits on background work, state the expected finish time (with time
+zone; label estimates), the watcher timeout/deadline, and the exact recovery check to run, including
+the retained shellId and artifact paths. Keep each individual tool wait under about two minutes;
+the tracked worker itself may run longer. When the user writes, answer their message first, then
+check fresh artifact timestamps (the current reply/footer against the launch time, git status in
+the target repository, and relevant file last-write times) before trusting Idle. A footer with no
+correlatable timestamp is not proof of freshness; reconcile the reply with current artifacts.
 
 Two reusable watcher scripts are bundled with this skill in `scripts\` (next to this SKILL.md —
 always available even if the toolkit source isn't up to date; they still call the toolkit's `agentdebug-ui.exe`):
@@ -597,7 +647,7 @@ that finish before the first poll (`WorkingSeen: false` in the result tells you 
 .\Watch-CopilotChatV1.ps1 -Hwnd 0x691588 -RequireWorkingFirst -TimeoutSeconds 300 -PollIntervalSeconds 12
 ```
 
-How to wait cheaply: the cost of a wait is the number of tool calls, not the minutes (measured, see `scripts\tests\Monitoring-cost.md`). Start ONE long watcher call as a background command (`Watch-CopilotChatV2.ps1 -TimeoutSeconds 1800` or more; it accepts up to 7200) and end your turn: its completion notice is the only other call. Do not poll with repeated short foreground calls, and do not start a monitoring sub-agent just to wait; a sub-agent costs about 50,000 tokens of start-up on top of the launch and report calls.
+How to wait cheaply: the cost of a wait is the number of tool calls, not the minutes (see the monitoring-cost measurements in scripts\tests). Start ONE long watcher as a tracked async shell command (Watch-CopilotChatV2.ps1 -TimeoutSeconds 1800 or more; it accepts up to 7200). Retain shellId, verify startup once, and state the expected finish time and exact recovery check before ending your turn. On the completion notice, read that shellId to retrieve the result and exit status; the notice itself is not the result. Do not poll with repeated short foreground calls or start a monitoring sub-agent just to wait.
 
 **Long-operation visibility:** announce the current phase before a long wait. Updated V2 accepts
 `-HeartbeatSeconds 30` for host progress and/or `-ProgressFile <local jsonl path>` for machine-readable
@@ -864,6 +914,12 @@ Run this when the orchestration session ends, including when it ends early or fa
 
 ## Anti-patterns to avoid
 
+- Don't claim the cause of an unverified refusal as fact. InputNotEmpty with an independently
+  empty UIA read does not prove a placeholder, newline, zero-width character or attachment chip
+  caused it. Inspect the refusal's draft length and code-point summary; distinguish observations
+  from hypotheses. OverwriteInput succeeding proves only that the guard was bypassed, not why
+  it refused. Never weaken the default protection of any draft, including whitespace-only text,
+  without a concrete, testable cause and explicit authorization.
 - Don't respond to a pending `ChoicePrompt` by typing into the chat box — it will not register
   as the card's answer and can leave the conversation in a confusing half-state.
 - Don't skip the `Submit` click after selecting a radio option.
