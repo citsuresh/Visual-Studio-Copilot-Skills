@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 26`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 27`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -100,6 +100,11 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
   - v23 - Resolves managed executable paths from the successful-build marker when available and
     distinguishes observational remote-session diagnostics from an RDP activation fix.
+  - v27 - `AgentCursor.ps1` gives the person's window back faster and can read a window's owner and desktop natively.
+    It adds `AgentProcessNative.WindowProcessId` and `IsOnOtherDesktop` to the cached native
+    helper (window owner and virtual-desktop check without a window listing), and `Set-AgentForegroundWindow` waits at
+    most 150 ms for a first try that Windows ignored before the Alt-tap retry (it was 300 ms), which speeds up
+    giving the person's window back.
   - v26 - `AgentCursor.ps1` loads about 1.2 s faster by caching its native helpers.
     Its three native C# helper types (plus a new process
     snapshot helper) are compiled together once and cached as `%LOCALAPPDATA%\AgentUi\AgentCursor.Native.<hash>.dll`,

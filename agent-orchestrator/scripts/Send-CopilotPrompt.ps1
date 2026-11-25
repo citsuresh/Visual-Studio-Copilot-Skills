@@ -424,6 +424,26 @@ function Invoke-ChatSendButton {
     return $true
 }
 
+# Puts the prompt in the input without finding the input again and without moving the pointer: keyboard focus is set
+# on the input element this process already holds, and the helper's paste-text verb sends Ctrl+V to the focused control
+# (0.8 s instead of 1.7 s for `type --paste --verify`, which searches the window again, clicks the input and waits to
+# re-read it). Returns $null when it cannot be done safely (the caller uses `type --paste`), otherwise a result shaped
+# like the helper's. The exact read-back that follows still decides whether the text is right.
+function Invoke-ChatPasteAtFocus {
+    try {
+        if ([string]::IsNullOrEmpty($Text)) { return $null }
+        $inputs = @(Get-ChatInputElementsCached)
+        if ($inputs.Count -ne 1) { return $null }
+        $inputs[0].SetFocus()
+        # Text must go only into the chat input: it has to hold the keyboard focus, and the target window the foreground.
+        if (-not $inputs[0].Current.HasKeyboardFocus) { return $null }
+        if ((Get-AgentForegroundHandle) -ne [IntPtr][Convert]::ToInt64($Hwnd, 16)) { return $null }
+    }
+    catch { return $null }
+    $r = Invoke-Ui @('paste-text', '--hwnd', $Hwnd, '--text', $Text, '--restoreDelayMs', '100')
+    [pscustomobject]@{ success = [bool]$r.success; error = $r.error; message = $r.message; actual = $null }
+}
+
 function Get-ChatSteerError {
     param([switch]$RequireButton)
     $buttons = @(Get-ChatActionButtons)
@@ -495,6 +515,8 @@ function Get-CallerProcessIds {
 # switch the person's desktop, so it is refused, and this lets the message say so instead of claiming the window is gone.
 function Test-TargetOnOtherDesktop {
     try {
+        # The cached native helper (AgentCursor.ps1) answers without compiling anything.
+        if ('AgentProcessNative' -as [type]) { return [AgentProcessNative]::IsOnOtherDesktop([IntPtr][Convert]::ToInt64($Hwnd, 16)) }
         if (-not ('SenderDesktopProbe' -as [type])) {
             Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
@@ -518,8 +540,29 @@ public static class SenderDesktopProbe {
     catch { return $false }
 }
 
+# The process that owns the target window, read in this process (0 when it cannot be read or the handle is not a window).
+function Get-WindowProcessId {
+    try { if ('AgentProcessNative' -as [type]) { return [int][AgentProcessNative]::WindowProcessId([IntPtr][Convert]::ToInt64($Hwnd, 16)) } } catch { }
+    return 0
+}
+
 # Fails closed: an unreadable window list or process chain refuses instead of guessing.
 function Get-OwnHostError {
+    # Fast path: the window's process and desktop are read in this process (about 5 ms) instead of listing every window
+    # with the helper (0.3 to 0.5 s). A handle that is not a window, or no native helper, takes the listing below, which
+    # also words the stale-handle message.
+    $targetPid = Get-WindowProcessId
+    if ($targetPid -gt 0) {
+        if (Test-TargetOnOtherDesktop) {
+            return "Window $Hwnd is on another virtual desktop, so it is not in the window list. Sending would switch the person's desktop, so nothing was typed. Ask the person to switch to the desktop with that Visual Studio window, then try again."
+        }
+        try { $callerIds = @(Get-CallerProcessIds) }
+        catch { return "OwnHostCheckFailed: could not read this script's process chain ($($_.Exception.Message)). Nothing was typed; use -AllowOwnHost to skip the check." }
+        if ($callerIds -contains $targetPid) {
+            return "OwnHostWindow: window $Hwnd belongs to process $targetPid, which hosts this script, so it would type into the calling chat itself. Nothing was typed; target another Visual Studio window, or pass -AllowOwnHost if that is intended."
+        }
+        return $null
+    }
     $windows = Get-TopLevelWindows
     if ($null -eq $windows) {
         return "OwnHostCheckFailed: could not list windows to check the target's process ($script:ListWindowsError). Nothing was typed; use -AllowOwnHost to skip the check."
@@ -729,9 +772,11 @@ function Start-InputBlock {
         }
     }
     $script:UserContext = Save-AgentUserFocus
-    Enable-AgentCursor
+    # Stamp first, so a key pressed during the short lead before input starts is noticed; the lead is 250 ms (it was 800 ms)
+    # because the quiet wait above has already shown the keyboard and mouse idle.
     $script:BlockStamp = Get-AgentInputStamp
     $script:BlockPoint = Get-AgentPointerPosition
+    Enable-AgentCursor -LeadMilliseconds 250
     $script:InputBlockStarted = $true
     return $null
 }
@@ -873,7 +918,8 @@ try {
         Set-StageMark 'clear'
         $interrupted = Get-InputBlockInterruption -RequireForeground
         if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
-        $typed = Invoke-Ui @('type', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--text', $Text, '--paste', '--verify')
+        $typed = Invoke-ChatPasteAtFocus
+        if ($null -eq $typed) { $typed = Invoke-Ui @('type', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--text', $Text, '--paste', '--verify') }
         Update-InputBlockStamp
         Set-StageMark 'paste'
         if ($typed.success) {

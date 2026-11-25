@@ -27,7 +27,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Set-HeldChatInput', 'Get-ChatInputElementsCached', 'Invoke-ChatSendButton', 'Write-Result', 'Set-StageMark', 'Start-InputBlock', 'Get-InputBlockInterruption', 'Update-InputBlockStamp', 'Stop-InputBlock')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Set-HeldChatInput', 'Get-ChatInputElementsCached', 'Invoke-ChatSendButton', 'Get-WindowProcessId', 'Invoke-ChatPasteAtFocus', 'Write-Result', 'Set-StageMark', 'Start-InputBlock', 'Get-InputBlockInterruption', 'Update-InputBlockStamp', 'Stop-InputBlock')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -237,6 +237,9 @@ function Get-TopLevelWindows {
     if ($null -eq $script:fixtureWindows) { $script:ListWindowsError = 'listing failed'; return $null }
     return ,@($script:fixtureWindows)
 }
+Assert-True ((Get-WindowProcessId) -eq 0) 'Without the native helper loaded the window process must read as unknown (0), so the window listing is used.'
+$script:fixtureWindowPid = 0
+function Get-WindowProcessId { return $script:fixtureWindowPid }
 $script:fixtureCallers = @(7, 100)
 function Get-CallerProcessIds { if ($null -eq $script:fixtureCallers) { throw 'chain unreadable' }; return $script:fixtureCallers }
 $Hwnd = '0x1234'
@@ -259,6 +262,18 @@ Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unreadable wind
 $script:fixtureWindows = @([pscustomobject]@{ Hwnd = '0x2000'; Pid = 200; ProcessName = 'devenv' })
 $script:fixtureCallers = $null
 Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unreadable process chain did not fail closed.'
+# Fast path: the window's process is read in this process, so no window listing is needed (an unreadable listing proves it).
+$script:fixtureWindows = $null; $script:fixtureWindowPid = 200; $script:fixtureCallers = @(7, 100); $script:otherDesktop = $false
+Assert-True ($null -eq (Get-OwnHostError)) 'The fast path must allow a window of another process without listing windows.'
+$script:fixtureCallers = @(7, 200)
+Assert-True ((Get-OwnHostError) -match 'OwnHostWindow: window 0x2000 belongs to process 200') 'The fast path must refuse the calling host.'
+$script:fixtureCallers = $null
+Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'The fast path must fail closed on an unreadable process chain.'
+$script:fixtureCallers = @(7, 100); $script:otherDesktop = $true
+$fastDesktop = Get-OwnHostError
+Assert-True ($fastDesktop -match 'another virtual desktop' -and $fastDesktop -match 'nothing was typed') 'The fast path must refuse a window on another virtual desktop.'
+$script:otherDesktop = $false; $script:fixtureWindowPid = 0
+Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unknown window process must fall back to the listing, which fails closed.'
 # Banner lookup: a targeted AutomationId search, never a full-tree dump, and a failed read refuses.
 $bannerIdsFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ChatBannerIds' }, $true)
 $bannerElementsFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ChatBannerElements' }, $true)
@@ -401,11 +416,43 @@ $script:valueRead = 'still here'; $script:invokeCount = 0
 $threw = $false; try { $null = Invoke-ChatSendButton } catch { $threw = $true }
 Assert-True ($threw -and $script:invokeCount -eq 1) 'An Invoke error with the prompt still in the input must be reported, and never retried here.'
 $script:invokeThrows = $false; $script:valueSupported = $savedValueSupported; $script:valueRead = $savedValueRead
-foreach ($name in @('Get-ChatActionButtons', 'Get-ChatInputElementsCached')) {   # the real functions again for the checks below
+# ---- paste at the keyboard focus: only when the input holds the focus and the target window is in front ----
+function New-FocusInput([bool]$Focus = $true, [bool]$Throws = $false) {
+    $o = [pscustomobject]@{ Current = [pscustomobject]@{ HasKeyboardFocus = $Focus } }
+    $o | Add-Member -MemberType ScriptMethod -Name SetFocus -Value { $script:focusCalls++; if ($script:focusThrows) { throw 'cannot focus' } } -PassThru
+}
+$savedHwnd = $Hwnd; $savedText = if (Test-Path variable:Text) { $Text } else { $null }
+$script:focusCalls = 0; $script:focusThrows = $false; $script:uiCalls = New-Object 'Collections.Generic.List[string]'; $script:uiOk = $true
+$Text = 'hello'; $Hwnd = '0x1234'; $script:foregroundNow = [IntPtr]0x1234
+function Get-ChatInputElementsCached { param([int]$MaxAgeSeconds = 10) return $script:pasteInputs }
+function Get-AgentForegroundHandle { return $script:foregroundNow }
+function Invoke-Ui { param([string[]]$Arguments) $script:uiCalls.Add($Arguments -join ' '); return [pscustomobject]@{ success = $script:uiOk; error = $(if ($script:uiOk) { $null } else { 'clipboard-unavailable' }); message = $null } }
+$script:pasteInputs = @((New-FocusInput))
+$r = Invoke-ChatPasteAtFocus
+Assert-True ($r.success -and $script:focusCalls -eq 1 -and $script:uiCalls.Count -eq 1 -and $script:uiCalls[0] -ceq 'paste-text --hwnd 0x1234 --text hello --restoreDelayMs 100') 'A focused input in the foreground window must be pasted into with paste-text.'
+foreach ($case in @(
+    @{ Label = 'input without keyboard focus'; Setup = { $script:pasteInputs = @((New-FocusInput $false)) } },
+    @{ Label = 'another window in front'; Setup = { $script:foregroundNow = [IntPtr]0x9999 } },
+    @{ Label = 'no input'; Setup = { $script:pasteInputs = @() } },
+    @{ Label = 'two inputs'; Setup = { $script:pasteInputs = @((New-FocusInput), (New-FocusInput)) } },
+    @{ Label = 'empty text'; Setup = { $script:Text = $null; $Text = '' } },
+    @{ Label = 'failing SetFocus'; Setup = { $script:focusThrows = $true } }
+)) {
+    $script:pasteInputs = @((New-FocusInput)); $script:foregroundNow = [IntPtr]0x1234; $Text = 'hello'; $script:focusThrows = $false
+    $script:uiCalls.Clear(); & $case.Setup
+    Assert-True ($null -eq (Invoke-ChatPasteAtFocus) -and $script:uiCalls.Count -eq 0) "A $($case.Label) must fall back to the old paste, with nothing pasted."
+}
+$script:pasteInputs = @((New-FocusInput)); $script:foregroundNow = [IntPtr]0x1234; $Text = 'hello'; $script:focusThrows = $false; $script:uiOk = $false; $script:uiCalls.Clear()
+$r = Invoke-ChatPasteAtFocus
+Assert-True (-not $r.success -and $r.error -ceq 'clipboard-unavailable' -and $null -eq $r.actual) 'A failed paste-text must be reported as a failed paste.'
+$script:uiOk = $true
+foreach ($name in @('Invoke-Ui', 'Get-ChatActionButtons', 'Get-ChatInputElementsCached')) {   # the real functions again for the checks below
     . ([scriptblock]::Create(($ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)).Extent.Text))
 }
 $script:HeldInput = $null   # nothing held from these checks for the send-loop tests
+$Hwnd = $savedHwnd; if ($null -ne $savedText) { $Text = $savedText }
 $sendSource = $ast.Extent.Text
+Assert-True ($sendSource -match '\$typed = Invoke-ChatPasteAtFocus\s+if \(\$null -eq \$typed\) \{ \$typed = Invoke-Ui @\(''type'', .*--paste.*--verify') 'The paste step must try the focus paste first and keep the verified type-paste as the fallback.'
 Assert-True ($sendSource -match 'if \(-not \$Steer\) \{\s+try \{ \$invoked = Invoke-ChatSendButton \}') 'Only a plain send may use the in-process click; a steer keeps the helper.'
 Assert-True ($sendSource -match '\$inputSeen -and \$null -ne \$script:SeenBannerIds') 'The banner stage may reuse the combined search only when the input was found by it.'
 $ownGuard = $ast.EndBlock.Statements | Where-Object {
@@ -441,7 +488,7 @@ function Enter-AgentUiLock { $script:blockEvents.Add('lock'); if ($script:lockAv
 function Exit-AgentUiLock { param($Lock) $script:blockEvents.Add('unlock') }
 function Wait-AgentUserQuiet { param([int]$QuietMilliseconds, [int]$DraftQuietMilliseconds, [int]$MaxWaitMilliseconds, [switch]$SpeakRequest) $script:blockEvents.Add("wait:$QuietMilliseconds/$DraftQuietMilliseconds/$MaxWaitMilliseconds/$([bool]$SpeakRequest)"); return $script:quietResult }
 function Save-AgentUserFocus { $script:blockEvents.Add('save'); return [pscustomobject]@{ Foreground = [IntPtr]0x9999 } }
-function Enable-AgentCursor { $script:blockEvents.Add('cursor-on') }
+function Enable-AgentCursor { param([int]$LeadMilliseconds = 800) $script:blockEvents.Add('cursor-on'); $script:lastLead = $LeadMilliseconds }
 function Restore-AgentCursor { $script:blockEvents.Add('cursor-off') }
 function Get-AgentInputStamp { return [uint32]$script:inputStamp }
 function Get-AgentInputInUse { return $script:held }

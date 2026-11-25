@@ -245,9 +245,11 @@ function Start-InputBlock {
         }
     }
     $script:UserContext = Save-AgentUserFocus
-    Enable-AgentCursor
+    # Stamp first, so a key pressed during the short lead before input starts is noticed; the lead is 250 ms (it was 800 ms)
+    # because the quiet wait above has already shown the keyboard and mouse idle.
     $script:BlockStamp = Get-AgentInputStamp
     $script:BlockPoint = Get-AgentPointerPosition
+    Enable-AgentCursor -LeadMilliseconds 250
     $script:InputBlockStarted = $true
     return $null
 }

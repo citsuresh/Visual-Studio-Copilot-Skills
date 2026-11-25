@@ -256,6 +256,26 @@ public static class AgentProcessNative {
         } finally { CloseHandle(snap); }
     }
 
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [ComImport, Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IVirtualDesktopManager { [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr h, out bool on); }
+    [ComImport, Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")] class VirtualDesktopManagerClass { }
+
+    // The process that owns a window, or 0 when the handle is not a window.
+    public static int WindowProcessId(IntPtr h) {
+        if (h == IntPtr.Zero || !IsWindow(h)) return 0;
+        uint pid; GetWindowThreadProcessId(h, out pid);
+        return (int)pid;
+    }
+
+    // True when the window exists and is not on the virtual desktop the person is looking at.
+    public static bool IsOnOtherDesktop(IntPtr h) {
+        if (!IsWindow(h)) return false;
+        bool on;
+        int hr = ((IVirtualDesktopManager)new VirtualDesktopManagerClass()).IsWindowOnCurrentVirtualDesktop(h, out on);
+        return hr == 0 && !on;
+    }
     // Process creation time (FILETIME ticks), or 0 when it cannot be read.
     public static long StartTime(int pid) {
         IntPtr h = OpenProcess(0x1000, false, (uint)pid);
@@ -406,8 +426,10 @@ function Set-AgentForegroundWindow {
             [AgentForegroundNative]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
         }
         [void][AgentForegroundNative]::SetForegroundWindow($Handle)
-        # Poll instead of a fixed 300 ms sleep: the switch normally lands within a few tens of ms.
-        for ($wait = 0; $wait -lt 12 -and [AgentForegroundNative]::GetForegroundWindow() -ne $Handle; $wait++) { Start-Sleep -Milliseconds 25 }
+        # Poll instead of a fixed 300 ms sleep: the switch normally lands within a few tens of ms. A first try that Windows
+        # refused (common when giving the person's window back) is not waited on for long; the Alt-tap retry follows.
+        $polls = if ($i -eq 1) { 6 } else { 12 }
+        for ($wait = 0; $wait -lt $polls -and [AgentForegroundNative]::GetForegroundWindow() -ne $Handle; $wait++) { Start-Sleep -Milliseconds 25 }
     }
     return ([AgentForegroundNative]::GetForegroundWindow() -eq $Handle)
 }

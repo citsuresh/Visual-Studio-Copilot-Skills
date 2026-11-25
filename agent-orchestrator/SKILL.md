@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 37`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 38`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,18 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v38 - `Send-CopilotPrompt.ps1` is about 2 s faster per send (measured) and no longer moves the pointer to paste.
+    The prompt is pasted at the keyboard focus: the input element already held is given focus through UI Automation,
+    it must report keyboard focus and the target window must be in front, and then `paste-text` sends Ctrl+V
+    (0.9 s instead of 1.5 s; the old `type --paste --verify` click-and-search path is the fallback whenever any of
+    those conditions fails, and the exact read-back still decides). The own-host check reads the window's process and
+    desktop in this process (0.2 s instead of 0.5 s; the window listing is used only for a handle that is not a
+    window). The red-dot lead before the first input is 250 ms instead of 800 ms, and the input stamp is taken
+    before it, so a key pressed during the lead is now noticed; the quiet wait has already shown the keyboard
+    idle. `Set-AgentForegroundWindow` waits at most 150 ms for a first try Windows ignored, which cuts the hand-back
+    from 0.53 s to 0.32 s. Measured live (one machine, 4 interleaved pairs against the committed v37): median total
+    5.8 s to 3.4 s, 3.7 s to 2.6 s without the quiet wait. Still slow: the foreground stage (0.7 s, one window
+    search), the paste (0.9 s, mostly starting the helper) and the hand-back (0.3 s).
   - v37 - `Send-CopilotPrompt.ps1` is about 2.2 s faster per send (measured) by searching the window less often.
     One walk now finds the input and both banners together (it used to be two walks); the input found there is
     reused for the screen check, the draft check and the read-back while it is under 10 s old and still has the

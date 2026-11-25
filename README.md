@@ -68,6 +68,8 @@ Agent-orchestrator v36 and ui-interaction v26 make `Send-CopilotPrompt.ps1` abou
 
 Agent-orchestrator v37 makes `Send-CopilotPrompt.ps1` about 2.2 s faster again (median 6.0 s to 3.8 s without the quiet wait, one machine): one window search finds the input and the banners, the found input is reused while it still looks identical, and a plain send invokes the Send button in-process. The read-back, draft refusal and banner check still run.
 
+Agent-orchestrator v38 and ui-interaction v27 make `Send-CopilotPrompt.ps1` about 2 s faster again (median 5.8 s to 3.4 s, 3.7 s to 2.6 s without the quiet wait, one machine) and stop it clicking the chat input to paste: the prompt is pasted at the keyboard focus of the input it already holds, the own-host check no longer lists windows, and the red-dot lead is 250 ms. The old click-and-paste path remains as the fallback.
+
 ## Prerequisites
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free
