@@ -66,6 +66,8 @@ Agent-orchestrator v35 makes `Send-CopilotPrompt.ps1` about 2.7 s faster per sen
 
 Agent-orchestrator v36 and ui-interaction v26 make `Send-CopilotPrompt.ps1` about 1.5 s faster again (median 7.9 s to 6.4 s without the quiet wait, one machine): the shared native helpers are compiled once and cached as a small DLL, the foreground change polls instead of always sleeping 300 ms, and the own-host check reads the process chain in-process instead of through WMI. No guard changed.
 
+Agent-orchestrator v37 makes `Send-CopilotPrompt.ps1` about 2.2 s faster again (median 6.0 s to 3.8 s without the quiet wait, one machine): one window search finds the input and the banners, the found input is reused while it still looks identical, and a plain send invokes the Send button in-process. The read-back, draft refusal and banner check still run.
+
 ## Prerequisites
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free

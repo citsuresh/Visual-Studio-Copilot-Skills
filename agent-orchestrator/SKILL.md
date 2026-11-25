@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 36`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 37`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,18 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v37 - `Send-CopilotPrompt.ps1` is about 2.2 s faster per send (measured) by searching the window less often.
+    One walk now finds the input and both banners together (it used to be two walks); the input found there is
+    reused for the screen check, the draft check and the read-back while it is under 10 s old and still has the
+    same name, is enabled and on screen, and has the same rectangle (anything else, or an error reading it, searches
+    again; the text is still read from the element at that moment). A plain send invokes the Send button in this
+    process when exactly one enabled, visible button exists (else the helper's click is used, as it always is for
+    a steer); if Invoke errors and the input is empty the prompt went out, otherwise the error is reported and
+    nothing is retried. Measured live (one machine, 4 interleaved pairs against the committed v36): 6.0 s to
+    3.8 s median without the quiet wait; banner 0.51 s to 0.00, screen check 0.76 s to 0.11, read-back 0.39 s to
+    0.01, send 0.69 s to 0.11. Not cached across runs: a UIA element cannot be reused by another process, and a
+    saved click point would skip the checks above. Still slow: the paste (1.7 s), own-host window list
+    (0.5 s), foreground (0.8 s) and hand-back (0.5 s).
   - v36 - `Send-CopilotPrompt.ps1` is about 1.5 s faster per send (measured), mostly in start-up. The three native C#
     helper types in `AgentCursor.ps1` are compiled together once and cached as
     `%LOCALAPPDATA%\AgentUi\AgentCursor.Native.<hash>.dll` (loading the helper script 1.67 s to 0.42 s; it compiles

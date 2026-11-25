@@ -231,6 +231,41 @@ function Get-ChatInputElements {
     return @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition))
 }
 
+# The input found by the last search in this process, kept for a few seconds so the stages after it (screen check,
+# draft check, read-back) read the same element instead of searching the whole window again (each search costs
+# 0.4 to 0.9 s). It is reused only while it is young and still looks exactly as it did when found: same name,
+# enabled, on screen, same rectangle. Anything else, or any error reading it (a re-rendered input is a stale
+# element), falls back to a new search. Text is always read from the element at the moment it is needed.
+$script:HeldInput = $null
+$script:SeenBannerIds = $null
+$script:HeldInputRect = $null
+$script:HeldInputAt = 0
+function Set-HeldChatInput {
+    param([object[]]$Elements)
+    $script:HeldInput = $null
+    if (@($Elements).Count -ne 1) { return }
+    try {
+        $script:HeldInputRect = $Elements[0].Current.BoundingRectangle
+        $script:HeldInputAt = [Diagnostics.Stopwatch]::GetTimestamp()
+        $script:HeldInput = $Elements[0]
+    }
+    catch { $script:HeldInput = $null }
+}
+function Get-ChatInputElementsCached {
+    param([int]$MaxAgeSeconds = 10)
+    if ($script:HeldInput) {
+        try {
+            $age = ([Diagnostics.Stopwatch]::GetTimestamp() - $script:HeldInputAt) / [Diagnostics.Stopwatch]::Frequency
+            $c = $script:HeldInput.Current
+            if ($age -le $MaxAgeSeconds -and $c.Name -eq $InputName -and $c.IsEnabled -and -not $c.IsOffscreen -and $c.BoundingRectangle -eq $script:HeldInputRect) { return $script:HeldInput }
+        }
+        catch { }
+        $script:HeldInput = $null
+    }
+    $found = @(Get-ChatInputElements)
+    Set-HeldChatInput -Elements $found
+    return $found
+}
 # The two banners that make a send go to the wrong folder; found by AutomationId anywhere in the window.
 function Get-ChatBannerElements {
     Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -239,6 +274,24 @@ function Get-ChatBannerElements {
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'HarnessWorkspaceMismatchBanner')),
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'WorkspaceTrustWarningBanner')))
     return @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $ids))
+}
+
+# One walk of the window for the input and both banners together (two separate searches cost about 0.9 s each).
+function Get-ChatInputAndBanners {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $window = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr][Convert]::ToInt64($Hwnd, 16))
+    $any = New-Object System.Windows.Automation.OrCondition(
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $InputName)),
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'HarnessWorkspaceMismatchBanner')),
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'WorkspaceTrustWarningBanner')))
+    $inputs = New-Object 'System.Collections.Generic.List[object]'
+    $bannerIds = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($element in @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $any))) {
+        $id = $element.Current.AutomationId
+        if ($id -eq 'HarnessWorkspaceMismatchBanner' -or $id -eq 'WorkspaceTrustWarningBanner') { if (-not $bannerIds.Contains($id)) { $bannerIds.Add($id) } }
+        elseif ($element.Current.Name -eq $InputName) { $inputs.Add($element) }
+    }
+    return [pscustomobject]@{ Inputs = $inputs.ToArray(); BannerIds = $bannerIds.ToArray() }
 }
 
 function Get-ChatBannerIds {
@@ -324,7 +377,8 @@ function Get-ChatDraftError {
 }
 
 function Get-ChatActionButtons {
-    $inputs = @(Get-ChatInputElements)
+    param([object[]]$Elements)
+    $inputs = @(if ($PSBoundParameters.ContainsKey('Elements')) { $Elements } else { Get-ChatInputElements })
     if ($inputs.Count -ne 1) { return @() }
     $node = $inputs[0]
     $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
@@ -344,6 +398,30 @@ function Get-ChatActionButtons {
         $node = $parent
     }
     return @()
+}
+
+# Clicks the input area's Send button through UI Automation in this process (no helper process, no pointer movement).
+# Returns $true when it was invoked, $false when it could not be done safely (nothing was clicked: the caller falls
+# back to the helper's click), and throws only after Invoke was attempted (a fallback could then send twice).
+function Invoke-ChatSendButton {
+    try {
+        $buttons = @(Get-ChatActionButtons -Elements @(Get-ChatInputElementsCached))
+        $send = @($buttons | Where-Object { $_.Current.AutomationId -eq 'SendButton' })
+        if ($send.Count -ne 1 -or $buttons.Count -ne 1) { return $false }
+        if (-not $send[0].Current.IsEnabled -or $send[0].Current.IsOffscreen) { return $false }
+        $pattern = $null
+        if (-not $send[0].TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { return $false }
+    }
+    catch { return $false }
+    try { $pattern.Invoke() }
+    catch {
+        # Invoke can fail after the click already went through (the button changes as the chat starts working). An empty
+        # input then means the prompt was sent; anything else is reported, never sent a second time.
+        $left = $null
+        try { $left = Get-ChatInputText -Elements @(Get-ChatInputElementsCached -MaxAgeSeconds 3600) } catch { }
+        if ($left -ne '') { throw }
+    }
+    return $true
 }
 
 function Get-ChatSteerError {
@@ -530,7 +608,11 @@ function Test-ChatInput {
 # enabled right now? $false also when the search fails, so a caller falls back to the slower wait.
 function Test-ChatInputShowing {
     try {
-        $inputs = @(Get-ChatInputElements)
+        $seen = Get-ChatInputAndBanners
+        $inputs = @($seen.Inputs)
+        Set-HeldChatInput -Elements $inputs
+        # The banner check that follows reads this result instead of walking the window again.
+        $script:SeenBannerIds = @($seen.BannerIds)
         return ($inputs.Count -eq 1 -and [bool]$inputs[0].Current.IsEnabled)
     }
     catch { return $false }
@@ -712,7 +794,8 @@ try {
     # Banner check before any input; banners only render while the chat is visible.
     if (-not $IgnoreBanners) {
         # A targeted lookup instead of a full-tree dump. A failed lookup refuses; it must not read as "no banner".
-        try { $found = @(Get-ChatBannerIds) }
+        # When the input was just found by the combined search (nothing was navigated since), its banners are already known.
+        try { $found = @(if ($inputSeen -and $null -ne $script:SeenBannerIds) { $script:SeenBannerIds } else { Get-ChatBannerIds }) }
         catch { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "BannerCheckFailed: the chat banners could not be read ($($_.Exception.Message)). Nothing was typed; pass -IgnoreBanners to skip the check." }
         if ($found.Count -gt 0) {
             return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Chat shows $($found -join ', '): the session's folder does not match the open folder (or is untrusted). Nothing was typed. Ask the user, then fix it or pass -IgnoreBanners."
@@ -751,8 +834,8 @@ try {
     if ($blockError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $blockError }
     Set-StageMark 'quietWait'
 
-    # One search for the input, shared by the on-screen check and the second draft check.
-    $inputElements = @(Get-ChatInputElements)
+    # One lookup for the input, shared by the on-screen check and the second draft check (the element found a few seconds ago is reused when it still looks the same).
+    $inputElements = @(Get-ChatInputElementsCached)
     $screenError = Get-ChatInputScreenError -Elements $inputElements
     if ($screenError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $screenError }
     Set-StageMark 'screenCheck'
@@ -794,7 +877,7 @@ try {
         Update-InputBlockStamp
         Set-StageMark 'paste'
         if ($typed.success) {
-            $actual = Get-ChatInputText
+            $actual = Get-ChatInputText -Elements @(Get-ChatInputElementsCached)
             Set-StageMark 'readback'
             if ([string]::Equals(($actual.Replace("`r`n", "`n").Replace("`r", "`n")), $Text, [StringComparison]::Ordinal)) {
                 $lastError = $null
@@ -826,7 +909,14 @@ try {
     }
     $interrupted = Get-InputBlockInterruption -RequireForeground
     if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
-    $sent = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', $buttonId)
+    # Plain send: invoke the button in this process when that is unambiguous (0.2 s instead of 0.7 s); otherwise,
+    # and for a steer, use the helper's click as before.
+    $invoked = $false
+    if (-not $Steer) {
+        try { $invoked = Invoke-ChatSendButton }
+        catch { return Write-Result -Sent $false -Attempts $attempt -InputText $actual -ErrorText "Send click failed: the Send button could not be invoked ($($_.Exception.Message)). The prompt is in the input; check the chat before trying again." }
+    }
+    $sent = if ($invoked) { [pscustomobject]@{ success = $true; error = $null; message = $null } } else { Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', $buttonId) }
     Update-InputBlockStamp
     Set-StageMark 'send'
     if (-not $sent.success) {

@@ -27,7 +27,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result', 'Set-StageMark', 'Start-InputBlock', 'Get-InputBlockInterruption', 'Update-InputBlockStamp', 'Stop-InputBlock')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Set-HeldChatInput', 'Get-ChatInputElementsCached', 'Invoke-ChatSendButton', 'Write-Result', 'Set-StageMark', 'Start-InputBlock', 'Get-InputBlockInterruption', 'Update-InputBlockStamp', 'Stop-InputBlock')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -311,6 +311,103 @@ $script:areas = @()
 Assert-True ($null -eq (Get-ChatInputScreenError -Elements @((New-RectInput (New-Object System.Windows.Rect(1292, 1520, 366, 26)))))) 'No screens must never block a send.'
 Assert-True ($null -eq (Get-ChatInputScreenError -Elements @([pscustomobject]@{ Current = $null }))) 'An unreadable rectangle must never block a send.'
 $script:areas = @(New-ScreenArea 0 0 1920 1008)
+# ---- reuse of the input element found a moment ago (revalidated; never a stale or changed element) ----
+$InputName = 'Ask Copilot'
+$script:HeldInput = $null; $script:HeldInputRect = $null; $script:HeldInputAt = 0
+$script:searches = 0
+$script:searchResult = @()
+function Get-ChatInputElements { $script:searches++; return @($script:searchResult) }
+function New-HeldInput([string]$Name = 'Ask Copilot', [bool]$Enabled = $true, [bool]$Offscreen = $false, $Rect = (New-Object System.Windows.Rect(100, 700, 400, 26))) {
+    [pscustomobject]@{ Current = [pscustomobject]@{ Name = $Name; IsEnabled = $Enabled; IsOffscreen = $Offscreen; BoundingRectangle = $Rect } }
+}
+$first = New-HeldInput
+$script:searchResult = @($first)
+$got = @(Get-ChatInputElementsCached)
+Assert-True ($script:searches -eq 1 -and $got.Count -eq 1 -and [object]::ReferenceEquals($got[0], $first)) 'The first lookup must search and keep the single input.'
+$got = @(Get-ChatInputElementsCached)
+Assert-True ($script:searches -eq 1 -and [object]::ReferenceEquals($got[0], $first)) 'A young, unchanged input must be reused without another search.'
+$first.Current.BoundingRectangle = New-Object System.Windows.Rect(100, 701, 400, 26)
+$second = New-HeldInput -Rect (New-Object System.Windows.Rect(100, 701, 400, 26)); $script:searchResult = @($second)
+$got = @(Get-ChatInputElementsCached)
+Assert-True ($script:searches -eq 2 -and [object]::ReferenceEquals($got[0], $second)) 'An input whose rectangle changed must be searched for again.'
+foreach ($case in @(
+    @{ Label = 'disabled'; Change = { $second.Current.IsEnabled = $false } },
+    @{ Label = 'off-screen'; Change = { $second.Current.IsOffscreen = $true } },
+    @{ Label = 'renamed'; Change = { $second.Current.Name = 'Something else' } }
+)) {
+    $fresh = New-HeldInput -Rect (New-Object System.Windows.Rect(100, 701, 400, 26)); $script:searchResult = @($fresh)
+    Set-HeldChatInput -Elements @($second)
+    $before = $script:searches
+    & $case.Change
+    $got = @(Get-ChatInputElementsCached)
+    Assert-True ($script:searches -eq $before + 1 -and [object]::ReferenceEquals($got[0], $fresh)) "A $($case.Label) input must be searched for again."
+    $second.Current.IsEnabled = $true; $second.Current.IsOffscreen = $false; $second.Current.Name = 'Ask Copilot'
+}
+$script:searchResult = @($first); Set-HeldChatInput -Elements @($second)
+$script:HeldInputAt = [Diagnostics.Stopwatch]::GetTimestamp() - (11 * [Diagnostics.Stopwatch]::Frequency)
+$before = $script:searches; $null = Get-ChatInputElementsCached
+Assert-True ($script:searches -eq $before + 1) 'An input held for more than the age limit must be searched for again.'
+$stale = [pscustomobject]@{}; $stale | Add-Member -MemberType ScriptProperty -Name Current -Value { throw 'ElementNotAvailable' }
+$script:HeldInput = $stale; $script:HeldInputAt = [Diagnostics.Stopwatch]::GetTimestamp()
+$script:searchResult = @($second); $before = $script:searches
+$got = @(Get-ChatInputElementsCached)
+Assert-True ($script:searches -eq $before + 1 -and [object]::ReferenceEquals($got[0], $second)) 'A stale element (error reading it) must fall back to a new search.'
+$script:searchResult = @($first, $second); Set-HeldChatInput -Elements @($first, $second)
+Assert-True ($null -eq $script:HeldInput) 'Two inputs must never be held as one.'
+$script:searchResult = @(); $before = $script:searches; $got = @(Get-ChatInputElementsCached)
+Assert-True ($got.Count -eq 0 -and $null -eq $script:HeldInput) 'No input must stay no input.'
+$screenStatement = $ast.Extent.Text
+Assert-True ($screenStatement -match '\$inputElements = @\(Get-ChatInputElementsCached\)') 'The screen check must take the input through the revalidating lookup.'
+Assert-True ($screenStatement -match 'Get-ChatInputText -Elements @\(Get-ChatInputElementsCached\)') 'The read-back must read the same revalidated element.'
+Assert-True ($screenStatement -notmatch '\$inputElements = @\(Get-ChatInputElements\)') 'The screen check must not search the whole window itself.'
+function Get-ChatInputElements { return $script:inputFixtures }   # back to the shared fixture search for the checks below
+# ---- in-process Send click: only when unambiguous, never a second send after an attempted Invoke ----
+$savedValueSupported = $script:valueSupported; $savedValueRead = $script:valueRead
+$script:invokeCount = 0; $script:invokeThrows = $false; $script:hasInvoke = $true
+function New-ActionButton([string]$Id, [bool]$Enabled = $true, [bool]$Offscreen = $false) {
+    $b = [pscustomobject]@{ Current = [pscustomobject]@{ AutomationId = $Id; IsEnabled = $Enabled; IsOffscreen = $Offscreen } }
+    $b | Add-Member -MemberType ScriptMethod -Name TryGetCurrentPattern -Value {
+        param($patternId, $reference)
+        if (-not $script:hasInvoke) { return $false }
+        $reference.Value = ([pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name Invoke -Value { $script:invokeCount++; if ($script:invokeThrows) { throw 'ElementNotAvailable' } } -PassThru)
+        return $true
+    }
+    return $b
+}
+function Get-ChatInputElementsCached { param([int]$MaxAgeSeconds = 10) return $inputElement }
+$script:actionButtons = @((New-ActionButton 'SendButton'))
+$script:actionButtonsThrow = $false
+function Get-ChatActionButtons { param([object[]]$Elements) if ($script:actionButtonsThrow) { throw 'tree unreadable' }; return $script:actionButtons }
+Assert-True ((Invoke-ChatSendButton) -eq $true -and $script:invokeCount -eq 1) 'A single enabled, visible SendButton must be invoked once in this process.'
+foreach ($case in @(
+    @{ Label = 'disabled'; Buttons = { @((New-ActionButton 'SendButton' $false)) } },
+    @{ Label = 'off-screen'; Buttons = { @((New-ActionButton 'SendButton' $true $true)) } },
+    @{ Label = 'busy (Cancel beside Send)'; Buttons = { @((New-ActionButton 'CancelButton'), (New-ActionButton 'SendButton')) } },
+    @{ Label = 'missing'; Buttons = { @() } },
+    @{ Label = 'duplicated'; Buttons = { @((New-ActionButton 'SendButton'), (New-ActionButton 'SendButton')) } },
+    @{ Label = 'only Steer'; Buttons = { @((New-ActionButton 'SteerButton')) } }
+)) {
+    $script:actionButtons = & $case.Buttons; $script:invokeCount = 0
+    Assert-True ((Invoke-ChatSendButton) -eq $false -and $script:invokeCount -eq 0) "A $($case.Label) Send button must be left to the helper's click, with nothing invoked."
+}
+$script:actionButtons = @((New-ActionButton 'SendButton')); $script:hasInvoke = $false; $script:invokeCount = 0
+Assert-True ((Invoke-ChatSendButton) -eq $false -and $script:invokeCount -eq 0) 'A Send button without InvokePattern must fall back to the helper.'
+$script:hasInvoke = $true; $script:actionButtonsThrow = $true
+Assert-True ((Invoke-ChatSendButton) -eq $false -and $script:invokeCount -eq 0) 'An unreadable button tree must fall back to the helper.'
+$script:actionButtonsThrow = $false; $script:invokeThrows = $true
+$script:valueSupported = $true; $script:valueRead = ''
+Assert-True ((Invoke-ChatSendButton) -eq $true -and $script:invokeCount -eq 1) 'An Invoke error with an emptied input means the prompt went out.'
+$script:valueRead = 'still here'; $script:invokeCount = 0
+$threw = $false; try { $null = Invoke-ChatSendButton } catch { $threw = $true }
+Assert-True ($threw -and $script:invokeCount -eq 1) 'An Invoke error with the prompt still in the input must be reported, and never retried here.'
+$script:invokeThrows = $false; $script:valueSupported = $savedValueSupported; $script:valueRead = $savedValueRead
+foreach ($name in @('Get-ChatActionButtons', 'Get-ChatInputElementsCached')) {   # the real functions again for the checks below
+    . ([scriptblock]::Create(($ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)).Extent.Text))
+}
+$script:HeldInput = $null   # nothing held from these checks for the send-loop tests
+$sendSource = $ast.Extent.Text
+Assert-True ($sendSource -match 'if \(-not \$Steer\) \{\s+try \{ \$invoked = Invoke-ChatSendButton \}') 'Only a plain send may use the in-process click; a steer keeps the helper.'
+Assert-True ($sendSource -match '\$inputSeen -and \$null -ne \$script:SeenBannerIds') 'The banner stage may reuse the combined search only when the input was found by it.'
 $ownGuard = $ast.EndBlock.Statements | Where-Object {
     $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'Get-OwnHostError'
 } | Select-Object -First 1
@@ -561,20 +658,24 @@ Set-Item function:Get-ChatInputText $realReadText
 $inputShowingFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-ChatInputShowing' }, $true)
 Assert-True ($null -ne $inputShowingFunction) 'The in-process input check is missing.'
 . ([scriptblock]::Create($inputShowingFunction.Extent.Text))
-$realInputElements = ${function:Get-ChatInputElements}
 $enabledInput = [pscustomobject]@{ Current = [pscustomobject]@{ IsEnabled = $true } }
 $disabledInput = [pscustomobject]@{ Current = [pscustomobject]@{ IsEnabled = $false } }
-function Get-ChatInputElements { return @($enabledInput) }
+$script:SeenBannerIds = $null
+function Get-ChatInputAndBanners { return [pscustomobject]@{ Inputs = @($enabledInput); BannerIds = @() } }
 Assert-True (Test-ChatInputShowing) 'One enabled input must count as showing.'
-function Get-ChatInputElements { return @($disabledInput) }
+Assert-True ($null -ne $script:SeenBannerIds -and @($script:SeenBannerIds).Count -eq 0) 'The combined search must leave its (empty) banner list for the banner check.'
+function Get-ChatInputAndBanners { return [pscustomobject]@{ Inputs = @($enabledInput); BannerIds = @('HarnessWorkspaceMismatchBanner') } }
+Assert-True (Test-ChatInputShowing -and (@($script:SeenBannerIds) -join ',') -eq 'HarnessWorkspaceMismatchBanner') 'A banner found by the combined search must be handed on, not lost.'
+function Get-ChatInputAndBanners { return [pscustomobject]@{ Inputs = @($disabledInput); BannerIds = @() } }
 Assert-True (-not (Test-ChatInputShowing)) 'A disabled input must not count as showing.'
-function Get-ChatInputElements { return @() }
+function Get-ChatInputAndBanners { return [pscustomobject]@{ Inputs = @(); BannerIds = @() } }
 Assert-True (-not (Test-ChatInputShowing)) 'No input must not count as showing.'
-function Get-ChatInputElements { return @($enabledInput, $enabledInput) }
+function Get-ChatInputAndBanners { return [pscustomobject]@{ Inputs = @($enabledInput, $enabledInput); BannerIds = @() } }
 Assert-True (-not (Test-ChatInputShowing)) 'An ambiguous input must not count as showing.'
-function Get-ChatInputElements { throw 'search failed' }
-Assert-True (-not (Test-ChatInputShowing)) 'A failed search must fall back to the slower wait, not count as showing.'
-Set-Item function:Get-ChatInputElements $realInputElements
+$script:SeenBannerIds = $null
+function Get-ChatInputAndBanners { throw 'search failed' }
+Assert-True (-not (Test-ChatInputShowing) -and $null -eq $script:SeenBannerIds) 'A failed search must fall back to the slower wait, not count as showing, and leave no banner result behind.'
+$script:HeldInput = $null
 $script:inputFixtures = @($inputElement)
 # the early draft check applies only to a new session or a steer; a plain send relies on the check after the quiet wait
 $script:textRead = 'draft before a plain send'
