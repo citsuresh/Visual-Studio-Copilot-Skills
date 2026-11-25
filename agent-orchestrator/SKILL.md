@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 40`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 41`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,7 +243,10 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
-  - v40 - Adds a troubleshooting log for mailbox messages. `Send-AgentMessage.ps1` and `Wait-AgentMailbox.ps1` write one
+  - v41 - Both directions now show in the worker's chat. A stop message is acknowledged with `From orchestrator: stop
+    listening.` (before, only the final "Stopped listening." appeared), and the worker starts its final answer to each
+    instruction with `Replying to orchestrator: <a few words>`, so it is clear the answer is meant for the orchestrator.
+    The listener's output and the bootstrap carry both rules. No other behaviour changed.  - v40 - Adds a troubleshooting log for mailbox messages. `Send-AgentMessage.ps1` and `Wait-AgentMailbox.ps1` write one
     JSON line per event (send, post, listen start, claim, listen end) and `Get-AgentMailboxLog.ps1` shows both sides
     merged for a channel. By default no message text is logged, only its length and a short hash (so one message can be
     followed from the sender log to the listener log); `-LogText` adds the sender's own text, `-NoLog` turns logging off.
@@ -751,14 +754,21 @@ automatically. When a send behaved oddly, read this log before guessing.
 `.\Send-AgentMessage.ps1 -Hwnd <h> -StopListening` and check the worker went idle (Step 3), so its chat no longer shows as
 busy and no turns are spent waiting. Do this on early exits and failures too (Step 7). The worker is also told to stop
 by itself after two timeouts in a row (about 13 minutes without a message) and to tell the person.
+**Resuming.** A stopped mailbox is not a new thing to create: the channel (named from the window handle) and its log stay. To talk to the worker again,
+send `Send-AgentMessage.ps1 -Hwnd <h> -Bootstrap -Text '<next task>'` again: it goes by UI like the first time (an idle chat cannot be
+woken by a mailbox), tells the worker to listen on the same channel, and later messages go by mailbox again. The worker never
+resumes by itself after a stop. A restarted Visual Studio has a new window handle and so a new channel automatically.
 Ending it: `-StopListening`. The worker keeps listening only while it obeys the loop (each wait ends after 400 s and the
 worker runs it again); a worker that stops, errors or is stopped by the person drops back to the UI routes by itself.
 The result has `Sent`, `Tier`, `Attempts` (one line per tier tried), `Preview` (the first 120 characters of the message) and
 `Display`, one line to show the person.
-- **Keep the exchange visible.** For every message you send, show the person the `Display` line in your reply (direction,
+- **Keep the exchange visible.** The person usually sees only your reply text: tool output is collapsed in their view, so
+  a `Display` line printed by a command is not shown to them. Write the exchange into your reply as plain text, in order, for
+  example `Master -> worker (mailbox, 0.7 s): <preview>` followed by `Worker: <its reply, one line>`. For every message you send, show the person the `Display` line in your reply (direction,
   route, time, preview) and, when the worker answers, a one- or two-line summary of its reply. The bootstrap tells the worker
-  to begin each reply to a mailbox message with `From orchestrator: <a few words>`, so someone watching the worker's chat can
-  follow it too; the printed message itself also shows in the worker's command output. Never send or summarize secrets. While a worker listens its chat shows as
+  to begin each reply to a mailbox message with `From orchestrator: <a few words>` and its final answer with
+  `Replying to orchestrator: <a few words>`, so someone watching the worker's chat can follow both directions (read those
+  answers with the watchers of Step 3); the printed message itself also shows in the worker's command output. Never send or summarize secrets. While a worker listens its chat shows as
 busy. Messages are private to the user's account, deleted when read or after 10 minutes, and limited to 8000 characters.
 ## Step 3 — Poll for state (Working / Pending / Idle)
 

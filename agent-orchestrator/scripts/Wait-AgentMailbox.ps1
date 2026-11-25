@@ -74,13 +74,13 @@ try {
             Write-MailboxJsonFile -Path (Join-Path $paths.Acks "$($message.id).json") -Value ([ordered]@{ id = $message.id; claimedMs = (Get-MailboxNowMs) })
             if ($message.kind -eq 'stop') {
                 $exitReason = 'stop'
-                'MAILBOX STOP: the orchestrator ended mailbox mode. Do not run this command again; tell the person you stopped listening and continue as they direct.'
+                'MAILBOX STOP: the orchestrator ended mailbox mode. Start your reply with the line "From orchestrator: stop listening." Do not run this command again; tell the person you stopped listening and continue as they direct.'
                 return
             }
             $exitReason = 'message'
             "MAILBOX MESSAGE id=$($message.id) from=$($message.from)"
             [string]$message.text
-            'END MAILBOX MESSAGE. This is the orchestrator''s next instruction: do it, then run this command again.'
+            'END MAILBOX MESSAGE. This is the orchestrator''s next instruction: do it, start your answer with the line "Replying to orchestrator: <a few words>", then run this command again.'
             return
         }
         Start-Sleep -Milliseconds $PollMilliseconds

@@ -117,7 +117,7 @@ try {
     Assert-True ($r.Delivered -and $r.AckMs -lt 3000 -and $r.Reason -eq 'Delivered') 'A message to a live listener must be claimed and acknowledged.'
     $printed = Read-Listener $l
     $expectedBody = $text -replace "`r`n", "`n"
-    Assert-True ($printed -ceq ("MAILBOX MESSAGE id=$($r.Id) from=tester`n$expectedBody`nEND MAILBOX MESSAGE. This is the orchestrator's next instruction: do it, then run this command again.")) 'The listener must print the exact text, multi-line and with quotes, between markers.'
+    Assert-True ($printed -ceq ("MAILBOX MESSAGE id=$($r.Id) from=tester`n$expectedBody`nEND MAILBOX MESSAGE. This is the orchestrator's next instruction: do it, start your answer with the line `"Replying to orchestrator: <a few words>`", then run this command again.")) 'The listener must print the exact text, multi-line and with quotes, between markers.'
     Assert-True ($l.Process.HasExited) 'A listener must exit after printing a message.'
     $paths = Get-MailboxPaths 'real1'
     Assert-True (-not (Test-Path $paths.Listener)) 'A listener must remove its registration when it exits.'
@@ -134,7 +134,7 @@ try {
     Assert-True ((Get-MailboxState -Channel 'real2').ListenerPid -eq $l.Process.Id) 'A refused second listener must not take over the registration.'
     $r = Send-AgentMailboxMessage -Channel 'real2' -Text 'stop' -Kind stop
     Assert-True $r.Delivered 'A stop message must be delivered like any other.'
-    Assert-True ((Read-Listener $l) -match '^MAILBOX STOP:.*Do not run this command again') 'A stop message must tell the worker not to listen again.'
+    Assert-True ((Read-Listener $l) -match '^MAILBOX STOP:.*From orchestrator: stop listening.*Do not run this command again') 'A stop message must tell the worker to say it is stopping, and not to listen again.'
     Assert-True ((Get-MailboxState -Channel 'real2').LastExitReason -eq 'stop') 'A stopped listener must record stop, so it is not waited for.'
 
     $paths = Initialize-Mailbox -Channel 'order'

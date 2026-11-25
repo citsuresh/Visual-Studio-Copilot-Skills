@@ -148,7 +148,7 @@ function Invoke-UiSender {
 function New-BootstrapText {
     param([string]$Task, [string]$ChannelName)
     $wait = Join-Path $script:ScriptDir 'Wait-AgentMailbox.ps1'
-    $suffix = "Mailbox mode: whenever you have finished a task, run exactly this terminal command and nothing else: powershell -NoProfile -File `"$wait`" -Channel $ChannelName . It waits for my next instruction and prints it between MAILBOX MESSAGE markers; treat that text as my next instruction, begin your reply with one line starting From orchestrator: and a few words, so the person watching this chat can follow, do it, then run the command again. If it prints MAILBOX TIMEOUT run it again at once, but after two MAILBOX TIMEOUTs in a row stop listening and tell the person. If it prints MAILBOX STOP, stop listening and do not run it again."
+    $suffix = "Mailbox mode: whenever you have finished a task, run exactly this terminal command and nothing else: powershell -NoProfile -File `"$wait`" -Channel $ChannelName . It waits for my next instruction and prints it between MAILBOX MESSAGE markers; treat that text as my next instruction, begin your reply with one line starting From orchestrator: and a few words, so the person watching this chat can follow, do it, start your final answer for that instruction with the line Replying to orchestrator: and a few words, then run the command again. If it prints MAILBOX TIMEOUT run it again at once, but after two MAILBOX TIMEOUTs in a row stop listening and tell the person. If it prints MAILBOX STOP, begin your reply with the line From orchestrator: stop listening. then stop listening and do not run it again."
     return "$Task $suffix"
 }
 

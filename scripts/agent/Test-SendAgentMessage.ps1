@@ -149,7 +149,7 @@ Assert-True ($r.Sent -and $r.Tier -eq 'Ui' -and ($r.Attempts -join '|') -match '
 # ---- bootstrap text ----
 $script:ScriptDir = 'C:\skills\agent-orchestrator\scripts'
 $text = New-BootstrapText -Task 'Fix the build.' -ChannelName 'w240cca'
-Assert-True ($text -match '^Fix the build\. Mailbox mode:' -and $text -match 'scripts\\Wait-AgentMailbox\.ps1" -Channel w240cca' -and $text -match 'MAILBOX TIMEOUT' -and $text -match 'MAILBOX STOP' -and $text -match 'two MAILBOX TIMEOUTs in a row' -and $text -match 'From orchestrator:' -and $text -notmatch "[`r`n]") 'The bootstrap must be one line carrying the task, the exact command and the timeout and stop rules.'
+Assert-True ($text -match '^Fix the build\. Mailbox mode:' -and $text -match 'scripts\\Wait-AgentMailbox\.ps1" -Channel w240cca' -and $text -match 'MAILBOX TIMEOUT' -and $text -match 'MAILBOX STOP, begin your reply with the line From orchestrator: stop listening' -and $text -match 'two MAILBOX TIMEOUTs in a row' -and $text -match 'From orchestrator:' -and $text -match 'Replying to orchestrator:' -and $text -notmatch "[`r`n]") 'The bootstrap must be one line carrying the task, the exact command and the timeout and stop rules.'
 $src = $ast.Extent.Text
 Assert-True ($src -match 'NotePropertyName Preview' -and $src -match 'NotePropertyName Display' -and $src -match 'Master -> worker') 'The result must carry a Preview and a one-line Display for the person.'
 Assert-True ($src -match "'Auto', 'Mailbox', 'Ui', 'Conservative'" -and $src -match '\[ValidateRange\(1, 60\)\]\s+\[int\]\$AckTimeoutSeconds') 'The mode names and the ack limit must be as documented.'

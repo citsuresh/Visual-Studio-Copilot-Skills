@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 40,
-      "whatsNew": "Adds a troubleshooting log for mailbox messages."
+      "version": 41,
+      "whatsNew": "Both directions now show in the worker's chat."
     },
     "project-memory-management": {
       "version": 3,
