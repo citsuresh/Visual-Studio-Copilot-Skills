@@ -462,6 +462,11 @@ foreach ($case in @(
     $script:uiCalls.Clear(); & $case.Setup
     Assert-True ($null -eq (Invoke-ChatPasteAtFocus) -and $script:uiCalls.Count -eq 0) "A $($case.Label) must fall back to the old paste, with nothing pasted."
 }
+# an older toolkit build has no paste-text verb: fall back to the old paste instead of failing every attempt
+$script:pasteInputs = @((New-FocusInput)); $script:foregroundNow = [IntPtr]0x1234; $Text = 'hello'; $script:focusThrows = $false; $script:uiCalls.Clear()
+function Invoke-Ui { param([string[]]$Arguments) $script:uiCalls.Add($Arguments -join ' '); return [pscustomobject]@{ success = $false; error = 'invalid-argument'; message = "Unknown verb 'paste-text'." } }
+Assert-True ($null -eq (Invoke-ChatPasteAtFocus) -and $script:uiCalls.Count -eq 1) 'A toolkit that does not know paste-text must make the sender fall back to the older paste.'
+function Invoke-Ui { param([string[]]$Arguments) $script:uiCalls.Add($Arguments -join ' '); return [pscustomobject]@{ success = $script:uiOk; error = $(if ($script:uiOk) { $null } else { 'clipboard-unavailable' }); message = $null } }
 $script:pasteInputs = @((New-FocusInput)); $script:foregroundNow = [IntPtr]0x1234; $Text = 'hello'; $script:focusThrows = $false; $script:uiOk = $false; $script:uiCalls.Clear()
 $r = Invoke-ChatPasteAtFocus
 Assert-True (-not $r.success -and $r.error -ceq 'clipboard-unavailable' -and $null -eq $r.actual) 'A failed paste-text must be reported as a failed paste.'

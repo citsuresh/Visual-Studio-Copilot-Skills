@@ -4,6 +4,31 @@ This file is overwritten (not appended) at the end of each working session.
 
 ## Current focus
 
+2026-11-25: made messaging between the orchestrator and a worker Copilot chat faster and safe for the person at the keyboard.
+`agent-orchestrator` is at v42 and `ui-interaction` at v27 (committed, pushed and installed; `origin/main` b379c49).
+- `Send-CopilotPrompt.ps1` (v32 to v38): about 12 s down to about 3.4 s per send (median, one machine). It waits for a
+  quiet keyboard and mouse, takes the foreground only for input steps, stops if the person starts typing, and gives their
+  window, focus and pointer back; refuses an input that is off-screen, a draft, a banner, its own host window, a window on
+  another virtual desktop (v42: also a busy chat). The helpers compile once into a cached DLL, the input found is reused
+  while it still looks the same, the Send click is made in-process, and the paste goes to the keyboard focus without
+  clicking. `-Conservative` keeps the older steps as a fallback.
+- Mailbox (v39 to v41): `Send-AgentMessage.ps1` sends by mailbox when the worker chat is running `Wait-AgentMailbox.ps1`
+  (message taken in about 0.2 s, nothing typed or clicked, works on another desktop), else by the UI sender, else by the
+  conservative path. Opt-in per worker (`-Bootstrap`, `-StopListening`), for to-and-fro work only. Private folder under the
+  temp folder (the worker's terminal cannot see new folders under AppData), heartbeat liveness, unclaimed messages are
+  withdrawn before the UI is used. The worker shows `From orchestrator:` and `Replying to orchestrator:` lines.
+- v40: troubleshooting log (`Get-AgentMailboxLog.ps1`): sender log in `%LOCALAPPDATA%\AgentUi\logs`, listener log in the
+  channel folder under the temp folder; lengths and hashes, never text unless `-LogText`; 512 KB rotation, 30-day cleanup.
+- Offline suites (all pass at last run): sender 417, mailbox 72, router 49, choice-prompt 31, user-activity 81, watcher 19
+  (the watcher suite passes only via `-Command "& script"`, not `-File`).
+- Live evidence (one machine, Skills VS chat): mailbox message in 0.6 to 1.6 s, worker's next command 4.8 to 7.9 s later
+  (UI send about 10 s); resume after a stop, killed listener falling back to one UI send, and a bootstrap into a busy chat
+  refused all worked. Not run live: the worker ending its loop by itself after two timeouts, a worker that never listens
+  again, a mailbox send while the person is on another virtual desktop, the Teams screen-share detection.
+- Standing user rules: UI automation must never disturb a person typing; keep testing cheap (offline first, batch live
+  runs); switch to a model that suits the task or ask the person to.
+
+### Prior snapshot (2026-11-19, kept for reference)
 2026-11-19: Applied the user's reviewed generic hardware-session feedback to three skills:
 read-aloud explicitly reports failed audio as not notifying the user; push-notifications v5
 distinguishes acceptance from delivery and supports optional user-confirmed receipt; orchestrator
@@ -176,6 +201,9 @@ bundled idle-chat rename worker.
 
 ## Recently changed
 
+- 2026-11-25 (all pushed): v36 `ec02380`, v37 `e38eacf`, v38 `47f3012`, v39 `5fb70e9` (mailbox), v40 `d6389bf` (log),
+  v41 `33378e1`, v42 `b379c49` (busy-chat refusal). New scripts: `Send-AgentMessage.ps1`, `Wait-AgentMailbox.ps1`,
+  `AgentMailbox.ps1`, `Get-AgentMailboxLog.ps1`; new tests `Test-AgentMailbox.ps1`, `Test-SendAgentMessage.ps1`.
 - Pending commit: four notification/handoff skills, generated index, script catalog, README,
   code summary/design notes, credential ignore rule and the three notification helper/test scripts.
 - Added `scripts/agent/Compare-TrxCoverage.ps1`: read-only reference-versus-combined-run coverage
@@ -205,6 +233,14 @@ In this repo only `.github/copilot-instructions.md` (Bootstrap-generated) holds 
 
 ## Open tasks/bugs
 
+- Mailbox: the listener-side log, the worker's self-stop after two timeouts and a worker that never listens again are
+  tested offline only; waits longer than 400 s are untried; the first mailbox test files under `%LOCALAPPDATA%\AgentUi`
+  were invisible to the worker's terminal (AppData virtualization, not antivirus or sync).
+- `Test-AgentMailbox.ps1` failed once in a run of five suites and passed in six reruns; cause not found.
+- The sender's stop-message log entry records length 0 (the listener records 4); cosmetic.
+- Ten other scripts still use `$PSScriptRoot` in a `param()` default, which is empty under `powershell.exe -File`
+  (user chose to leave them). `.github/copilot-instructions.md` has uncommitted changes that are not from this work.
+- Teams screen-share detection for the quiet wait is untested until the person can share a screen.
 - Notification v2 packaging, installed hash/offline checks and the user-confirmed phone/routing
 	dry run are complete. The reviewed skills batch has explicit commit/push approval.
   The old flow is disabled and the installed skill enabled for this chat only. Enable/stop

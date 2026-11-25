@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 27`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 28`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -100,6 +100,11 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
   - v23 - Resolves managed executable paths from the successful-build marker when available and
     distinguishes observational remote-session diagnostics from an RDP activation fix.
+  - v28 - Documents that `set-toggle-state` can report success without the setting persisting (observed once, in one
+    environment). The verbs re-read the UI state they just set, which confirms the control, not that the application kept
+    the setting. After a change that must persist, reopen the dialog and read the state back; a real coordinate click
+    persisted where the pattern call did not; check the parent switch is on first. Documentation only; no script or
+    toolkit verb changed.
   - v27 - `AgentCursor.ps1` gives the person's window back faster and can read a window's owner and desktop natively.
     It adds `AgentProcessNative.WindowProcessId` and `IsOnOtherDesktop` to the cached native
     helper (window owner and virtual-desktop check without a window listing), and `Set-AgentForegroundWindow` waits at
@@ -629,12 +634,22 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   a disabled neighbouring control is not proof of checked/connected state.
   For a requested change use `set-toggle-state` with the same selector and explicit
   `--expectedState <freshly observed state> --desiredState <intended state>`. It rejects stale
-  preconditions/unsupported/disabled targets, toggles at most once, and verifies immediately;
+  preconditions/unsupported/disabled targets, toggles at most once, and re-reads the UI state immediately (that
+  confirms the control, not that the application kept the setting: see "Persistence" below);
   three-state cycles may return `verify-mismatch` rather than reaching the requested state.
   Read/action/read is not atomic; provider internals may change focus. On attempted failure,
   inspect `mutationAttempted` and before/after observations, then reread; never blindly repeat.
   If no authoritative state is available, ask rather than guessing. UI state alone does not
   establish a physical connection or hardware outcome.
+  **Persistence (observed once, in one environment: a parent "Enable server" switch and its item toggles in Visual
+  Studio's AI Customization dialog, which has no OK or Apply).** `set-toggle-state` returned success and an
+  immediate `get-state` said `on`, but after the dialog was closed and reopened the switch read `off` and the items
+  were not enabled. A real coordinate click (`click --x --y` on the centre of the control's bounds, no selector)
+  persisted: the control was disabled for a few seconds, then showed its running state, and one of seven item clicks
+  needed a retry. So when a setting must outlast the dialog, close and reopen it and read the state back; if it
+  reverted, use the coordinate click and read back again. Check that the parent switch is on before toggling the
+  items under it: with the parent off the items read `on` but counted 0, and whether an item toggle fails by itself
+  with the parent on was not tested.
 - **WinForms tabs and minimized windows.** An element-not-found result does not establish that
   a control was removed: inactive tab pages can be absent from the exposed tree. Check the
   selected tab, switch only to the intended page and reacquire selectors. Missing/empty lookups

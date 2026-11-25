@@ -449,6 +449,8 @@ function Invoke-ChatPasteAtFocus {
     }
     catch { return $null }
     $r = Invoke-Ui @('paste-text', '--hwnd', $Hwnd, '--text', $Text, '--restoreDelayMs', '100')
+    # A toolkit build without this verb answers invalid-argument "Unknown verb": nothing was pasted, so use the older path.
+    if (-not $r.success -and $r.error -eq 'invalid-argument' -and [string]$r.message -match '^Unknown verb') { return $null }
     [pscustomobject]@{ success = [bool]$r.success; error = $r.error; message = $r.message; actual = $null }
 }
 

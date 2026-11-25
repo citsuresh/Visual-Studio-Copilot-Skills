@@ -238,6 +238,23 @@ function Set-MailboxExit {
     try { Write-MailboxJsonFile -Path (Join-Path $Paths.Dir 'exit.json') -Value ([ordered]@{ reason = $Reason; atMs = (Get-MailboxNowMs) }) } catch { }
 }
 
+# One row per channel folder: who is listening, why the last listener ended, and how many messages wait. For finding a
+# mailbox that was never stopped. Reads only; no message text.
+function Get-MailboxStatusList {
+    $root = Get-MailboxRoot
+    $rows = New-Object 'System.Collections.Generic.List[object]'
+    if (-not (Test-Path -LiteralPath $root)) { return @() }
+    foreach ($folder in [System.IO.Directory]::GetDirectories($root)) {
+        $name = [System.IO.Path]::GetFileName($folder)
+        if (-not (Test-MailboxChannelName $name)) { continue }
+        $state = Get-MailboxState -Channel $name
+        $inbox = Join-Path $folder 'inbox'
+        $waiting = if (Test-Path -LiteralPath $inbox) { @([System.IO.Directory]::GetFiles($inbox, '*.msg')).Count } else { 0 }
+        $rows.Add([pscustomobject]@{ Channel = $name; Live = $state.Live; Registered = $state.Registered; Reason = $state.Reason; ListenerPid = $state.ListenerPid; BeatAgeMs = $state.BeatAgeMs; LastExitReason = $state.LastExitReason; LastExitAgeMs = $state.LastExitAgeMs; MessagesWaiting = $waiting })
+    }
+    return @($rows.ToArray())
+}
+
 # Posts a message and waits for the listener to claim it. Delivered is true only when the listener took it.
 # When nobody takes it in time the message is withdrawn (so it can never arrive later, after a UI send), unless the
 # listener claimed it at that very moment, which counts as delivered.

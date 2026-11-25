@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 42`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 43`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,15 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v43 - Adds `Send-AgentMessage.ps1 -Status` and a clear `WorkerPending` error for a worker stuck on an approval card.
+    The status list shows every mailbox channel (listening or not, why the last listener ended, messages waiting) so a worker
+    that was never stopped is found. When a live listener does not take a message, or the UI refuses with `ChatBusy`,
+    the router looks (read-only) for a pending "Allow this time", question card or Allow/Deny pair and, if there is one,
+    reports `WorkerPending` and sends nothing, instead of falling back to the UI. Also: the sender-side log records a stop
+    message with the same length and hash as the listener (it recorded 0), and the mailbox test reports the failing
+    assertion and line and no longer asserts an ack time under load. The paste at keyboard focus (v38) now falls back to the
+    older paste when the toolkit build answers "Unknown verb" for `paste-text`, instead of failing every attempt.
+    Offline: 75 mailbox, 56 router and 418 sender assertions.
   - v42 - `Send-CopilotPrompt.ps1` refuses a plain send into a busy chat before typing anything (`ChatBusy`: the chat shows Stop
     or Steer instead of Send). Found in a live failure test: a message sent to a worker that was busy and not listening was
     pasted, the Send click then failed twice (UI and conservative tier, 24 s) and the text stayed in the input as a draft.
@@ -755,6 +764,10 @@ the UI, which interrupts the phase in progress.
 was skipped or failed, and each message's length and short hash, never its text (add `-LogText` to a send to keep the
 sender's own text; the listener never logs text). Logs rotate at 512 KB and anything older than 30 days is deleted
 automatically. When a send behaved oddly, read this log before guessing.
+
+**Finding forgotten mailboxes.** `.\Send-AgentMessage.ps1 -Status` lists every channel (add `-Hwnd <h>` for one): whether a
+listener is live, why the last one ended and how many messages wait. A worker that is stuck on an approval card makes the
+router answer `WorkerPending` (what it waits for) instead of retrying: answer the card (Step 4), then send again.
 
 **Always end it.** As soon as the to-and-fro is over (the last phase is done, or the person stops the work), send
 `.\Send-AgentMessage.ps1 -Hwnd <h> -StopListening` and check the worker went idle (Step 3), so its chat no longer shows as

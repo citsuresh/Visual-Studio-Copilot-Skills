@@ -54,6 +54,11 @@
 .PARAMETER QuietSeconds, MaxWaitSeconds
     Passed to Send-CopilotPrompt.ps1 for the UI tiers.
 
+.PARAMETER Status
+    List every mailbox channel: whether a listener is live, why the last one ended and how many messages wait, with a
+    Display line. Nothing is sent. Use it to find a worker that was never stopped. With -Channel or -Hwnd it shows that
+    channel only.
+
 .PARAMETER LogText
     Also write the message text itself to the sender-side troubleshooting log. By default the log has only the message's
     length and a short hash, never text. The listener's own log never holds text.
@@ -115,6 +120,8 @@ param(
     [ValidateRange(0, 3600)]
     [int]$MaxWaitSeconds = 120,
 
+    [switch]$Status,
+
     [switch]$LogText,
 
     [switch]$NoLog,
@@ -143,6 +150,40 @@ function Invoke-UiSender {
         return $r
     }
     catch { return [pscustomobject]@{ Sent = $false; Attempts = 0; InputText = $null; Error = "SenderFailed: $($_.Exception.Message)" } }
+}
+
+# The worker may be unable to listen or answer because a card or permission prompt waits for the person. Same recognition as
+# Watch-CopilotChatV2.ps1: "Allow this time", "Submit"/"Next question", or an enabled, on-screen "Allow" beside an enabled
+# "Deny" of the same parent. Read-only UI Automation; $null when none is found or the window cannot be read.
+function Get-WorkerPendingPrompt {
+    param([string]$Handle)
+    if (-not $Handle) { return $null }
+    try {
+        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+        $A = [System.Windows.Automation.AutomationElement]
+        $window = $A::FromHandle([IntPtr][Convert]::ToInt64($Handle, 16))
+        $names = 'Allow this time', 'Submit', 'Next question', 'Allow'
+        $conditions = [System.Windows.Automation.Condition[]]@($names | ForEach-Object { New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, $_) })
+        $any = New-Object System.Windows.Automation.OrCondition($conditions)
+        foreach ($e in @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $any))) {
+            $info = $e.Current
+            if ($info.IsOffscreen -or -not $info.IsEnabled) { continue }
+            if ($info.Name -eq 'Allow this time') { return 'PermissionPrompt' }
+            if ($info.Name -in 'Submit', 'Next question') { return 'ChoiceCard' }
+            $parent = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($e)
+            if ($parent) {
+                $deny = $parent.FindFirst([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, 'Deny')))
+                if ($deny -and $deny.Current.IsEnabled -and -not $deny.Current.IsOffscreen) { return 'PermissionPrompt' }
+            }
+        }
+    }
+    catch { }
+    return $null
+}
+
+function Get-WorkerPendingError {
+    param([string]$Kind)
+    return "WorkerPending: the worker chat is waiting for a person to answer a $Kind, so it cannot take the message. Nothing was sent. Answer it (Select-ChoicePromptOption.ps1, Step 4), then send again."
 }
 
 function New-BootstrapText {
@@ -175,6 +216,9 @@ function Invoke-AgentMessage {
                           else { Send-AgentMailboxMessage -Channel $script:ChannelName -Text $MessageText -AckTimeoutMs ($AckTimeoutSeconds * 1000) }
                 $attempts.Add("Mailbox: $($posted.Reason)")
                 if ($posted.Delivered) { $out.Sent = $true; $out.Tier = 'Mailbox'; $out.MessageId = $posted.Id; return $out }
+                # A live listener that does not take a message is usually stuck on an approval card.
+                $kind = Get-WorkerPendingPrompt -Handle $Hwnd
+                if ($kind) { $out.Error = Get-WorkerPendingError -Kind $kind; $attempts.Add("Mailbox: worker is waiting on a $kind"); $out.Attempts = @($attempts); return $out }
             }
             else { $attempts.Add("Mailbox: not used ($($state.Reason))") }
         }
@@ -207,6 +251,10 @@ function Invoke-AgentMessage {
         if ($reason.Length -gt 160) { $reason = $reason.Substring(0, 160) + '...' }
         $attempts.Add("${tier}: $reason")
         $out.Error = [string]$r.Error
+        if ($r.Error -match '^ChatBusy') {
+            $kind = Get-WorkerPendingPrompt -Handle $Hwnd
+            if ($kind) { $out.Error = Get-WorkerPendingError -Kind $kind; $attempts.Add("${tier}: worker is waiting on a $kind") }
+        }
         $mechanical = Test-MechanicalUiFailure -ErrorText ([string]$r.Error)
         if ($tier -eq 'Ui' -and $mechanical -and $Mode -eq 'Auto') {
             # A Send click that failed leaves our own prompt in the input; the second try may replace exactly that.
@@ -219,6 +267,21 @@ function Invoke-AgentMessage {
     return $out
 }
 
+if ($Status) {
+    $only = if ($Channel) { $Channel } elseif ($Hwnd) { Get-MailboxChannelName -Hwnd $Hwnd } else { $null }
+    $rows = @(Get-MailboxStatusList)
+    if ($only) { $rows = @($rows | Where-Object { $_.Channel -eq $only }) }
+    $live = @($rows | Where-Object { $_.Live }).Count
+    $lines = @($rows | ForEach-Object {
+        $part = "$($_.Channel): " + $(if ($_.Live) { 'LISTENING' } else { 'not listening' }) + " ($($_.Reason)"
+        if ($_.LastExitReason) { $part += ", last ended: $($_.LastExitReason) $([int]($_.LastExitAgeMs / 1000)) s ago" }
+        $part += ')'
+        if ($_.MessagesWaiting) { $part += ", $($_.MessagesWaiting) message(s) waiting" }
+        $part })
+    $report = [pscustomobject]@{ Channels = $rows; Live = $live; Display = "Mailbox status: $($rows.Count) channel(s), $live listening." + $(if ($lines) { ' ' + ($lines -join '; ') } else { '' }) }
+    if ($AsJson) { $report | ConvertTo-Json -Depth 4 } else { $report }
+    return
+}
 if (-not $Hwnd -and -not $TitleContains -and -not $Channel) { throw 'Pass -Hwnd, -TitleContains or -Channel.' }
 if (-not $Channel) {
     if (-not $Hwnd) { throw 'The channel name is derived from -Hwnd; pass -Hwnd or -Channel.' }
@@ -243,7 +306,8 @@ Add-Member -InputObject $result -NotePropertyName Preview -NotePropertyValue $sh
 $route = if ($result.Sent) { "via $($result.Tier) in $($result.ElapsedMs) ms" } else { "NOT SENT ($(([string]$result.Error -replace '\s+', ' ').Trim()))" }
 Add-Member -InputObject $result -NotePropertyName Display -NotePropertyValue "Master -> worker $route : $shown"
 if (-not $NoLog) {
-    $fp = Get-MailboxTextFingerprint ([string]$Text)
+    # A stop message has no text of its own; the listener sees the word stop, so log that for the same hash on both sides.
+    $fp = Get-MailboxTextFingerprint $(if ($StopListening) { 'stop' } else { [string]$Text })
     $why = ([string]$result.Error -replace '\s+', ' ').Trim(); if ($why.Length -gt 300) { $why = $why.Substring(0, 300) + '...' }
     $entry = [ordered]@{ event = 'send'; channel = $Channel; mode = $Mode; bootstrap = [bool]$Bootstrap; stop = [bool]$StopListening; sent = [bool]$result.Sent; tier = $result.Tier; ms = $result.ElapsedMs; messageId = $result.MessageId; length = $fp.Length; hash = $fp.Hash; attempts = @($result.Attempts); error = $why }
     if ($LogText) { $entry.text = [string]$Text }

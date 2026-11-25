@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $ScriptsPath) { $ScriptsPath = Join-Path $PSScriptRoot '..\..\agent-orchestrator\scripts' }
 $ScriptsPath = (Resolve-Path $ScriptsPath).Path
 $script:assertions = 0
-function Assert-True([bool]$Condition, [string]$Message) { $script:assertions++; if (-not $Condition) { throw $Message } }
+function Assert-True([bool]$Condition, [string]$Message) { $script:assertions++; if (-not $Condition) { throw "$Message (assertion $($script:assertions), line $((Get-PSCallStack)[1].ScriptLineNumber))" } }
 $root = Join-Path ([IO.Path]::GetTempPath()) ('mailbox-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $env:AGENTUI_MAILBOX_ROOT = $root
 $logDir = Join-Path ([IO.Path]::GetTempPath()) ('mailbox-test-logs-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -114,7 +114,7 @@ try {
     $state = Get-MailboxState -Channel 'real1'
     Assert-True ($state.Live -and $state.ListenerPid -eq $l.Process.Id) 'A running listener must read as live with its own process id.'
     $r = Send-AgentMailboxMessage -Channel 'real1' -Text $text -From 'tester'
-    Assert-True ($r.Delivered -and $r.AckMs -lt 3000 -and $r.Reason -eq 'Delivered') 'A message to a live listener must be claimed and acknowledged.'
+    Assert-True ($r.Delivered -and $r.Reason -eq 'Delivered') 'A message to a live listener must be claimed and acknowledged.'
     $printed = Read-Listener $l
     $expectedBody = $text -replace "`r`n", "`n"
     Assert-True ($printed -ceq ("MAILBOX MESSAGE id=$($r.Id) from=tester`n$expectedBody`nEND MAILBOX MESSAGE. This is the orchestrator's next instruction: do it, start your answer with the line `"Replying to orchestrator: <a few words>`", then run this command again.")) 'The listener must print the exact text, multi-line and with quotes, between markers.'
@@ -162,6 +162,15 @@ try {
     Assert-True ((Read-Listener $l) -match '^MAILBOX TIMEOUT: no message in 5 s\. Run this same command again') 'With no message the listener must say timeout and how to continue.'
     Assert-True (-not (Test-Path (Get-MailboxPaths 'tmo').Listener)) 'A timed-out listener must remove its registration.'
     Assert-True ((Get-MailboxState -Channel 'tmo').LastExitReason -eq 'timeout') 'A timed-out listener must record timeout.'
+    $rows = @(Get-MailboxStatusList)
+    $tmoRow = @($rows | Where-Object { $_.Channel -eq 'tmo' })
+    Assert-True ($tmoRow.Count -eq 1 -and -not $tmoRow[0].Live -and $tmoRow[0].LastExitReason -eq 'timeout' -and $tmoRow[0].MessagesWaiting -eq 0) 'The status list must show an ended channel with its exit reason and no waiting messages.'
+    Assert-True (@($rows | Where-Object { $_.Channel -eq 'nobody' }).Count -eq 0) 'A channel that was never created must not be listed.'
+    $statusListener = Start-Listener 'stat1'
+    $liveRow = @(Get-MailboxStatusList | Where-Object { $_.Channel -eq 'stat1' })
+    Assert-True ($liveRow.Count -eq 1 -and $liveRow[0].Live -and $liveRow[0].ListenerPid -eq $statusListener.Process.Id) 'The status list must show a live listener with its process id.'
+    $null = Send-AgentMailboxMessage -Channel 'stat1' -Text 'stop' -Kind stop
+    $null = Read-Listener $statusListener
     Assert-True ((Get-MailboxState -Channel 'nobody2').LastExitReason -eq $null) 'A channel that never had a listener has no exit reason.'
 
     # ---- troubleshooting log ----

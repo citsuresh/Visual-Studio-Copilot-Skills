@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 42,
-      "whatsNew": "Send-CopilotPrompt.ps1 refuses a plain send into a busy chat before typing anything (ChatBusy: the chat shows Stop or Steer instead of Send)."
+      "version": 43,
+      "whatsNew": "Adds Send-AgentMessage.ps1 -Status and a clear WorkerPending error for a worker stuck on an approval card."
     },
     "project-memory-management": {
       "version": 3,
@@ -18,8 +18,8 @@
       "whatsNew": "Distinguish server acceptance from phone delivery and offer optional user-confirmed receipt checks without automatic resends or changing notification consent."
     },
     "ui-interaction": {
-      "version": 27,
-      "whatsNew": "AgentCursor.ps1 gives the person's window back faster and can read a window's owner and desktop natively."
+      "version": 28,
+      "whatsNew": "Documents that set-toggle-state can report success without the setting persisting (observed once, in one environment)."
     },
     "ui-navigation-orchestrator": {
       "version": 8,

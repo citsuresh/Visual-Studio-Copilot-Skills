@@ -12,7 +12,7 @@ Set-StrictMode -Version 2
 $ast = [Management.Automation.Language.Parser]::ParseFile((Resolve-Path $RouterPath).Path, [ref]$null, [ref]$null)
 $script:assertions = 0
 function Assert-True([bool]$Condition, [string]$Message) { $script:assertions++; if (-not $Condition) { throw $Message } }
-foreach ($name in @('Test-MechanicalUiFailure', 'New-BootstrapText', 'Invoke-AgentMessage')) {
+foreach ($name in @('Test-MechanicalUiFailure', 'New-BootstrapText', 'Get-WorkerPendingError', 'Invoke-AgentMessage')) {
     $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
     if (-not $fn) { throw "Missing function: $name" }
     . ([scriptblock]::Create($fn.Extent.Text))
@@ -29,9 +29,11 @@ function Reset-Scenario {
     $script:calls = New-Object 'System.Collections.Generic.List[string]'
     $script:uiArgs = New-Object 'System.Collections.Generic.List[hashtable]'
     $script:postKinds = New-Object 'System.Collections.Generic.List[string]'
+    $script:pending = $null; $script:pendingProbes = 0
 }
 function Get-MailboxState { param($Channel) $script:calls.Add('state'); return $script:state }
 function Send-AgentMailboxMessage { param($Channel, $Text, $Kind = 'message', $AckTimeoutMs) $script:calls.Add('post'); $script:postKinds.Add($Kind); return $script:post }
+function Get-WorkerPendingPrompt { param([string]$Handle) $script:pendingProbes++; return $script:pending }
 function Invoke-UiSender { param([hashtable]$Arguments) $script:calls.Add('ui'); $script:uiArgs.Add($Arguments.Clone()); return $script:uiResults.Dequeue() }
 function New-Ui([bool]$Sent, [string]$Err = $null, [string]$InputValue = $null) { [pscustomobject]@{ Sent = $Sent; Attempts = 1; InputText = $InputValue; Error = $Err } }
 
@@ -139,6 +141,26 @@ Assert-True (-not $script:uiArgs[0].ContainsKey('Steer')) 'A worker that was tol
 Reset-Scenario; $script:ReListenWaitSeconds = 0; $script:stateQueue = New-Object 'System.Collections.Generic.Queue[object]'; $script:stateQueue.Enqueue((New-StateObject $false 'timeout' 2000)); $script:uiResults.Enqueue((New-Ui $true))
 $r = Invoke-AgentMessage -MessageText 'go'
 Assert-True ($r.Sent -and ($r.Attempts -join '|') -notmatch 'waited' -and $script:uiArgs[0].Steer -eq $true) 'With the wait turned off the UI sender runs at once, steering a chat that was listening.'
+# ---- a worker waiting on an approval card is reported as such, not retried through the UI ----
+function Get-MailboxState { param($Channel) $script:calls.Add('state'); return $script:state }   # the plain mock again (the block above used a queue)
+Reset-Scenario; $script:state = [pscustomobject]@{ Registered = $true; Live = $true; Reason = 'Listening'; ListenerPid = 4; BeatAgeMs = 100; LastExitReason = $null; LastExitAgeMs = $null }
+$script:post = [pscustomobject]@{ Delivered = $false; Id = 'x'; AckMs = $null; Reason = 'NotClaimed: withdrawn' }; $script:pending = 'PermissionPrompt'
+$r = Invoke-AgentMessage -MessageText 'go'
+Assert-True (-not $r.Sent -and $r.Error -match '^WorkerPending: .*PermissionPrompt.*Nothing was sent' -and $script:uiArgs.Count -eq 0) 'A live listener that does not take a message while a permission prompt waits must be reported as WorkerPending, with no UI send.'
+Reset-Scenario; $script:state = [pscustomobject]@{ Registered = $true; Live = $true; Reason = 'Listening'; ListenerPid = 4; BeatAgeMs = 100; LastExitReason = $null; LastExitAgeMs = $null }
+$script:post = [pscustomobject]@{ Delivered = $false; Id = 'x'; AckMs = $null; Reason = 'NotClaimed: withdrawn' }; $script:uiResults.Enqueue((New-Ui $true))
+$r = Invoke-AgentMessage -MessageText 'go'
+Assert-True ($r.Sent -and $r.Tier -eq 'Ui' -and $script:pendingProbes -eq 1) 'With no pending card an unclaimed message must still fall back to the UI.'
+Reset-Scenario; $script:uiResults.Enqueue((New-Ui $false 'ChatBusy: the chat is working (it shows Stop or Steer instead of Send), so nothing was typed. Wait until it is idle, or pass -Steer to redirect it.')); $script:pending = 'ChoiceCard'
+$r = Invoke-AgentMessage -MessageText 'go'
+Assert-True (-not $r.Sent -and $r.Error -match '^WorkerPending: .*ChoiceCard' -and $script:uiArgs.Count -eq 1) 'A busy refusal while a question card waits must say the worker is waiting for an answer, without a second try.'
+Reset-Scenario; $script:uiResults.Enqueue((New-Ui $false 'ChatBusy: the chat is working (it shows Stop or Steer instead of Send), so nothing was typed. Wait until it is idle, or pass -Steer to redirect it.'))
+$r = Invoke-AgentMessage -MessageText 'go'
+Assert-True (-not $r.Sent -and $r.Error -match '^ChatBusy' -and $script:uiArgs.Count -eq 1) 'A busy refusal with no pending card must stay a plain ChatBusy.'
+Reset-Scenario; $script:Hwnd = $null; $script:TitleContains = 'My window'; $script:pending = 'PermissionPrompt'; $script:uiResults.Enqueue((New-Ui $false 'ChatBusy: the chat is working, so nothing was typed.'))
+$r = Invoke-AgentMessage -MessageText 'go'
+Assert-True ($r.Error -match '^WorkerPending' -or $r.Error -match '^ChatBusy') 'Without a window handle the probe is skipped by the real function; the router still reports the UI result.'
+Assert-True ((Get-WorkerPendingError -Kind 'PermissionPrompt') -match 'Select-ChoicePromptOption') 'The pending message must say how to answer.'
 # ---- an exception in the mailbox layer is a tier failure, not the end ----
 Reset-Scenario
 function Get-MailboxState { param($Channel) throw 'disk error' }
@@ -151,6 +173,7 @@ $script:ScriptDir = 'C:\skills\agent-orchestrator\scripts'
 $text = New-BootstrapText -Task 'Fix the build.' -ChannelName 'w240cca'
 Assert-True ($text -match '^Fix the build\. Mailbox mode:' -and $text -match 'scripts\\Wait-AgentMailbox\.ps1" -Channel w240cca' -and $text -match 'MAILBOX TIMEOUT' -and $text -match 'MAILBOX STOP, begin your reply with the line From orchestrator: stop listening' -and $text -match 'two MAILBOX TIMEOUTs in a row' -and $text -match 'From orchestrator:' -and $text -match 'Replying to orchestrator:' -and $text -notmatch "[`r`n]") 'The bootstrap must be one line carrying the task, the exact command and the timeout and stop rules.'
 $src = $ast.Extent.Text
+Assert-True ($src -match '\[switch\]\$Status' -and $src -match 'Get-MailboxStatusList' -and $src -match 'function Get-WorkerPendingPrompt') 'The router must offer -Status and the pending-card probe.'
 Assert-True ($src -match 'NotePropertyName Preview' -and $src -match 'NotePropertyName Display' -and $src -match 'Master -> worker') 'The result must carry a Preview and a one-line Display for the person.'
 Assert-True ($src -match "'Auto', 'Mailbox', 'Ui', 'Conservative'" -and $src -match '\[ValidateRange\(1, 60\)\]\s+\[int\]\$AckTimeoutSeconds') 'The mode names and the ack limit must be as documented.'
 "PASS: $script:assertions assertions; tier order (mailbox, UI, conservative), refusals not retried, steer for a listening chat, stale listener, modes, pass-through switches, stop, mailbox-layer failure and bootstrap text; sender and mailbox mocked."
