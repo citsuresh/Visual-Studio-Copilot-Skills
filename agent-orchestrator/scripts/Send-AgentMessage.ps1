@@ -54,6 +54,21 @@
 .PARAMETER QuietSeconds, MaxWaitSeconds
     Passed to Send-CopilotPrompt.ps1 for the UI tiers.
 
+.PARAMETER WaitReply
+    After a message is taken by mailbox, wait for the worker to listen again (that is the signal that it finished) and
+    return its answer: Reply (the text of its "Replying to orchestrator:" answer to this instruction, without that
+    line), ReplyFound and ReplyWaitMs. The answer is read from the chat with Get-CopilotChatTranscript.ps1, so it
+    needs -Hwnd. It is never written to the log. Only for mailbox sends: read a UI send's answer with
+    Read-CopilotReply.ps1 as before.
+
+.PARAMETER ReplyTimeoutSeconds
+    How long -WaitReply waits for the worker to listen again (default 120).
+
+.PARAMETER WaitListening
+    With -Bootstrap: wait up to this many seconds for the worker to start listening. If it does not, and a card or
+    permission prompt is waiting (the first listen command may ask for an Allow), the result says WorkerPending.
+    Result fields Listening and ListeningNote. 0 (default) does not wait.
+
 .PARAMETER Status
     List every mailbox channel: whether a listener is live, why the last one ended and how many messages wait, with a
     Display line. Nothing is sent. Use it to find a worker that was never stopped. With -Channel or -Hwnd it shows that
@@ -120,6 +135,14 @@ param(
     [ValidateRange(0, 3600)]
     [int]$MaxWaitSeconds = 120,
 
+    [switch]$WaitReply,
+
+    [ValidateRange(5, 600)]
+    [int]$ReplyTimeoutSeconds = 120,
+
+    [ValidateRange(0, 600)]
+    [int]$WaitListening = 0,
+
     [switch]$Status,
 
     [switch]$LogText,
@@ -179,6 +202,56 @@ function Get-WorkerPendingPrompt {
     }
     catch { }
     return $null
+}
+
+# True when a listener that started after $SinceMs is live (the worker took the message, answered and listens again).
+function Wait-WorkerListeningAgain {
+    param([int64]$SinceMs, [int]$TimeoutSeconds)
+    $wait = [Diagnostics.Stopwatch]::StartNew()
+    while ($wait.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $s = Get-MailboxState -Channel $script:ChannelName
+        if ($s.Live -and $s.ListenerStartedMs -gt $SinceMs) { return $true }
+        Start-Sleep -Milliseconds 300
+    }
+    return $false
+}
+
+# The worker's answer to the instruction it just took: the last "Replying to orchestrator:" message between the last two
+# "wait for the next mailbox instruction" command cards (the answer comes after the instruction and before the worker
+# listens again). Messages are the Get-CopilotChatTranscript.ps1 -AsJson entries (Index, Text, Kind). Returns Found/Text.
+function Select-WorkerReply {
+    param([object[]]$Messages)
+    $list = @($Messages | Sort-Object { [int]$_.Index })
+    $waits = @($list | Where-Object { [string]$_.Text -match '^\s*Run command:.*mailbox instruction' } | ForEach-Object { [int]$_.Index })
+    $upper = if ($waits.Count -ge 1) { $waits[-1] } else { [int]::MaxValue }
+    $lower = if ($waits.Count -ge 2) { $waits[-2] } else { -1 }
+    $hits = @($list | Where-Object { [int]$_.Index -gt $lower -and [int]$_.Index -lt $upper -and [string]$_.Text -match '^\s*Replying to orchestrator:' })
+    if ($hits.Count -eq 0) { return [pscustomobject]@{ Found = $false; Text = $null } }
+    $text = [string]$hits[-1].Text
+    $lines = @($text -split "`r?`n")
+    $body = ((@($lines | Select-Object -Skip 1) -join "`n").Trim())
+    if (-not $body) { $body = ($lines[0] -replace '^\s*Replying to orchestrator:\s*', '').Trim() }
+    return [pscustomobject]@{ Found = $true; Text = $body }
+}
+
+# The transcript script's -AsJson output as one object per message. Windows PowerShell 5.1's ConvertFrom-Json returns a JSON
+# array as ONE object, so wrapping it in @() would give a single item holding arrays; foreach unrolls it.
+function ConvertFrom-TranscriptJson {
+    param([string]$Json)
+    $start = $Json.IndexOf('[')
+    if ($start -lt 0) { return @() }
+    $parsed = $Json.Substring($start) | ConvertFrom-Json
+    return @(foreach ($message in $parsed) { $message })
+}
+
+function Get-AgentWorkerReply {
+    param([string]$Handle)
+    try {
+        $raw = & (Join-Path $script:ScriptDir 'Get-CopilotChatTranscript.ps1') -Hwnd $Handle -Last 12 -AsJson 6>$null | Out-String
+        $messages = @(ConvertFrom-TranscriptJson -Json $raw)
+        return (Select-WorkerReply -Messages $messages)
+    }
+    catch { return [pscustomobject]@{ Found = $false; Text = $null } }
 }
 
 function Get-WorkerPendingError {
@@ -297,8 +370,39 @@ if ($Bootstrap) {
     $sendText = New-BootstrapText -Task $Text -ChannelName $Channel
     [void](Initialize-Mailbox -Channel $Channel)
 }
+$postedMs = Get-MailboxNowMs
 $result = Invoke-AgentMessage -MessageText $sendText
 $result.ElapsedMs = [int]$clock.ElapsedMilliseconds
+if ($WaitReply -and $result.Sent -and $result.Tier -eq 'Mailbox' -and -not $StopListening) {
+    $replyClock = [Diagnostics.Stopwatch]::StartNew()
+    $back = Wait-WorkerListeningAgain -SinceMs $postedMs -TimeoutSeconds $ReplyTimeoutSeconds
+    $found = $false; $replyText = $null; $note = $null
+    if (-not $Hwnd) { $note = '-WaitReply needs -Hwnd to read the chat.' }
+    else {
+        if (-not $back) {
+            $kind = Get-WorkerPendingPrompt -Handle $Hwnd
+            $note = if ($kind) { (Get-WorkerPendingError -Kind $kind) } else { "The worker did not listen again within $ReplyTimeoutSeconds s (it may still be working, or it stopped listening)." }
+        }
+        $reply = Get-AgentWorkerReply -Handle $Hwnd
+        $found = [bool]$reply.Found; $replyText = $reply.Text
+        if (-not $found -and -not $note) { $note = 'The worker listened again but no "Replying to orchestrator:" answer was found in the chat.' }
+    }
+    Add-Member -InputObject $result -NotePropertyName Reply -NotePropertyValue $replyText
+    Add-Member -InputObject $result -NotePropertyName ReplyFound -NotePropertyValue $found
+    Add-Member -InputObject $result -NotePropertyName ReplyWaitMs -NotePropertyValue ([int]$replyClock.ElapsedMilliseconds)
+    if ($note) { Add-Member -InputObject $result -NotePropertyName ReplyNote -NotePropertyValue $note }
+}
+if ($Bootstrap -and $result.Sent -and $WaitListening -gt 0) {
+    $listenClock = [Diagnostics.Stopwatch]::StartNew()
+    $listening = Wait-WorkerListeningAgain -SinceMs $postedMs -TimeoutSeconds $WaitListening
+    $note = $null
+    if (-not $listening) {
+        $kind = Get-WorkerPendingPrompt -Handle $Hwnd
+        $note = if ($kind) { (Get-WorkerPendingError -Kind $kind) } else { "The worker was not listening after $WaitListening s (it may still be on its task)." }
+    }
+    Add-Member -InputObject $result -NotePropertyName Listening -NotePropertyValue ([bool]$listening)
+    if ($note) { Add-Member -InputObject $result -NotePropertyName ListeningNote -NotePropertyValue $note }
+}
 # Something the orchestrator can show the person, so the exchange is not invisible (message preview only, no reply text).
 $shown = if ($StopListening) { '(stop listening)' } else { ([string]$Text -replace '\s+', ' ').Trim() }
 if ($shown.Length -gt 120) { $shown = $shown.Substring(0, 120) + '...' }
@@ -310,6 +414,7 @@ if (-not $NoLog) {
     $fp = Get-MailboxTextFingerprint $(if ($StopListening) { 'stop' } else { [string]$Text })
     $why = ([string]$result.Error -replace '\s+', ' ').Trim(); if ($why.Length -gt 300) { $why = $why.Substring(0, 300) + '...' }
     $entry = [ordered]@{ event = 'send'; channel = $Channel; mode = $Mode; bootstrap = [bool]$Bootstrap; stop = [bool]$StopListening; sent = [bool]$result.Sent; tier = $result.Tier; ms = $result.ElapsedMs; messageId = $result.MessageId; length = $fp.Length; hash = $fp.Hash; attempts = @($result.Attempts); error = $why }
+    if ($result.PSObject.Properties['ReplyFound']) { $entry.replyFound = [bool]$result.ReplyFound; $entry.replyLength = $(if ($result.Reply) { ([string]$result.Reply).Length } else { 0 }); $entry.replyWaitMs = $result.ReplyWaitMs }
     if ($LogText) { $entry.text = [string]$Text }
     Write-MailboxLog -Path (Get-MailboxLogPath -Side sender) -Entry $entry
 }

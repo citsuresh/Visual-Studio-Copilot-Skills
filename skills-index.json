@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 43,
-      "whatsNew": "Adds Send-AgentMessage.ps1 -Status and a clear WorkerPending error for a worker stuck on an approval card."
+      "version": 44,
+      "whatsNew": "Send-AgentMessage.ps1 can now return the worker's answer (-WaitReply) and report a worker that is stuck on its first listen command (-Bootstrap -WaitListening)."
     },
     "project-memory-management": {
       "version": 3,

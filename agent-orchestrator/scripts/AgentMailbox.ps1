@@ -210,13 +210,14 @@ function Write-MailboxJsonFile {
 function Get-MailboxState {
     param([Parameter(Mandatory)][string]$Channel)
     $paths = Get-MailboxPaths -Channel $Channel
-    $state = [pscustomobject]@{ Registered = $false; Live = $false; Reason = 'NoListener'; ListenerPid = 0; BeatAgeMs = $null; LastExitReason = $null; LastExitAgeMs = $null }
+    $state = [pscustomobject]@{ Registered = $false; Live = $false; Reason = 'NoListener'; ListenerPid = 0; BeatAgeMs = $null; ListenerStartedMs = 0; LastExitReason = $null; LastExitAgeMs = $null }
     $exit = Read-MailboxJsonFile -Path (Join-Path $paths.Dir 'exit.json')
     if ($exit) { $state.LastExitReason = [string]$exit.reason; $state.LastExitAgeMs = (Get-MailboxNowMs) - [int64]$exit.atMs }
     $info = Read-MailboxJsonFile -Path $paths.Listener
     if ($null -eq $info) { return $state }
     $state.Registered = $true
     $state.ListenerPid = [int]$info.pid
+    $state.ListenerStartedMs = [int64]$info.startedMs
     $age = (Get-MailboxNowMs) - [int64]$info.lastBeatMs
     $state.BeatAgeMs = $age
     if ($age -gt $script:MailboxBeatMaxAgeMs) { $state.Reason = 'HeartbeatStale'; return $state }

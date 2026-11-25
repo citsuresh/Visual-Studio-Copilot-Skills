@@ -113,6 +113,7 @@ try {
     $l = Start-Listener 'real1'
     $state = Get-MailboxState -Channel 'real1'
     Assert-True ($state.Live -and $state.ListenerPid -eq $l.Process.Id) 'A running listener must read as live with its own process id.'
+    Assert-True ($state.ListenerStartedMs -gt 0 -and $state.ListenerStartedMs -le (Get-MailboxNowMs) -and $state.ListenerStartedMs -gt ((Get-MailboxNowMs) - 60000)) 'A live listener must report when it started, so a newer listener can be told from the one that just ended.'
     $r = Send-AgentMailboxMessage -Channel 'real1' -Text $text -From 'tester'
     Assert-True ($r.Delivered -and $r.Reason -eq 'Delivered') 'A message to a live listener must be claimed and acknowledged.'
     $printed = Read-Listener $l

@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 43`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 44`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,7 +243,18 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
-  - v43 - Adds `Send-AgentMessage.ps1 -Status` and a clear `WorkerPending` error for a worker stuck on an approval card.
+  - v44 - `Send-AgentMessage.ps1` can now return the worker's answer (`-WaitReply`) and report a worker that is stuck on
+    its first listen command (`-Bootstrap -WaitListening`). From an agent's feedback after a long task: the answer to a
+    mailbox message is not a user prompt in the chat, so `Read-CopilotReply.ps1 -AfterPrompt` could not find it.
+    `-WaitReply` waits until the worker's listener starts again (the sign that it finished; the idle watcher never says
+    done while a worker listens), reads the chat, and returns `Reply` (the text of its `Replying to orchestrator:`
+    answer between the last two wait cards, so an older answer is never returned), `ReplyFound`, `ReplyWaitMs` and a
+    `ReplyNote` when it could not. The log records only that a reply was found and its length. `-WaitListening <s>` on a
+    bootstrap reports `Listening` and, when a card blocks the first listen command (it may ask for an Allow),
+    `WorkerPending`. Live (one machine): `-WaitListening` returned `Listening=True` in 6.9 s; the first `-WaitReply`
+    run waited correctly but missed the answer because Windows PowerShell 5.1 returns a JSON array as one object (fixed
+    and tested; the fixed parsing found the answer, `1`, on the real chat read-only). Offline: 71 router and 76 mailbox
+    assertions.  - v43 - Adds `Send-AgentMessage.ps1 -Status` and a clear `WorkerPending` error for a worker stuck on an approval card.
     The status list shows every mailbox channel (listening or not, why the last listener ended, messages waiting) so a worker
     that was never stopped is found. When a live listener does not take a message, or the UI refuses with `ChatBusy`,
     the router looks (read-only) for a pending "Allow this time", question card or Allow/Deny pair and, if there is one,
@@ -764,6 +775,16 @@ the UI, which interrupts the phase in progress.
 was skipped or failed, and each message's length and short hash, never its text (add `-LogText` to a send to keep the
 sender's own text; the listener never logs text). Logs rotate at 512 KB and anything older than 30 days is deleted
 automatically. When a send behaved oddly, read this log before guessing.
+
+**Reading the answer.** A mailbox message is not a user prompt, so `Read-CopilotReply.ps1 -AfterPrompt` cannot anchor on it.
+Send with `-WaitReply` (needs `-Hwnd`): the router waits until the worker's listener starts again (that is the sign it
+finished) and returns `Reply`, `ReplyFound` and `ReplyWaitMs`. If `ReplyFound` is false, read `ReplyNote`, then
+`Get-CopilotChatTranscript.ps1 -Hwnd <h> -Last 8`. `Watch-CopilotChatV2.ps1` never reports Idle while a worker listens
+(its chat is busy): use the listener heartbeat (`-WaitReply`, or `-Status`) or the transcript, not the watcher.
+**Starting it.** The first listen command may ask the person for an Allow (an agent reported this). Use
+`-Bootstrap -WaitListening 90`: the result says `Listening` and, if a card blocks it, `WorkerPending`; answer the card
+(Step 4), and for the rest of the session the worker listens again by itself. Choosing "always allow" is a lasting
+permission: only if the person asks for it.
 
 **Finding forgotten mailboxes.** `.\Send-AgentMessage.ps1 -Status` lists every channel (add `-Hwnd <h>` for one): whether a
 listener is live, why the last one ended and how many messages wait. A worker that is stuck on an approval card makes the

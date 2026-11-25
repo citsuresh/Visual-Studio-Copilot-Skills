@@ -12,7 +12,7 @@ Set-StrictMode -Version 2
 $ast = [Management.Automation.Language.Parser]::ParseFile((Resolve-Path $RouterPath).Path, [ref]$null, [ref]$null)
 $script:assertions = 0
 function Assert-True([bool]$Condition, [string]$Message) { $script:assertions++; if (-not $Condition) { throw $Message } }
-foreach ($name in @('Test-MechanicalUiFailure', 'New-BootstrapText', 'Get-WorkerPendingError', 'Invoke-AgentMessage')) {
+foreach ($name in @('Test-MechanicalUiFailure', 'New-BootstrapText', 'Get-WorkerPendingError', 'ConvertFrom-TranscriptJson', 'Select-WorkerReply', 'Wait-WorkerListeningAgain', 'Invoke-AgentMessage')) {
     $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
     if (-not $fn) { throw "Missing function: $name" }
     . ([scriptblock]::Create($fn.Extent.Text))
@@ -161,6 +161,38 @@ Reset-Scenario; $script:Hwnd = $null; $script:TitleContains = 'My window'; $scri
 $r = Invoke-AgentMessage -MessageText 'go'
 Assert-True ($r.Error -match '^WorkerPending' -or $r.Error -match '^ChatBusy') 'Without a window handle the probe is skipped by the real function; the router still reports the UI result.'
 Assert-True ((Get-WorkerPendingError -Kind 'PermissionPrompt') -match 'Select-ChoicePromptOption') 'The pending message must say how to answer.'
+# ---- reading the worker's answer (-WaitReply) ----
+function New-Msg([int]$Index, [string]$Text) { [pscustomobject]@{ Index = $Index; Text = $Text; Kind = 'Body' } }
+$wait = 'Run command: Wait for the next mailbox instruction'
+$r = Select-WorkerReply -Messages @((New-Msg 4 $wait), (New-Msg 5 'From orchestrator: count root Markdown files.'), (New-Msg 6 'Run command: Count Markdown files in the repository root'), (New-Msg 7 "Replying to orchestrator: root Markdown count.`n1"), (New-Msg 8 $wait), (New-Msg 9 "From orchestrator: stop listening.`nStopped listening."))
+Assert-True ($r.Found -and $r.Text -ceq '1') 'The answer is the text after the Replying line, taken between the last two wait cards.'
+$r = Select-WorkerReply -Messages @((New-Msg 2 "Replying to orchestrator: older answer.`nold"), (New-Msg 3 $wait), (New-Msg 4 'From orchestrator: new instruction.'), (New-Msg 5 'Run command: do the thing'), (New-Msg 6 $wait))
+Assert-True (-not $r.Found) 'An answer to an earlier instruction must never be returned for this one.'
+$r = Select-WorkerReply -Messages @((New-Msg 3 $wait), (New-Msg 4 'From orchestrator: count folders.'), (New-Msg 5 'Replying to orchestrator: direct folder count. 1'), (New-Msg 6 $wait))
+Assert-True ($r.Found -and $r.Text -ceq 'direct folder count. 1') 'A one-line answer returns the text after the marker.'
+$r = Select-WorkerReply -Messages @((New-Msg 1 $wait), (New-Msg 2 "Replying to orchestrator: first.`nA"), (New-Msg 3 "Replying to orchestrator: second.`nB"), (New-Msg 4 $wait))
+Assert-True ($r.Found -and $r.Text -ceq 'B') 'With two answers in the window the latest one wins.'
+Assert-True (-not (Select-WorkerReply -Messages @()).Found) 'No messages must read as no answer.'
+Assert-True (-not (Select-WorkerReply -Messages @((New-Msg 1 $wait), (New-Msg 2 'From orchestrator: x.'), (New-Msg 3 'Some other reply without the marker'), (New-Msg 4 $wait))).Found) 'An answer without the Replying line is not guessed at.'
+# the real transcript JSON shape: an array of objects (Windows PowerShell 5.1 returns it as one object unless unrolled)
+$json = '[ { "Index": 6, "Text": "Run command: Wait for the next mailbox instruction", "Kind": "Body" }, { "Index": 7, "Text": "Replying to orchestrator: root Markdown count.\n1", "Kind": "Body" }, { "Index": 8, "Text": "Run command: Wait for the next mailbox instruction", "Kind": "Body" } ]'
+$parsed = @(ConvertFrom-TranscriptJson -Json ("log line before`r`n" + $json))
+Assert-True ($parsed.Count -eq 3 -and $parsed[1].Index -eq 7 -and $parsed[1].Text -match '^Replying') 'Transcript JSON must become one object per message, not one object holding arrays.'
+$r = Select-WorkerReply -Messages $parsed
+Assert-True ($r.Found -and $r.Text -ceq '1') 'The answer must be found from parsed transcript JSON.'
+$one = @(ConvertFrom-TranscriptJson -Json '[ { "Index": 9, "Text": "Replying to orchestrator: x", "Kind": "Body" } ]')
+Assert-True ($one.Count -eq 1 -and $one[0].Index -eq 9) 'A one-message transcript must still be one message.'
+Assert-True (@(ConvertFrom-TranscriptJson -Json 'no json here').Count -eq 0) 'Text without JSON must give no messages.'
+$script:ChannelName = 'w240cca'
+$script:waitStates = New-Object 'System.Collections.Generic.Queue[object]'
+function New-WaitState([bool]$Live, [int64]$Started) { [pscustomobject]@{ Live = $Live; ListenerStartedMs = $Started } }
+function Get-MailboxState { param($Channel) if ($script:waitStates.Count -gt 1) { return $script:waitStates.Dequeue() } else { return $script:waitStates.Peek() } }
+foreach ($s in @((New-WaitState $true 1000), (New-WaitState $false 1000), (New-WaitState $true 5000))) { $script:waitStates.Enqueue($s) }
+Assert-True (Wait-WorkerListeningAgain -SinceMs 3000 -TimeoutSeconds 5) 'A listener that started after the message was posted means the worker listens again.'
+$script:waitStates.Clear(); foreach ($s in @((New-WaitState $true 1000))) { $script:waitStates.Enqueue($s) }
+Assert-True (-not (Wait-WorkerListeningAgain -SinceMs 3000 -TimeoutSeconds 1)) 'The listener that was already running when the message was posted must not count as listening again.'
+$script:waitStates.Clear(); $script:waitStates.Enqueue((New-WaitState $false 0))
+Assert-True (-not (Wait-WorkerListeningAgain -SinceMs 3000 -TimeoutSeconds 1)) 'No listener means not listening again.'
 # ---- an exception in the mailbox layer is a tier failure, not the end ----
 Reset-Scenario
 function Get-MailboxState { param($Channel) throw 'disk error' }
@@ -173,6 +205,8 @@ $script:ScriptDir = 'C:\skills\agent-orchestrator\scripts'
 $text = New-BootstrapText -Task 'Fix the build.' -ChannelName 'w240cca'
 Assert-True ($text -match '^Fix the build\. Mailbox mode:' -and $text -match 'scripts\\Wait-AgentMailbox\.ps1" -Channel w240cca' -and $text -match 'MAILBOX TIMEOUT' -and $text -match 'MAILBOX STOP, begin your reply with the line From orchestrator: stop listening' -and $text -match 'two MAILBOX TIMEOUTs in a row' -and $text -match 'From orchestrator:' -and $text -match 'Replying to orchestrator:' -and $text -notmatch "[`r`n]") 'The bootstrap must be one line carrying the task, the exact command and the timeout and stop rules.'
 $src = $ast.Extent.Text
+Assert-True ($src -match '\$WaitReply -and \$result\.Sent -and \$result\.Tier -eq ''Mailbox'' -and -not \$StopListening' -and $src -match '\$Bootstrap -and \$result\.Sent -and \$WaitListening -gt 0') '-WaitReply is for mailbox sends only and -WaitListening for a bootstrap only.'
+Assert-True ($src -match '\$entry\.replyLength' -and $src -notmatch '\$entry\.reply\s*=' -and $src -notmatch '\$entry\.replyText') 'The log may record that a reply was found and its length, never its text.'
 Assert-True ($src -match '\[switch\]\$Status' -and $src -match 'Get-MailboxStatusList' -and $src -match 'function Get-WorkerPendingPrompt') 'The router must offer -Status and the pending-card probe.'
 Assert-True ($src -match 'NotePropertyName Preview' -and $src -match 'NotePropertyName Display' -and $src -match 'Master -> worker') 'The result must carry a Preview and a one-line Display for the person.'
 Assert-True ($src -match "'Auto', 'Mailbox', 'Ui', 'Conservative'" -and $src -match '\[ValidateRange\(1, 60\)\]\s+\[int\]\$AckTimeoutSeconds') 'The mode names and the ack limit must be as documented.'
