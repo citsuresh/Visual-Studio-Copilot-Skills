@@ -103,7 +103,21 @@ param(
 
     [string]$TitleContains,
 
-    [string]$ExePath = "$env:USERPROFILE\.copilot\toolkits\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe"
+    [string]$ExePath = "$env:USERPROFILE\.copilot\toolkits\AgentDebugToolkit\src\AgentDebugToolkit.UiAutomation.Cli\bin\Debug\net8.0-windows\agentdebug-ui.exe",
+
+    # Be considerate of a person using the machine (see Send-CopilotPrompt.ps1): wait for a quiet keyboard
+    # and mouse before taking the foreground, stop if they start using it, and hand their window back.
+    [ValidateRange(0, 600)]
+    [int]$QuietSeconds = 3,
+
+    [ValidateRange(0, 3600)]
+    [int]$MaxWaitSeconds = 120,
+
+    [switch]$IgnoreUserActivity,
+
+    [switch]$NoRestoreFocus,
+
+    [switch]$SpeakRequest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -199,6 +213,82 @@ function Get-QuestionLabels {
     @($window.FindAll($scope, $condition) | ForEach-Object { $_.Current.Name })
 }
 
+# Same input-block functions as Send-CopilotPrompt.ps1 (a test keeps the two copies identical).
+# ---- Be considerate of a person using the machine. Taking the foreground while someone types sends their
+# keystrokes into the target chat, so: queue behind other agents (one input block at a time), wait for a quiet
+# keyboard and mouse, take the foreground only for the input steps, stop if the person starts using the
+# keyboard or mouse, and give their window, focused control and pointer back. The helpers live in
+# AgentCursor.ps1 (ui-interaction).
+$script:InputBlockStarted = $false
+$script:UiLock = $null
+$script:UserContext = $null
+$script:BlockStamp = [uint32]0
+$script:BlockPoint = $null
+$script:FocusResult = $null
+
+# Returns an error text when the block cannot start (nothing was typed or clicked), otherwise $null. Safe to call twice.
+function Start-InputBlock {
+    if ($script:InputBlockStarted) { return $null }
+    $script:UiLock = Enter-AgentUiLock
+    if (-not $script:UiLock) { return 'UiBusy: other agents kept the keyboard and mouse for more than five minutes. Nothing was typed or clicked; try again later.' }
+    if (-not $IgnoreUserActivity -and $QuietSeconds -gt 0) {
+        $quiet = Wait-AgentUserQuiet -QuietMilliseconds ($QuietSeconds * 1000) -DraftQuietMilliseconds ($QuietSeconds * 2000) -MaxWaitMilliseconds ($MaxWaitSeconds * 1000) -SpeakRequest:$SpeakRequest
+        if (-not $quiet.Quiet) {
+            Exit-AgentUiLock $script:UiLock
+            $script:UiLock = $null
+            $inUse = if ($quiet.InUse) { " ($($quiet.InUse))" } else { '' }
+            switch ($quiet.Reason) {
+                'SessionNotPresent' { return 'SessionNotPresent: the session is locked or the person is away, so keyboard and mouse input is not possible. Nothing was typed or clicked.' }
+                'DoNotDisturb' { return "DoNotDisturb${inUse}: Windows reports a presentation, a full-screen app, quiet time or a menu or drag in progress, or a manual pause is set. Nothing was typed or clicked; try again later." }
+                default { return "UserActive${inUse}: the keyboard or mouse stayed in use for $MaxWaitSeconds s. Nothing was typed or clicked; try again when the person has paused." }
+            }
+        }
+    }
+    $script:UserContext = Save-AgentUserFocus
+    Enable-AgentCursor
+    $script:BlockStamp = Get-AgentInputStamp
+    $script:BlockPoint = Get-AgentPointerPosition
+    $script:InputBlockStarted = $true
+    return $null
+}
+
+# Before an input step: $null when it is safe to go on, otherwise why the send stopped. Input from the person,
+# a held mouse button or modifier, or (after the window was taken) another window in front all stop it.
+function Get-InputBlockInterruption {
+    param([switch]$RequireForeground)
+    if ($IgnoreUserActivity -or -not $script:InputBlockStarted) { return $null }
+    if (Test-AgentMeaningfulInputSince -Stamp $script:BlockStamp -Point $script:BlockPoint) { return 'UserInput: the keyboard or mouse was used while the send was in progress, so it stopped before its next input step. Text already pasted was left in the input.' }
+    # Input that came only with the pointer moving (no key, no button) is not the person using it: take it as the new baseline.
+    Update-InputBlockStamp
+    $held = Get-AgentInputInUse
+    if ($held) { return "${held}InUse: a mouse button or modifier key is held, so the send stopped before its next input step. Text already pasted was left in the input." }
+    if ($RequireForeground -and (Get-AgentForegroundHandle) -ne [IntPtr][Convert]::ToInt64($Hwnd, 16)) { return 'ForegroundLost: another window came to the front, so the send stopped before its next input step. Text already pasted was left in the input.' }
+    return $null
+}
+
+# After one of this script's own input steps: its input is not the person's.
+function Update-InputBlockStamp { if ($script:InputBlockStarted) { $script:BlockStamp = Get-AgentInputStamp; $script:BlockPoint = Get-AgentPointerPosition } }
+
+# Ends the block: cursor dot, the person's window/focus/pointer, the shared own-input stamp, the lock. Safe to call twice.
+function Stop-InputBlock {
+    try {
+        if ($script:InputBlockStarted) {
+            Restore-AgentCursor
+            $noUserInput = -not (Test-AgentMeaningfulInputSince -Stamp $script:BlockStamp -Point $script:BlockPoint)
+            if ($script:UserContext -and -not $NoRestoreFocus) {
+                $handed = Restore-AgentUserFocus -Context $script:UserContext -OwnStamp $script:BlockStamp -OwnPoint $script:BlockPoint -HeldHandle ([IntPtr][Convert]::ToInt64($Hwnd, 16))
+                $script:FocusResult = $handed.Reason
+            }
+            if ($noUserInput) { Set-AgentOwnInputStamp }
+        }
+    }
+    finally {
+        Exit-AgentUiLock $script:UiLock
+        $script:UiLock = $null
+        $script:InputBlockStarted = $false
+    }
+}
+
 $radios = Get-RadioOptions
 $optionNames = @($radios | ForEach-Object { $_.Current.Name })
 
@@ -222,12 +312,19 @@ if ($MenuItem) {
     $menuNames = @()
     $menuHits = @()
     $dropdownError = $null
-    Enable-AgentCursor
+    $blockError = Start-InputBlock
+    if ($blockError) { return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText $blockError }
     try {
+        $interrupted = Get-InputBlockInterruption
+        if ($interrupted) { return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText $interrupted }
         if (-not (Set-AgentForegroundWindow -Handle $handle)) {
             return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText 'Could not bring the target window to the foreground; nothing was clicked.'
         }
+        Update-InputBlockStamp
+        $interrupted = Get-InputBlockInterruption -RequireForeground
+        if ($interrupted) { return Write-Result -Success $false -Selected $null -Options $null -CardClosed $null -Echo $null -ErrorText $interrupted }
         $extraButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Update-InputBlockStamp
         # The dropdown is a popup that may sit outside the window's own tree, so search every
         # top-level element, limited to this window's process.
         $menuCondition = [System.Windows.Automation.AndCondition]::new(
@@ -244,7 +341,9 @@ if ($MenuItem) {
             $menuHits = @($menus | Where-Object { $_.Current.Name -eq $MenuItem -and $_.Current.IsEnabled })
         }
         if ($menuHits.Count -eq 1) {
-            $menuHits[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $interrupted = Get-InputBlockInterruption -RequireForeground
+            if ($interrupted) { $dropdownError = $interrupted }
+            else { $menuHits[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Update-InputBlockStamp }
         }
         else {
             $dropdownError = "Expected exactly one enabled menu item named '$MenuItem' in the dropdown; found $($menuHits.Count)."
@@ -253,7 +352,7 @@ if ($MenuItem) {
         }
     }
     finally {
-        Restore-AgentCursor
+        Stop-InputBlock
     }
     if ($dropdownError) {
         return Write-Result -Success $false -Selected $null -Options $menuNames -CardClosed $false -Echo $null -ErrorText "$dropdownError The dropdown may still be open; check the window."
@@ -307,15 +406,22 @@ if ($Button) {
     $agentCursor = Join-Path $PSScriptRoot '..\..\ui-interaction\scripts\AgentCursor.ps1'
     if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not found at $agentCursor. Install the ui-interaction skill (Install-Skills.ps1)." }
     . $agentCursor
-    Enable-AgentCursor
+    $blockError = Start-InputBlock
+    if ($blockError) { return Write-Result -Success $false -Selected $null -Options $buttonNames -CardClosed $null -Echo $null -ErrorText $blockError }
     try {
+        $interrupted = Get-InputBlockInterruption
+        if ($interrupted) { return Write-Result -Success $false -Selected $null -Options $buttonNames -CardClosed $null -Echo $null -ErrorText $interrupted }
         if (-not (Set-AgentForegroundWindow -Handle $handle)) {
             return Write-Result -Success $false -Selected $null -Options $buttonNames -CardClosed $null -Echo $null -ErrorText 'Could not bring the target window to the foreground; nothing was clicked.'
         }
+        Update-InputBlockStamp
+        $interrupted = Get-InputBlockInterruption -RequireForeground
+        if ($interrupted) { return Write-Result -Success $false -Selected $null -Options $buttonNames -CardClosed $null -Echo $null -ErrorText $interrupted }
         $buttonHits[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Update-InputBlockStamp
     }
     finally {
-        Restore-AgentCursor
+        Stop-InputBlock
     }
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $closed = $false
@@ -337,49 +443,63 @@ if ($found.Count -ne 1) {
 }
 
 $target = $found[0]
-$target.SetFocus()
 # Mark the cursor while the agent owns the mouse and keyboard; always restore it.
 # Shared with ui-interaction; agent-orchestrator and ui-interaction are sibling skill folders.
 $agentCursor = Join-Path $PSScriptRoot '..\..\ui-interaction\scripts\AgentCursor.ps1'
 if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not found at $agentCursor. Install the ui-interaction skill (Install-Skills.ps1)." }
 . $agentCursor
-Enable-AgentCursor
+# One input block covers the whole answer (option click, then Next question or Submit), so the person's window
+# is handed back once. UIA SetFocus on the card is inside it too: outside, it could pull focus from whatever
+# the person is typing in. Waiting for the card to close and reading the echo need no foreground and come after.
+$blockError = Start-InputBlock
+if ($blockError) { return Write-Result -Success $false -Selected $null -Options $optionNames -CardClosed $null -Echo $null -ErrorText $blockError }
 try {
+    $interrupted = Get-InputBlockInterruption
+    if ($interrupted) { return Write-Result -Success $false -Selected $null -Options $optionNames -CardClosed $null -Echo $null -ErrorText $interrupted }
     if (-not (Set-AgentForegroundWindow -Handle $handle)) {
         return Write-Result -Success $false -Selected $null -Options $optionNames -CardClosed $null -Echo $null -ErrorText 'Could not bring the target window to the foreground; nothing was clicked.'
     }
+    Update-InputBlockStamp
+    $interrupted = Get-InputBlockInterruption -RequireForeground
+    if ($interrupted) { return Write-Result -Success $false -Selected $null -Options $optionNames -CardClosed $null -Echo $null -ErrorText $interrupted }
+    $target.SetFocus()
+    Update-InputBlockStamp
     $point = $target.GetClickablePoint()
     [ChoicePromptNative]::LeftClick([int]$point.X, [int]$point.Y)
+    Update-InputBlockStamp
     Start-Sleep -Milliseconds 400
+    $selection = $target.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+    if (-not $selection.Current.IsSelected) {
+        return Write-Result -Success $false -Selected $null -Options $optionNames -CardClosed $null -Echo $null -ErrorText "Option '$Option' is not selected after clicking it; Submit was not clicked."
+    }
+
+    $submitButtons = Get-SubmitButtons
+    $nextButtons = Get-EnabledNamedButtons -Name 'Next question'
+    if ($submitButtons.Count -eq 0 -and $nextButtons.Count -eq 1) {
+        $before = (Get-QuestionLabels) -join ' | '
+        $nextButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        Update-InputBlockStamp
+        Stop-InputBlock
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        $after = $before
+        while ((Get-Date) -lt $deadline -and $after -eq $before) {
+            Start-Sleep -Milliseconds 400
+            $after = (Get-QuestionLabels) -join ' | '
+        }
+        if ($after -eq $before) {
+            return Write-Result -Success $false -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText "Clicked 'Next question' but the question did not change within $TimeoutSeconds seconds."
+        }
+        return Write-Result -Success $true -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText $null -NextQuestion $after
+    }
+    if ($submitButtons.Count -ne 1) {
+        return Write-Result -Success $false -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText "Expected exactly one '$SubmitName' button; found $($submitButtons.Count). Option is selected but not submitted."
+    }
+    $submitButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Update-InputBlockStamp
 }
 finally {
-    Restore-AgentCursor
+    Stop-InputBlock
 }
-$selection = $target.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
-if (-not $selection.Current.IsSelected) {
-    return Write-Result -Success $false -Selected $null -Options $optionNames -CardClosed $null -Echo $null -ErrorText "Option '$Option' is not selected after clicking it; Submit was not clicked."
-}
-
-$submitButtons = Get-SubmitButtons
-$nextButtons = Get-EnabledNamedButtons -Name 'Next question'
-if ($submitButtons.Count -eq 0 -and $nextButtons.Count -eq 1) {
-    $before = (Get-QuestionLabels) -join ' | '
-    $nextButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $after = $before
-    while ((Get-Date) -lt $deadline -and $after -eq $before) {
-        Start-Sleep -Milliseconds 400
-        $after = (Get-QuestionLabels) -join ' | '
-    }
-    if ($after -eq $before) {
-        return Write-Result -Success $false -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText "Clicked 'Next question' but the question did not change within $TimeoutSeconds seconds."
-    }
-    return Write-Result -Success $true -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText $null -NextQuestion $after
-}
-if ($submitButtons.Count -ne 1) {
-    return Write-Result -Success $false -Selected $Option -Options $optionNames -CardClosed $false -Echo $null -ErrorText "Expected exactly one '$SubmitName' button; found $($submitButtons.Count). Option is selected but not submitted."
-}
-$submitButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $closed = $false

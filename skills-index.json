@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 33,
-      "whatsNew": "Send-CopilotPrompt.ps1 refuses at once with InputOffScreen when the chat input lies outside the visible screen, instead of failing after three attempts with a generic foreground error."
+      "version": 34,
+      "whatsNew": "Send-CopilotPrompt.ps1 and Select-ChoicePromptOption.ps1 now wait for a quiet keyboard and mouse before taking the foreground, and hand the person's window back afterwards."
     },
     "project-memory-management": {
       "version": 3,
@@ -18,8 +18,8 @@
       "whatsNew": "Distinguish server acceptance from phone delivery and offer optional user-confirmed receipt checks without automatic resends or changing notification consent."
     },
     "ui-interaction": {
-      "version": 24,
-      "whatsNew": "Documents Windows PowerShell 5.1 pitfalls, partly off-screen windows that still report IsOffscreen: false, and floating tool windows, from a 2026-11-25 cross-chat sender test."
+      "version": 25,
+      "whatsNew": "Adds user-activity helpers to AgentCursor.ps1: a quiet wait before taking the foreground, an amber waiting dot with a sound, an input lock, and a hand-back of the person's window and focus."
     },
     "ui-navigation-orchestrator": {
       "version": 8,

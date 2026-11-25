@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 24`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 25`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -100,6 +100,16 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
   - v23 - Resolves managed executable paths from the successful-build marker when available and
     distinguishes observational remote-session diagnostics from an RDP activation fix.
+  - v25 - Adds user-activity helpers to `AgentCursor.ps1`: a quiet wait before taking the foreground, an
+    amber waiting dot with a sound, an input lock, and a hand-back of the person's window and focus. The quiet
+    wait considers idle time, held mouse buttons and modifiers, do-not-disturb states and a manual pause. The
+    rest are a cross-process input lock, a shared record of the agent's own last input, input-stamp checks
+    between steps, and the hand-back of the focused control and pointer. Moving the pointer alone is ignored;
+    typing, clicks, scrolling and held buttons count. A new section documents them. Offline tests with every
+    native call mocked (81 assertions). Live (2026-11-25, one machine): a manual pause, simulated typing into
+    a scratch window (43 of 43 characters landed there while the send waited), a held mouse button, a lock held
+    by another process and a normal send with hand-back all behaved as designed. Not tested live: a real
+    presentation, several orchestrators sending at once, and the amber dot and sound as seen by a person.
   - v24 - Documents Windows PowerShell 5.1 pitfalls, partly off-screen windows that still report
     `IsOffscreen: false`, and floating tool windows, from a 2026-11-25 cross-chat sender test. The
     5.1 pitfalls are single-result `.Count`, `$PSScriptRoot` empty in `param()` defaults for advanced
@@ -245,6 +255,7 @@ agent-orchestrator loads it from here.
 
 | Dot | Meaning | Who sets it |
 | --- | --- | --- |
+| Amber | The agent wants the keyboard or mouse and is waiting for the person to pause; nothing is typed or clicked yet | `Wait-AgentUserQuiet`, after about half a second of waiting |
 | Red | Mouse or keyboard input right now | Any skill, around each input action |
 | Green | A multi-step UI run (this skill or ui-navigation-orchestrator) is in progress | `-Session Start -Kind UiAutomation` |
 | Blue | agent-orchestrator is driving or monitoring another Copilot chat | agent-orchestrator only |
@@ -287,6 +298,43 @@ agent-orchestrator loads it from here.
 - If a dot is ever left behind, `scripts\AgentCursor.ps1 -Restore` clears every session and
   restores the user's cursors (or the user can sign out and back in). A session flag older than
   12 hours is ignored.
+
+### Be considerate of a person using the machine
+
+Taking the foreground while someone types sends their keystrokes into the target window, and an Alt tap
+(`Set-AgentForegroundWindow` uses one) can open a menu in their application. `scripts\AgentCursor.ps1`
+(dot-source it) provides the building blocks; `Send-CopilotPrompt.ps1` and `Select-ChoicePromptOption.ps1`
+already use them. Real input is read with `GetLastInputInfo`; no keyboard hook is installed and no key is recorded.
+
+- **`Wait-AgentUserQuiet`** returns when it is safe to take the foreground: no typing, click or scrolling for
+  3 s (6 s while the focused editor of the foreground application holds text), no mouse button or modifier
+  key held (a held button produces no new event, so idle time cannot see a drag), and no do-not-disturb state.
+  Moving the pointer alone, whatever the distance, is ignored: people move the mouse for many reasons, and a
+  jittery pointer would otherwise keep every wait going. It restarts the wait whenever the person types or
+  clicks again and gives up after 120 s with `UserActive`,
+  `DoNotDisturb` or `SessionNotPresent`; the caller must then type and click nothing. After about 0.5 s of
+  waiting the cursor shows the amber dot and one short system sound plays; after about 30 s the person is asked
+  once to pause (spoken with `-SpeakRequest`, which the caller passes only when speech is on in the chat,
+  otherwise the sound repeats). When the person is already idle it returns at once.
+- **Do not disturb** (`Get-AgentDoNotDisturbReason`): a manual pause (`Set-AgentUiPause -Minutes 60`, undo
+  with `Clear-AgentUiPause`; the marker is `%USERPROFILE%\.copilot\ui-pause.flag`), Windows' own state from
+  `SHQueryUserNotificationState` (full-screen app, presentation settings, Focus assist quiet time, locked or
+  screen-saver session) and a menu or drag in progress in the foreground. An ordinary window shared in a
+  meeting is not reported by Windows, so use the manual pause for that.
+- **One UI block at a time** (`Enter-AgentUiLock` / `Exit-AgentUiLock`, a session-wide mutex) so several
+  orchestrators never take the foreground from each other, and a shared record of the last agent input
+  (`Set-AgentOwnInputStamp`) so the next block does not wait for input that was never the person's.
+- **During a block:** read `Get-AgentInputStamp` after each of your own input steps and compare it before the
+  next one; if it moved, the person is using the keyboard or mouse and the block must stop. Take the foreground
+  only for the input steps (do read-only checks first, since UIA reads need no foreground) and release it
+  straight after the last step.
+- **Hand back** (`Save-AgentUserFocus` before the first foreground change, `Restore-AgentUserFocus` after the
+  last input step): the person's window, focused control and pointer return only if they have not used the
+  keyboard or mouse since the last agent step; a person who typed into the held window gets their window back
+  at once without a pointer move; one who already moved to another window is left alone; nothing moves while
+  a mouse button or modifier is held. The result says whether the hand-back was verified.
+- Never use `BlockInput` (it needs elevation and can lock the person out if the script dies) or a low-level
+  keyboard hook (security tools treat it as a keylogger).
 
 ### Script-blocked environments and focus handback
 

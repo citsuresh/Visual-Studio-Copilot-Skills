@@ -27,7 +27,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result', 'Set-StageMark')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result', 'Set-StageMark', 'Start-InputBlock', 'Get-InputBlockInterruption', 'Update-InputBlockStamp', 'Stop-InputBlock')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -110,6 +110,10 @@ $Quiet = $false
 $AsJson = $false
 $Steer = $false
 $Trace = $false
+# The input block (quiet wait, lock, hand-back) is off in these checks; its own tests set what they need.
+$script:InputBlockStarted = $false; $script:UiLock = $null; $script:UserContext = $null; $script:BlockStamp = [uint32]0; $script:FocusResult = $null
+$IgnoreUserActivity = $false; $QuietSeconds = 3; $MaxWaitSeconds = 120; $SpeakRequest = $false; $NoRestoreFocus = $false
+function Exit-AgentUiLock { param($Lock) }
 foreach ($draftText in @('user draft', ' ', 'original "quoted text"')) {
     $script:textRead = $draftText
     Assert-True ((Get-ChatDraftError) -match 'InputNotEmpty') 'A non-empty draft was accepted.'
@@ -184,7 +188,7 @@ $enableCursor = $ast.Find({ param($node)
 Assert-True ($preflight.Extent.EndOffset -lt $enableCursor.Extent.StartOffset) 'Draft refusal must precede cursor/input actions.'
 $OverwriteInput = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($preflight.Extent.Text)))) 'Explicit overwrite should bypass draft refusal.'
-Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-4] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
+Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-9] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
 $callerPath = Join-Path (Split-Path -Parent $SenderPath) 'Invoke-CopilotReview.ps1'
 $callerAst = [Management.Automation.Language.Parser]::ParseFile($callerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
@@ -312,9 +316,132 @@ $result = & ([scriptblock]::Create($ownGuard.Extent.Text))
 Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'OwnHostWindow') 'Default own-host guard did not return a refusal.'
 $AllowOwnHost = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($ownGuard.Extent.Text)))) 'Explicit AllowOwnHost should bypass the guard.'
-Assert-True (($ast.ParamBlock.Parameters[-3].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
-Assert-True (($ast.ParamBlock.Parameters[-2].Name.VariablePath.UserPath) -eq 'Steer') 'Steer must be appended after existing positional parameters.'
-Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'Trace') 'Trace must be appended after existing positional parameters.'
+Assert-True (($ast.ParamBlock.Parameters[-8].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
+Assert-True (($ast.ParamBlock.Parameters[-7].Name.VariablePath.UserPath) -eq 'Steer') 'Steer must be appended after existing positional parameters.'
+Assert-True (($ast.ParamBlock.Parameters[-6].Name.VariablePath.UserPath) -eq 'Trace') 'Trace must be appended after existing positional parameters.'
+$newNames = @($ast.ParamBlock.Parameters[-5..-1] | ForEach-Object { $_.Name.VariablePath.UserPath })
+Assert-True (($newNames -join ',') -ceq 'QuietSeconds,MaxWaitSeconds,IgnoreUserActivity,NoRestoreFocus,SpeakRequest') 'The user-activity parameters must be appended last, in this order.'
+$quietParam = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'QuietSeconds' }
+$waitParam = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'MaxWaitSeconds' }
+Assert-True ($quietParam.DefaultValue.Extent.Text -eq '3' -and $waitParam.DefaultValue.Extent.Text -eq '120') 'Defaults must be a 3 second quiet period and a 120 second limit.'
+
+# ---- the input block: lock, quiet wait, hand-back (real sender functions, mocked shared helpers) ----
+$script:blockEvents = New-Object 'Collections.Generic.List[string]'
+$script:lockAvailable = $true
+$script:quietResult = [pscustomobject]@{ Quiet = $true; Reason = 'Idle'; InUse = $null }
+$script:inputStamp = [uint32]500
+$script:held = $null
+$script:restoreReason = 'Restored'
+$Hwnd = '0x1234'
+$script:foregroundNow = [IntPtr]0x1234
+function Enter-AgentUiLock { $script:blockEvents.Add('lock'); if ($script:lockAvailable) { return [pscustomobject]@{ Name = 'lock' } } else { return $null } }
+function Exit-AgentUiLock { param($Lock) $script:blockEvents.Add('unlock') }
+function Wait-AgentUserQuiet { param([int]$QuietMilliseconds, [int]$DraftQuietMilliseconds, [int]$MaxWaitMilliseconds, [switch]$SpeakRequest) $script:blockEvents.Add("wait:$QuietMilliseconds/$DraftQuietMilliseconds/$MaxWaitMilliseconds/$([bool]$SpeakRequest)"); return $script:quietResult }
+function Save-AgentUserFocus { $script:blockEvents.Add('save'); return [pscustomobject]@{ Foreground = [IntPtr]0x9999 } }
+function Enable-AgentCursor { $script:blockEvents.Add('cursor-on') }
+function Restore-AgentCursor { $script:blockEvents.Add('cursor-off') }
+function Get-AgentInputStamp { return [uint32]$script:inputStamp }
+function Get-AgentInputInUse { return $script:held }
+function Get-AgentForegroundHandle { return $script:foregroundNow }
+$script:pointer = [pscustomobject]@{ X = 10; Y = 10 }
+$script:jitterOnly = $false   # when set, a changed stamp counts as pointer jitter, not as the person
+function Get-AgentPointerPosition { return $script:pointer }
+function Test-AgentMeaningfulInputSince { param([uint32]$Stamp, $Point, [int]$JitterPixels = 8) return (((Get-AgentInputStamp) -ne $Stamp) -and -not $script:jitterOnly) }
+function Restore-AgentUserFocus { param($Context, [uint32]$OwnStamp, $OwnPoint, [IntPtr]$HeldHandle) $script:blockEvents.Add("restore:${OwnStamp}:$([int]$HeldHandle)"); return [pscustomobject]@{ Reason = $script:restoreReason } }
+function Set-AgentOwnInputStamp { $script:blockEvents.Add('own-stamp') }
+function Reset-Block {
+    $script:blockEvents.Clear(); $script:InputBlockStarted = $false; $script:UiLock = $null; $script:UserContext = $null; $script:FocusResult = $null
+    $script:lockAvailable = $true; $script:held = $null; $script:inputStamp = [uint32]500; $script:restoreReason = 'Restored'
+    $script:foregroundNow = [IntPtr]0x1234
+    $script:quietResult = [pscustomobject]@{ Quiet = $true; Reason = 'Idle'; InUse = $null }
+    $script:jitterOnly = $false; $script:pointer = [pscustomobject]@{ X = 10; Y = 10 }
+    $global:IgnoreUserActivity = $false
+}
+Reset-Block; $script:lockAvailable = $false
+$blockError = Start-InputBlock
+Assert-True ($blockError -match '^UiBusy' -and -not $script:InputBlockStarted -and ($script:blockEvents -join ',') -eq 'lock') 'A lock that stays taken must refuse before anything else happens.'
+foreach ($case in @(
+    @{ Result = @{ Quiet = $false; Reason = 'UserActive'; InUse = 'MouseButton' }; Match = '^UserActive \(MouseButton\)' },
+    @{ Result = @{ Quiet = $false; Reason = 'UserActive'; InUse = $null }; Match = '^UserActive:' },
+    @{ Result = @{ Quiet = $false; Reason = 'DoNotDisturb'; InUse = 'PresentationMode' }; Match = '^DoNotDisturb \(PresentationMode\)' },
+    @{ Result = @{ Quiet = $false; Reason = 'SessionNotPresent'; InUse = 'SessionNotPresent' }; Match = '^SessionNotPresent' }
+)) {
+    Reset-Block; $script:quietResult = [pscustomobject]$case.Result
+    $blockError = Start-InputBlock
+    Assert-True ($blockError -match $case.Match -and $blockError -match 'Nothing was typed or clicked' -and -not $script:InputBlockStarted) "A refused quiet wait must say so and type nothing: $($case.Result.Reason)"
+    Assert-True (($script:blockEvents -join ',') -ceq 'lock,wait:3000/6000/120000/False,unlock') 'A refused quiet wait must release the lock and never touch the cursor or the focus.'
+}
+Reset-Block
+$blockError = Start-InputBlock
+Assert-True ($null -eq $blockError -and $script:InputBlockStarted -and $script:BlockStamp -eq 500) 'A quiet person must let the block start and record the input stamp.'
+Assert-True (($script:blockEvents -join ',') -ceq 'lock,wait:3000/6000/120000/False,save,cursor-on') 'The block must lock, wait, save the person''s focus, then show the red dot, in that order.'
+$script:blockEvents.Clear()
+Assert-True ($null -eq (Start-InputBlock) -and $script:blockEvents.Count -eq 0) 'Starting a started block must change nothing.'
+Reset-Block; $SpeakRequest = $true; $null = Start-InputBlock; $SpeakRequest = $false
+Assert-True (($script:blockEvents -join ',') -match 'wait:3000/6000/120000/True') '-SpeakRequest must reach the wait.'
+Reset-Block; $QuietSeconds = 0; $null = Start-InputBlock; $QuietSeconds = 3
+Assert-True (($script:blockEvents -join ',') -ceq 'lock,save,cursor-on') '-QuietSeconds 0 must skip the wait but still lock and hand back.'
+Reset-Block; $global:IgnoreUserActivity = $true; $IgnoreUserActivity = $true; $null = Start-InputBlock
+Assert-True (($script:blockEvents -join ',') -ceq 'lock,save,cursor-on') '-IgnoreUserActivity must skip the wait but still lock and hand back.'
+$IgnoreUserActivity = $false
+# interruptions between input steps
+Reset-Block; $null = Start-InputBlock
+Assert-True ($null -eq (Get-InputBlockInterruption)) 'No input since the block started must not interrupt.'
+$script:inputStamp = [uint32]501
+Assert-True ((Get-InputBlockInterruption) -match '^UserInput:' -and (Get-InputBlockInterruption) -match 'Text already pasted was left in the input') 'New input from the person must stop the send before the next step.'
+Update-InputBlockStamp
+Assert-True ($null -eq (Get-InputBlockInterruption)) 'After the agent''s own step the new stamp must be accepted.'
+$script:held = 'MouseButton'
+Assert-True ((Get-InputBlockInterruption) -match '^MouseButtonInUse:') 'A held mouse button must stop the send.'
+$script:held = 'Modifier'
+Assert-True ((Get-InputBlockInterruption) -match '^ModifierInUse:') 'A held modifier key must stop the send.'
+$script:held = $null
+$script:foregroundNow = [IntPtr]0x7777
+Assert-True ($null -eq (Get-InputBlockInterruption) -and (Get-InputBlockInterruption -RequireForeground) -match '^ForegroundLost:') 'Another window in front must stop the send only when the target is required to be in front.'
+$script:foregroundNow = [IntPtr]0x1234
+$script:inputStamp = [uint32]502; $IgnoreUserActivity = $true
+Assert-True ($null -eq (Get-InputBlockInterruption)) '-IgnoreUserActivity must disable the interruption checks.'
+$IgnoreUserActivity = $false
+Reset-Block
+Assert-True ($null -eq (Get-InputBlockInterruption) -and ($script:inputStamp = [uint32]999) -eq 999 -and $null -eq (Get-InputBlockInterruption)) 'Before the block starts nothing can interrupt it.'
+# pointer jitter is not the person typing: it must not stop a send, and it becomes the new baseline
+Reset-Block; $null = Start-InputBlock
+$script:inputStamp = [uint32]501; $script:jitterOnly = $true; $script:pointer = [pscustomobject]@{ X = 12; Y = 11 }
+Assert-True ($null -eq (Get-InputBlockInterruption) -and $script:BlockStamp -eq 501 -and $script:BlockPoint.X -eq 12) 'Input that came with only pointer jitter must not interrupt, and must become the new baseline.'
+$script:jitterOnly = $false
+Assert-True ($null -eq (Get-InputBlockInterruption)) 'After jitter was accepted, an unchanged stamp must not interrupt.'
+$script:inputStamp = [uint32]502
+Assert-True ((Get-InputBlockInterruption) -match '^UserInput:') 'Typing after jitter must still stop the send.'
+# jitter during the block must not stop the own-input stamp from being recorded at the end
+Reset-Block; $null = Start-InputBlock; $script:inputStamp = [uint32]501; $script:jitterOnly = $true; $script:blockEvents.Clear()
+Stop-InputBlock
+Assert-True (($script:blockEvents -join ',') -ceq 'cursor-off,restore:500:4660,own-stamp,unlock') 'Jitter must not be treated as the person''s input when the block ends.'
+# ending the block
+Reset-Block; $null = Start-InputBlock; $script:blockEvents.Clear()
+Stop-InputBlock
+Assert-True (($script:blockEvents -join ',') -ceq 'cursor-off,restore:500:4660,own-stamp,unlock' -and $script:FocusResult -eq 'Restored' -and -not $script:InputBlockStarted) 'Stopping must restore the cursor, hand the window back, record the own stamp and release the lock.'
+$script:blockEvents.Clear()
+Stop-InputBlock
+Assert-True (($script:blockEvents -join ',') -ceq 'unlock') 'Stopping a stopped block must only release a lock that is still held.'
+Reset-Block; $null = Start-InputBlock; $script:inputStamp = [uint32]777; $script:blockEvents.Clear()
+Stop-InputBlock
+Assert-True (($script:blockEvents -join ',') -ceq 'cursor-off,restore:500:4660,unlock') 'Input by the person during the block must not be recorded as the agent''s own.'
+Reset-Block; $NoRestoreFocus = $true; $null = Start-InputBlock; $script:blockEvents.Clear()
+Stop-InputBlock; $NoRestoreFocus = $false
+Assert-True (($script:blockEvents -join ',') -ceq 'cursor-off,own-stamp,unlock' -and $null -eq $script:FocusResult) '-NoRestoreFocus must skip the hand-back only.'
+Reset-Block; $script:restoreReason = 'NotVerified'; $null = Start-InputBlock; Stop-InputBlock
+Assert-True ($script:FocusResult -eq 'NotVerified') 'An unverified hand-back must be reported, not claimed.'
+Reset-Block
+$result = Write-Result -Sent $true -Attempts 1 -InputText $null -ErrorText $null
+Assert-True ($null -eq $result.PSObject.Properties['Handback']) 'Without a hand-back the result must have no Handback property.'
+$script:FocusResult = 'Restored'
+$result = Write-Result -Sent $true -Attempts 1 -InputText $null -ErrorText $null
+Assert-True ($result.Handback -eq 'Restored') 'A hand-back must be visible in the result.'
+$script:FocusResult = $null
+# keep the block off for the remaining checks, and drop the mocks that would shadow later ones
+Remove-Item function:Enter-AgentUiLock, function:Wait-AgentUserQuiet, function:Save-AgentUserFocus, function:Enable-AgentCursor, function:Restore-AgentCursor, function:Get-AgentInputStamp, function:Get-AgentInputInUse, function:Get-AgentForegroundHandle, function:Restore-AgentUserFocus, function:Set-AgentOwnInputStamp, function:Get-AgentPointerPosition, function:Test-AgentMeaningfulInputSince
+function Exit-AgentUiLock { param($Lock) }
+$script:InputBlockStarted = $false
 
 $tryStatement = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] } | Select-Object -Last 1
 $statements = @($tryStatement.Body.Statements)
@@ -340,6 +467,25 @@ $screenError = 'InputOffScreen: test'
 $script:events = New-Object 'Collections.Generic.List[string]'
 $result = & ([scriptblock]::Create($screenGuard.Extent.Text))
 Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match '^InputOffScreen' -and $script:events.Count -eq 0) 'The on-screen refusal must send nothing and make no attempt.'
+# Order of the user-activity steps: wait for a quiet keyboard before the final checks, take the foreground only
+# to navigate or inside the input loop, and guard every input action with an interruption check.
+$gateStatement = $statements | Where-Object { $_.Extent.Text -match '^\$blockError = Start-InputBlock' } | Select-Object -First 1
+Assert-True ($null -ne $gateStatement -and $gateStatement.Extent.EndOffset -lt $screenGuard.Extent.StartOffset) 'The quiet wait must come before the final checks and the foreground.'
+$navigateAssignment = $statements | Where-Object { $_.Extent.Text -match '^\$navigate = ' } | Select-Object -First 1
+$foregroundStatements = @($statements | Where-Object { $_.Extent.Text -match 'Request-Foreground' })
+Assert-True ($foregroundStatements.Count -eq 1 -and $foregroundStatements[0].Extent.Text -match '^if \(\$navigate\)') 'The early foreground request must happen only when navigation needs it.'
+Assert-True ($null -ne $navigateAssignment -and $navigateAssignment.Extent.EndOffset -lt $foregroundStatements[0].Extent.StartOffset -and $foregroundStatements[0].Extent.StartOffset -lt $gateStatement.Extent.StartOffset) 'The navigation decision must precede the foreground request, and both the quiet wait.'
+Assert-True ($navigateAssignment.Extent.Text -match 'Test-ChatInput' -and $navigateAssignment.Extent.Text -match '\$NewSession') 'Navigation must be decided from a read-only look at the chat, or a requested new session.'
+$loopText = (@($statements | Select-Object -Skip $start | ForEach-Object { $_.Extent.Text }) -join "`n")
+$guardPositions = @([regex]::Matches($loopText, 'Get-InputBlockInterruption') | ForEach-Object { $_.Index })
+$foregroundPosition = $loopText.IndexOf('Set-AgentForegroundWindow')
+$clearPosition = $loopText.IndexOf('Clear-ChatInput')
+$pastePosition = $loopText.IndexOf("'type', '--hwnd'")
+$clickPosition = $loopText.IndexOf("'click', '--hwnd'")
+Assert-True ($guardPositions.Count -eq 4 -and $guardPositions[0] -lt $foregroundPosition -and $foregroundPosition -lt $guardPositions[1] -and $guardPositions[1] -lt $clearPosition -and $clearPosition -lt $guardPositions[2] -and $guardPositions[2] -lt $pastePosition -and $pastePosition -lt $guardPositions[3] -and $guardPositions[3] -lt $clickPosition) 'Every foreground, clear, paste and send step must be preceded by its own interruption check.'
+$stopPosition = $loopText.IndexOf('Stop-InputBlock')
+Assert-True ($stopPosition -gt $clickPosition -and $stopPosition -lt $loopText.IndexOf('Write-Result -Sent $true')) 'The keyboard must be handed back right after the send click, before the result is returned.'
+Assert-True ($tryStatement.Finally.Extent.Text -match 'Stop-InputBlock') 'Every exit path must end the input block.'
 $sendLoop = [scriptblock]::Create((@($statements | Select-Object -Skip $start | ForEach-Object { $_.Extent.Text }) -join "`n"))
 $Hwnd = '0x1234'
 $InputName = 'Ask Copilot'
@@ -374,6 +520,22 @@ foreach ($case in @('matching', 'different case', 'missing quotes', 'NoSend')) {
         Assert-True ($result.Attempts -eq 3 -and $result.Error -match 'read-back-mismatch') 'Mismatch retries/result changed.'
     }
 }
+# An interruption stops the send before the step it guards: nothing after that point runs.
+$realInterruption = ${function:Get-InputBlockInterruption}
+$script:interruptAt = 0; $script:interruptCalls = 0
+function Get-InputBlockInterruption { param([switch]$RequireForeground) $script:interruptCalls++; if ($script:interruptCalls -eq $script:interruptAt) { return 'UserInput: test interruption' }; return $null }
+$NoSend = $false; $Quiet = $false; $script:textRead = $Text
+foreach ($case in @(@(1, ''), @(2, ''), @(3, 'clear'), @(4, 'clear,type'))) {
+    $script:events = New-Object 'Collections.Generic.List[string]'
+    $script:interruptAt = $case[0]; $script:interruptCalls = 0
+    $result = & $sendLoop 6>$null
+    Assert-True (-not $result.Sent -and $result.Error -match '^UserInput:' -and ($script:events -join ',') -ceq $case[1]) "An interruption at check $($case[0]) must stop before the next input action (events: $($script:events -join ','))."
+    Assert-True (@($script:events | Where-Object { $_ -eq 'click' }).Count -eq 0) 'An interrupted send must never click Send.'
+}
+$script:events = New-Object 'Collections.Generic.List[string]'; $script:interruptAt = 0; $script:interruptCalls = 0
+$result = & $sendLoop 6>$null
+Assert-True ($result.Sent -and $script:interruptCalls -eq 4) 'An uninterrupted send must pass all four checks and send.'
+Set-Item function:Get-InputBlockInterruption $realInterruption
 function New-MockChatButton([string]$Id, [string]$Name, [bool]$Enabled = $true, [bool]$Offscreen = $false, [bool]$Invokable = $true) {
     $button = [pscustomobject]@{
         Current = [pscustomobject]@{ AutomationId = $Id; Name = $Name; IsEnabled = $Enabled; IsOffscreen = $Offscreen; ClassName = 'Button'; ControlType = [Windows.Automation.ControlType]::Button.Id }
@@ -500,7 +662,8 @@ $script:fixtureWindows = @([pscustomobject]@{ Hwnd = $Hwnd; Pid = 100; ProcessNa
 $result = & ([scriptblock]::Create($ownGuard.Extent.Text))
 Assert-True (-not $result.Sent -and $result.Error -match 'OwnHostWindow') 'Steer must not bypass own-host refusal.'
 
-$tabNavigation = $statements | Where-Object { $_.Extent.Text -match '^if \(-not \$NoNavigate.*Select-ChatTabIfHidden' } | Select-Object -First 1
+$tabNavigation = $statements | Where-Object { $_.Extent.Text -match '^if \(\$navigate -and -not \$NoNavigate.*Select-ChatTabIfHidden' } | Select-Object -First 1
+$navigate = $true
 $sessionNavigation = $statements | Where-Object { $_.Extent.Text -match '^if \(\$NewSession\)' } | Select-Object -First 1
 Assert-True ($null -ne $tabNavigation -and $null -ne $sessionNavigation) 'Navigation statements must be available for offline verification.'
 $navigation = [scriptblock]::Create($tabNavigation.Extent.Text + [Environment]::NewLine + $sessionNavigation.Extent.Text)

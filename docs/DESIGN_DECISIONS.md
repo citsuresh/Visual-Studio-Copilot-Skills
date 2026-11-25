@@ -498,3 +498,43 @@ paths and the ordering before the send loop.
 main window. It remains a possible opt-in switch. Relying on `IsOffscreen` was rejected because it reports
 false for this case. **Limits:** one machine, one monitor, one window; the dual-monitor and empty-rectangle
 cases are offline tests only; a floating (undocked) chat window is not handled by this script at all.
+
+## 2026-11-25 - UI scripts wait for a quiet keyboard and hand the person's window back
+
+**Decision:** `Send-CopilotPrompt.ps1` and `Select-ChoicePromptOption.ps1` (agent-orchestrator v34, shared helpers in
+ui-interaction v25) take the foreground only after a quiet moment and only for the input steps. They queue
+behind other agents with one session-wide lock, wait until there has been no typing, click or scrolling for 3 s
+(moving the pointer alone is ignored, because people move the mouse for many reasons and a jittery pointer would
+otherwise keep every wait going; 6 s
+while the foreground editor holds text), and wait while a mouse button or modifier key is held or Windows
+reports a presentation, a full-screen app, quiet time, a locked session or a menu or drag in progress, or a manual
+pause is set. The wait is capped at 120 s (`UserActive`, `DoNotDisturb`, `SessionNotPresent`) and the scripts then
+type nothing. A cursor dot (amber for waiting, red for acting) and one short sound mark the wait; after 30 s the
+person is asked once to pause, spoken only when the caller says speech is on. Before every foreground, clear,
+paste and send step the scripts check that the person has not used the keyboard or mouse since the previous
+agent step, and stop with the pasted text left as a draft if they have. Afterwards the person's window, focused
+control and pointer are restored when it is still theirs to give back, and the result reports whether that was
+verified. The read-only checks now run first with the person's window still in front, and card answers no longer
+call UIA `SetFocus` before the foreground is taken.
+
+**Rationale:** The user reported many times that their keystrokes landed in the other agent's chat input, even
+before the paste, because the sender took the foreground at the start and held it for about 8 s. The shared
+Alt tap that wins the foreground can also open a menu in the person's application. Idle time alone cannot see a
+held mouse button (no new event while held), so held buttons and modifiers are checked separately. Several
+orchestrators run at once on this machine, so input blocks must queue and must not treat each other's input as the
+person's. No keyboard hook is used (security tools treat it as a keylogger) and `BlockInput` is not used (it needs
+elevation and can lock the person out if the script dies).
+
+**Alternatives considered:** A corner overlay as a second cue was dropped in favour of a short sound. Filtering
+by application was rejected; the draft check is generic. Detecting a shared (not full-screen) window is not
+possible through Windows' supported state; a manual pause covers it, and the Windows screen-capture record is a todo to
+test with a real Teams share. **Evidence (live, 2026-11-25, one machine, sender only):** a manual pause refused
+with nothing typed; simulated typing for 8 s into a scratch window made the send wait and then send, with all 43
+characters landing in the scratch window and the window handed back; a held mouse button kept the foreground away
+until release; a lock held by another process made the send queue behind it; a normal send handed back the same
+window and focused control; a key pressed in the gap before the first input step stopped the send with `UserInput`,
+nothing sent. A first held-button run stopped falsely because the person's pointer jitter counted as input, which is
+why pointer movement alone is now ignored. **Limits:** card answers, a real presentation, several orchestrators
+sending at once and the person's window after a `UserInput` stop are not tested live; a key that arrives during one
+of the script's own steps is absorbed into that step (the exact read-back covers the pasted text); the amber dot is
+invisible when Windows hides the pointer while typing, which is why a sound is played too.

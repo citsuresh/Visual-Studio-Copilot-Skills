@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 33`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 34`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,30 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v34 - `Send-CopilotPrompt.ps1` and `Select-ChoicePromptOption.ps1` now wait for a quiet keyboard and
+    mouse before taking the foreground, and hand the person's window back afterwards. Keystrokes typed while
+    the script held the target window used to land in the target chat, possibly before a paste. Now the read-only
+    checks (banner, input, on-screen, draft) run with the person's window still in front; the foreground is
+    taken only to navigate or for the input steps; the script first queues behind other agents (one session-wide
+    input lock) and waits for 3 s without typing, a click or scrolling (moving the pointer alone is ignored;
+    6 s while the foreground editor holds text,
+    and while a mouse button or modifier key is held, a presentation or full-screen app, Windows quiet time, a
+    menu or drag in progress or a manual pause is in effect). After 0.5 s of waiting the cursor shows an amber dot
+    and one short sound plays; after 30 s the person is asked once to pause (`-SpeakRequest`, only when speech is
+    on in the chat); after 120 s it returns `UserActive`, `DoNotDisturb` or `SessionNotPresent` and types nothing.
+    Before every foreground, clear, paste and send step it re-checks for input from the person and stops with
+    `UserInput`, a held-button error or `ForegroundLost`, leaving any pasted text as a draft. After the send it
+    restores the person's window, focused control and pointer (the result's `Handback`). Card answers no longer
+    call UIA `SetFocus` on the card before taking the foreground. New switches `-QuietSeconds`, `-MaxWaitSeconds`,
+    `-IgnoreUserActivity`, `-NoRestoreFocus` and `-SpeakRequest`, appended last. Offline tests (348 and 31
+    assertions plus 81 for the shared helpers). Live (2026-11-25, one machine, sender only): a manual pause
+    returned `DoNotDisturb` and typed nothing; simulated typing for 8 s into a scratch window made the send wait
+    until it stopped (43 of 43 characters landed there) and the window came back; a held mouse button kept the
+    foreground away until release; a lock held by another process made it queue, then send; a key pressed in the
+    gap before the first input step stopped the send with `UserInput`, nothing sent and no stray text. A key that
+    arrives during one of the script's own steps is absorbed into that step (the exact read-back protects the
+    pasted text). Not tested live: answering a card, a real presentation, several orchestrators at once, and
+    whether the person's window returns after a `UserInput` stop (the result of a stopped send has no `Handback`).
   - v33 - `Send-CopilotPrompt.ps1` refuses at once with `InputOffScreen` when the chat input lies
     outside the visible screen, instead of failing after three attempts with a generic foreground
     error. A window pushed partly below the screen still reports `IsOffscreen` false, so the check
@@ -523,6 +547,20 @@ shows a working-directory mismatch or untrusted-workspace banner (see Step 4); d
   `-NoNavigate` to require the chat to be open already, and `-NewSession` to always start a new
   one (it waits up to 30s for the input). Do the same by hand when you use raw verbs:
   `click --strategy Name --value Chat --controlType TabItem`, then `createNewThread`.
+- **A person may be using the machine.** The send and the card-answer scripts do not barge in. They queue
+  behind other agents, then wait until there has been no typing, click or scrolling for 3 s (`-QuietSeconds`;
+  moving the pointer alone does not count) and
+  nothing is held, presented or paused; while waiting, the cursor shows an amber dot and a short sound plays
+  once (after 30 s, a spoken request when you pass `-SpeakRequest` and speech is on in this chat, otherwise the
+  sound again). If the person is still busy after `-MaxWaitSeconds` (120), the result has `Sent: false` and an
+  error starting `UserActive`, `DoNotDisturb` (for example a presentation, full-screen app, Windows quiet time
+  or a manual pause), `SessionNotPresent` (locked screen) or `UiBusy`, and nothing was typed or clicked: tell
+  the user and try again later; do not loop. A stop in the middle (`UserInput`, `MouseButtonInUse`,
+  `ModifierInUse`, `ForegroundLost`) leaves any pasted text as a draft in the target; nothing is sent. When
+  the send succeeds, `Handback` says whether the person's window, focused control and pointer were restored
+  (`Restored`, `RestoredAfterUserInput`, `UserInput`, `NotVerified`, ...). Use `-IgnoreUserActivity` only when
+  nobody is at the machine, and `Set-AgentUiPause -Minutes N` (AgentCursor.ps1) before screen sharing, which
+  Windows does not report. The amber dot means "waiting for you to pause"; red still means "acting now".
 - **Chat input off-screen.** When the input's centre lies outside every monitor's working area (a
   window moved partly below the screen, or under the taskbar), the script returns `Sent: false` with
   an `InputOffScreen` error before typing or clicking anything. UIA keeps reporting `IsOffscreen`

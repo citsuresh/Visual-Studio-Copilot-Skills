@@ -94,9 +94,33 @@
     draft text. Without -Trace the result has no Timings property and behaviour is unchanged.
     Appended last to preserve all prior positional parameter indices.
 
+.PARAMETER QuietSeconds
+    How long the keyboard and mouse must have been idle before the script takes the foreground (default 3;
+    twice as long while the foreground application's focused editor holds text). A held mouse button or
+    modifier key, a presentation or full-screen app, Windows quiet time and a manual pause
+    (Set-AgentUiPause in AgentCursor.ps1) also make it wait. 0 turns the quiet wait off. While it waits the
+    cursor shows an amber dot and one short sound plays. Appended last to preserve positional order.
+
+.PARAMETER MaxWaitSeconds
+    How long to wait for a quiet moment (default 120) before returning Sent=false with UserActive or
+    DoNotDisturb and typing nothing. After about 30 s the person is asked once to pause (sound, or speech
+    with -SpeakRequest).
+
+.PARAMETER IgnoreUserActivity
+    Skip the quiet wait and the checks for input during the send. For runs where nobody is at the machine.
+    The cross-process lock and the focus hand-back still apply.
+
+.PARAMETER NoRestoreFocus
+    Do not give the person's window, focused control and pointer back after the send.
+
+.PARAMETER SpeakRequest
+    Speak the request to pause (read-aloud skill) instead of repeating the sound. Pass it only when speech is
+    on in this chat.
+
 .OUTPUTS
     PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error (plus Timings with
-    -Trace). When the window
+    -Trace, and Handback after a send that borrowed the keyboard: Restored, UserInput, NotVerified and so on).
+    When the window
     cannot be brought to the foreground and it no longer exists, Error says so (typically
     Visual Studio was restarted and the handle is stale). When the window exists but still
     cannot be brought forward after one retry, Error tells the person to click the target
@@ -142,7 +166,19 @@ param(
 
     [switch]$Steer,
 
-    [switch]$Trace
+    [switch]$Trace,
+
+    [ValidateRange(0, 600)]
+    [int]$QuietSeconds = 3,
+
+    [ValidateRange(0, 3600)]
+    [int]$MaxWaitSeconds = 120,
+
+    [switch]$IgnoreUserActivity,
+
+    [switch]$NoRestoreFocus,
+
+    [switch]$SpeakRequest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -377,6 +413,9 @@ function Write-Result {
     param([bool]$Sent, [int]$Attempts, [string]$InputText, [string]$ErrorText)
     if ($Quiet -and $Sent) { $InputText = $null }
     $result = [pscustomobject]@{ Sent = $Sent; Attempts = $Attempts; InputText = $InputText; Error = $ErrorText }
+    # Present only after an input block gave the person's window back (see Stop-InputBlock).
+    $handback = Get-Variable -Name FocusResult -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+    if ($handback) { Add-Member -InputObject $result -NotePropertyName Handback -NotePropertyValue $handback }
     # -Trace only: the variables exist only when the script body enabled tracing.
     $stages = Get-Variable -Name SendStages -Scope Script -ValueOnly -ErrorAction SilentlyContinue
     $clock = Get-Variable -Name SendClock -Scope Script -ValueOnly -ErrorAction SilentlyContinue
@@ -511,14 +550,96 @@ if ($Steer) {
 $agentCursor = Join-Path $PSScriptRoot '..\..\ui-interaction\scripts\AgentCursor.ps1'
 if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not found at $agentCursor. Install the ui-interaction skill (Install-Skills.ps1)." }
 . $agentCursor
-Enable-AgentCursor
+
+# ---- Be considerate of a person using the machine. Taking the foreground while someone types sends their
+# keystrokes into the target chat, so: queue behind other agents (one input block at a time), wait for a quiet
+# keyboard and mouse, take the foreground only for the input steps, stop if the person starts using the
+# keyboard or mouse, and give their window, focused control and pointer back. The helpers live in
+# AgentCursor.ps1 (ui-interaction).
+$script:InputBlockStarted = $false
+$script:UiLock = $null
+$script:UserContext = $null
+$script:BlockStamp = [uint32]0
+$script:BlockPoint = $null
+$script:FocusResult = $null
+
+# Returns an error text when the block cannot start (nothing was typed or clicked), otherwise $null. Safe to call twice.
+function Start-InputBlock {
+    if ($script:InputBlockStarted) { return $null }
+    $script:UiLock = Enter-AgentUiLock
+    if (-not $script:UiLock) { return 'UiBusy: other agents kept the keyboard and mouse for more than five minutes. Nothing was typed or clicked; try again later.' }
+    if (-not $IgnoreUserActivity -and $QuietSeconds -gt 0) {
+        $quiet = Wait-AgentUserQuiet -QuietMilliseconds ($QuietSeconds * 1000) -DraftQuietMilliseconds ($QuietSeconds * 2000) -MaxWaitMilliseconds ($MaxWaitSeconds * 1000) -SpeakRequest:$SpeakRequest
+        if (-not $quiet.Quiet) {
+            Exit-AgentUiLock $script:UiLock
+            $script:UiLock = $null
+            $inUse = if ($quiet.InUse) { " ($($quiet.InUse))" } else { '' }
+            switch ($quiet.Reason) {
+                'SessionNotPresent' { return 'SessionNotPresent: the session is locked or the person is away, so keyboard and mouse input is not possible. Nothing was typed or clicked.' }
+                'DoNotDisturb' { return "DoNotDisturb${inUse}: Windows reports a presentation, a full-screen app, quiet time or a menu or drag in progress, or a manual pause is set. Nothing was typed or clicked; try again later." }
+                default { return "UserActive${inUse}: the keyboard or mouse stayed in use for $MaxWaitSeconds s. Nothing was typed or clicked; try again when the person has paused." }
+            }
+        }
+    }
+    $script:UserContext = Save-AgentUserFocus
+    Enable-AgentCursor
+    $script:BlockStamp = Get-AgentInputStamp
+    $script:BlockPoint = Get-AgentPointerPosition
+    $script:InputBlockStarted = $true
+    return $null
+}
+
+# Before an input step: $null when it is safe to go on, otherwise why the send stopped. Input from the person,
+# a held mouse button or modifier, or (after the window was taken) another window in front all stop it.
+function Get-InputBlockInterruption {
+    param([switch]$RequireForeground)
+    if ($IgnoreUserActivity -or -not $script:InputBlockStarted) { return $null }
+    if (Test-AgentMeaningfulInputSince -Stamp $script:BlockStamp -Point $script:BlockPoint) { return 'UserInput: the keyboard or mouse was used while the send was in progress, so it stopped before its next input step. Text already pasted was left in the input.' }
+    # Input that came only with the pointer moving (no key, no button) is not the person using it: take it as the new baseline.
+    Update-InputBlockStamp
+    $held = Get-AgentInputInUse
+    if ($held) { return "${held}InUse: a mouse button or modifier key is held, so the send stopped before its next input step. Text already pasted was left in the input." }
+    if ($RequireForeground -and (Get-AgentForegroundHandle) -ne [IntPtr][Convert]::ToInt64($Hwnd, 16)) { return 'ForegroundLost: another window came to the front, so the send stopped before its next input step. Text already pasted was left in the input.' }
+    return $null
+}
+
+# After one of this script's own input steps: its input is not the person's.
+function Update-InputBlockStamp { if ($script:InputBlockStarted) { $script:BlockStamp = Get-AgentInputStamp; $script:BlockPoint = Get-AgentPointerPosition } }
+
+# Ends the block: cursor dot, the person's window/focus/pointer, the shared own-input stamp, the lock. Safe to call twice.
+function Stop-InputBlock {
+    try {
+        if ($script:InputBlockStarted) {
+            Restore-AgentCursor
+            $noUserInput = -not (Test-AgentMeaningfulInputSince -Stamp $script:BlockStamp -Point $script:BlockPoint)
+            if ($script:UserContext -and -not $NoRestoreFocus) {
+                $handed = Restore-AgentUserFocus -Context $script:UserContext -OwnStamp $script:BlockStamp -OwnPoint $script:BlockPoint -HeldHandle ([IntPtr][Convert]::ToInt64($Hwnd, 16))
+                $script:FocusResult = $handed.Reason
+            }
+            if ($noUserInput) { Set-AgentOwnInputStamp }
+        }
+    }
+    finally {
+        Exit-AgentUiLock $script:UiLock
+        $script:UiLock = $null
+        $script:InputBlockStarted = $false
+    }
+}
+
 try {
-    # Bring the target forward first; input verbs refuse to type into a background window.
-    if (-not (Request-Foreground)) {
-        return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
+    # Everything read-only runs first, with the person's window still in front. The foreground is needed here
+    # only to navigate (select the Chat tab, create a session); input verbs refuse a background window.
+    $navigate = $NewSession -or (-not $NoNavigate -and -not $Steer -and -not (Test-ChatInput -TimeoutMs 1500))
+    if ($navigate) {
+        $blockError = Start-InputBlock
+        if ($blockError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $blockError }
+        if (-not (Request-Foreground)) {
+            return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
+        }
+        Update-InputBlockStamp
     }
     Set-StageMark 'foreground'
-    if (-not $NoNavigate -and -not $Steer) { Select-ChatTabIfHidden }
+    if ($navigate -and -not $NoNavigate -and -not $Steer) { Select-ChatTabIfHidden; Update-InputBlockStamp }
     Set-StageMark 'tabCheck'
 
     # Banner check before any input; banners only render while the chat is visible.
@@ -554,6 +675,12 @@ try {
     }
     Set-StageMark 'ensureInput'
 
+    # The person must be quiet before the foreground is taken. The checks below run after this wait, so they
+    # see the input as it is at the last moment (a draft may have been typed, or another agent may have sent).
+    $blockError = Start-InputBlock
+    if ($blockError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $blockError }
+    Set-StageMark 'quietWait'
+
     # One search for the input, shared by the on-screen check and the second draft check.
     $inputElements = @(Get-ChatInputElements)
     $screenError = Get-ChatInputScreenError -Elements $inputElements
@@ -571,19 +698,28 @@ try {
     $actual = $null
     while ($attempt -le $Retries) {
         $attempt++
+        $interrupted = Get-InputBlockInterruption
+        if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
         if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
             $lastError = Get-ForegroundFailureText
             Set-StageMark 'loopForeground-failed'
             continue
         }
+        Update-InputBlockStamp
         Set-StageMark 'loopForeground'
         if ($Steer) {
             $steerError = Get-ChatSteerError
             if ($steerError) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $steerError }
         }
+        $interrupted = Get-InputBlockInterruption -RequireForeground
+        if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
         Clear-ChatInput
+        Update-InputBlockStamp
         Set-StageMark 'clear'
+        $interrupted = Get-InputBlockInterruption -RequireForeground
+        if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
         $typed = Invoke-Ui @('type', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--text', $Text, '--paste', '--verify')
+        Update-InputBlockStamp
         Set-StageMark 'paste'
         if ($typed.success) {
             $actual = Get-ChatInputText
@@ -616,14 +752,20 @@ try {
         if ($steerError) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $steerError }
         $buttonId = 'SteerButton'
     }
+    $interrupted = Get-InputBlockInterruption -RequireForeground
+    if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
     $sent = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', $buttonId)
+    Update-InputBlockStamp
     Set-StageMark 'send'
     if (-not $sent.success) {
         if ($Steer) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText 'SteerClickFailed: SteerButton was not invoked; no fallback was attempted.' }
         return Write-Result -Sent $false -Attempts $attempt -InputText $actual -ErrorText "Send click failed: $($sent.error) $($sent.message)"
     }
+    # Hand the keyboard back at once; the result then says whether the person's window and focus were restored.
+    Stop-InputBlock
+    Set-StageMark 'handback'
     Write-Result -Sent $true -Attempts $attempt -InputText $actual -ErrorText $null
 }
 finally {
-    Restore-AgentCursor
+    Stop-InputBlock
 }
