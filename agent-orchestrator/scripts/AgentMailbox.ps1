@@ -27,6 +27,96 @@ $script:MailboxBeatMaxAgeMs = 3000
 
 function Get-MailboxNowMs { return [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
 
+# ---- Troubleshooting log -----------------------------------------------------------------------------------
+# One JSON object per line. The sender side writes %LOCALAPPDATA%\AgentUi\logs\mailbox.jsonl (AGENTUI_LOG_DIR moves
+# the folder); each listener writes events.jsonl in its channel folder. By default NO message text is logged, only its
+# length and a short hash (enough to match a message across both logs); the sender can opt in to its own text with
+# -LogText. Disk use is bounded: a log is rotated at 512 KB or when it is a month old (one old file is kept, so at most
+# about 1 MB per log), any log file older than 30 days is deleted, and a channel folder unused for 30 days is deleted.
+# Logging never throws: a log that cannot be written must not stop a message.
+$script:MailboxLogMaxBytes = 524288
+$script:MailboxLogKeepDays = 30
+$script:MailboxCleanupDone = $false
+
+function Get-MailboxLogPath {
+    param([ValidateSet('sender', 'listener')][string]$Side, [string]$Channel)
+    if ($Side -eq 'listener') { return (Join-Path (Get-MailboxPaths -Channel $Channel).Dir 'events.jsonl') }
+    $folder = if ($env:AGENTUI_LOG_DIR) { $env:AGENTUI_LOG_DIR } else { Join-Path $env:LOCALAPPDATA 'AgentUi\logs' }
+    return (Join-Path $folder 'mailbox.jsonl')
+}
+
+# Housekeeping, at most once per process: log files and unused channel folders older than 30 days are deleted.
+function Remove-OldMailboxFiles {
+    param([string]$LogFolder)
+    $cutoff = (Get-Date).AddDays(-$script:MailboxLogKeepDays)
+    try {
+        if ($LogFolder -and (Test-Path -LiteralPath $LogFolder)) {
+            foreach ($file in [System.IO.Directory]::GetFiles($LogFolder, '*.jsonl*')) { try { if ([System.IO.File]::GetLastWriteTime($file) -lt $cutoff) { [System.IO.File]::Delete($file) } } catch { } }
+        }
+        $root = Get-MailboxRoot
+        if (Test-Path -LiteralPath $root) {
+            foreach ($channelDir in [System.IO.Directory]::GetDirectories($root)) {
+                try {
+                    $newest = [System.IO.Directory]::GetFiles($channelDir, '*', 'AllDirectories') | ForEach-Object { [System.IO.File]::GetLastWriteTime($_) } | Sort-Object -Descending | Select-Object -First 1
+                    $stamp = if ($newest) { $newest } else { [System.IO.Directory]::GetLastWriteTime($channelDir) }
+                    if ($stamp -lt $cutoff) { [System.IO.Directory]::Delete($channelDir, $true) }
+                } catch { }
+            }
+        }
+    } catch { }
+}
+
+# Length and the first 8 hex digits of the SHA-256: it identifies a message without keeping it.
+function Get-MailboxTextFingerprint {
+    param([AllowEmptyString()][string]$Text)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $hash = ([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes([string]$Text))) -replace '-', '').Substring(0, 8).ToLowerInvariant() } finally { $sha.Dispose() }
+    return [pscustomobject]@{ Length = ([string]$Text).Length; Hash = $hash }
+}
+
+function Write-MailboxLog {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][System.Collections.IDictionary]$Entry)
+    try {
+        $folder = [System.IO.Path]::GetDirectoryName($Path)
+        if (-not (Test-Path -LiteralPath $folder)) { [void](New-Item -ItemType Directory -Path $folder -Force) }
+        if ((Test-Path -LiteralPath $Path) -and ((([System.IO.FileInfo]$Path).Length -gt $script:MailboxLogMaxBytes) -or ([System.IO.File]::GetCreationTime($Path) -lt (Get-Date).AddDays(-$script:MailboxLogKeepDays)))) {
+            $old = "$Path.1"
+            if (Test-Path -LiteralPath $old) { [System.IO.File]::Delete($old) }
+            [System.IO.File]::Move($Path, $old)
+        }
+        $old = "$Path.1"
+        if ((Test-Path -LiteralPath $old) -and ([System.IO.File]::GetLastWriteTime($old) -lt (Get-Date).AddDays(-$script:MailboxLogKeepDays))) { [System.IO.File]::Delete($old) }
+        if (-not $script:MailboxCleanupDone) { $script:MailboxCleanupDone = $true; Remove-OldMailboxFiles -LogFolder $folder }
+        $line = ([ordered]@{ ts = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss.fff'); pid = $PID } + $Entry) | ConvertTo-Json -Compress -Depth 4
+        $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($line + "`r`n")
+        $stream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+    }
+    catch { }
+}
+
+# Entries of both logs for a channel, oldest first. Each entry gets a Side property (sender or listener).
+function Read-MailboxLog {
+    param([Parameter(Mandatory)][string]$Channel, [int]$Last = 50, [int]$SinceMinutes = 0)
+    $entries = New-Object 'System.Collections.Generic.List[object]'
+    $files = @((Get-MailboxLogPath -Side sender) + '.1'; (Get-MailboxLogPath -Side sender); (Get-MailboxLogPath -Side listener -Channel $Channel) + '.1'; (Get-MailboxLogPath -Side listener -Channel $Channel))
+    foreach ($file in $files) {
+        if (-not (Test-Path -LiteralPath $file)) { continue }
+        $side = if ($file -like '*events.jsonl*') { 'listener' } else { 'sender' }
+        foreach ($line in [System.IO.File]::ReadAllLines($file, [System.Text.Encoding]::UTF8)) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $e = $line | ConvertFrom-Json } catch { continue }
+            if ($side -eq 'sender' -and $e.PSObject.Properties['channel'] -and $e.channel -ne $Channel) { continue }
+            Add-Member -InputObject $e -NotePropertyName Side -NotePropertyValue $side -Force
+            $entries.Add($e)
+        }
+    }
+    $sorted = @($entries | Sort-Object { [string]$_.ts })
+    if ($SinceMinutes -gt 0) { $cut = (Get-Date).AddMinutes(-$SinceMinutes).ToString('yyyy-MM-ddTHH:mm:ss.fff'); $sorted = @($sorted | Where-Object { [string]$_.ts -ge $cut }) }
+    if ($Last -gt 0 -and $sorted.Count -gt $Last) { $sorted = @($sorted | Select-Object -Last $Last) }
+    return $sorted
+}
+
 function Get-MailboxRoot {
     if ($env:AGENTUI_MAILBOX_ROOT) { return $env:AGENTUI_MAILBOX_ROOT }
     # Under the temp folder, not %LOCALAPPDATA%: a worker chat's terminal sees files that other processes put in the temp folder,
@@ -182,7 +272,11 @@ function Send-AgentMailboxMessage {
         $withdrawn = $false
         # Delete does not fail for a missing file, so look first: a file that is already gone was claimed.
         if (Test-Path -LiteralPath $final) { try { [System.IO.File]::Delete($final); $withdrawn = -not (Test-Path -LiteralPath $final) } catch { } }
-        if ($withdrawn) { $result.Reason = 'NotClaimed: the listener did not take the message in time; it was withdrawn.'; return $result }
+        if ($withdrawn) {
+            $result.Reason = 'NotClaimed: the listener did not take the message in time; it was withdrawn.'
+            Write-MailboxLog -Path (Get-MailboxLogPath -Side sender) -Entry ([ordered]@{ event = 'post'; channel = $Channel; id = $id; kind = $Kind; length = $Text.Length; hash = (Get-MailboxTextFingerprint $Text).Hash; delivered = $false; reason = 'withdrawn' })
+            return $result
+        }
         $grace = [Diagnostics.Stopwatch]::StartNew()
         while ($grace.ElapsedMilliseconds -lt 1500 -and -not (Test-Path -LiteralPath $ackFile)) { Start-Sleep -Milliseconds 25 }
         if (-not (Test-Path -LiteralPath $ackFile)) { $result.Reason = 'Unconfirmed: the message left the inbox but no ack arrived.'; return $result }
@@ -191,5 +285,6 @@ function Send-AgentMailboxMessage {
     try { [System.IO.File]::Delete($ackFile) } catch { }
     $result.Delivered = $true
     $result.Reason = 'Delivered'
+    Write-MailboxLog -Path (Get-MailboxLogPath -Side sender) -Entry ([ordered]@{ event = 'post'; channel = $Channel; id = $id; kind = $Kind; length = $Text.Length; hash = (Get-MailboxTextFingerprint $Text).Hash; delivered = $true; ackMs = $result.AckMs })
     return $result
 }

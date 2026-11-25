@@ -54,6 +54,13 @@
 .PARAMETER QuietSeconds, MaxWaitSeconds
     Passed to Send-CopilotPrompt.ps1 for the UI tiers.
 
+.PARAMETER LogText
+    Also write the message text itself to the sender-side troubleshooting log. By default the log has only the message's
+    length and a short hash, never text. The listener's own log never holds text.
+
+.PARAMETER NoLog
+    Do not write the troubleshooting log for this send.
+
 .PARAMETER AsJson
     Return JSON.
 
@@ -107,6 +114,10 @@ param(
 
     [ValidateRange(0, 3600)]
     [int]$MaxWaitSeconds = 120,
+
+    [switch]$LogText,
+
+    [switch]$NoLog,
 
     [switch]$AsJson
 )
@@ -231,4 +242,11 @@ if ($shown.Length -gt 120) { $shown = $shown.Substring(0, 120) + '...' }
 Add-Member -InputObject $result -NotePropertyName Preview -NotePropertyValue $shown
 $route = if ($result.Sent) { "via $($result.Tier) in $($result.ElapsedMs) ms" } else { "NOT SENT ($(([string]$result.Error -replace '\s+', ' ').Trim()))" }
 Add-Member -InputObject $result -NotePropertyName Display -NotePropertyValue "Master -> worker $route : $shown"
+if (-not $NoLog) {
+    $fp = Get-MailboxTextFingerprint ([string]$Text)
+    $why = ([string]$result.Error -replace '\s+', ' ').Trim(); if ($why.Length -gt 300) { $why = $why.Substring(0, 300) + '...' }
+    $entry = [ordered]@{ event = 'send'; channel = $Channel; mode = $Mode; bootstrap = [bool]$Bootstrap; stop = [bool]$StopListening; sent = [bool]$result.Sent; tier = $result.Tier; ms = $result.ElapsedMs; messageId = $result.MessageId; length = $fp.Length; hash = $fp.Hash; attempts = @($result.Attempts); error = $why }
+    if ($LogText) { $entry.text = [string]$Text }
+    Write-MailboxLog -Path (Get-MailboxLogPath -Side sender) -Entry $entry
+}
 if ($AsJson) { $result | ConvertTo-Json -Depth 3 } else { $result }

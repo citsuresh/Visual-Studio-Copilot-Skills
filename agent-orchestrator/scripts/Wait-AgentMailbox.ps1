@@ -42,6 +42,7 @@ if ($existing.Live -and $existing.ListenerPid -ne $PID) {
 }
 
 $exitReason = 'error'
+$clock = [Diagnostics.Stopwatch]::StartNew()
 $nonce = [guid]::NewGuid().ToString('N')
 $me = Get-Process -Id $PID
 $procStartMs = ([DateTimeOffset]$me.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()
@@ -49,9 +50,10 @@ $startedMs = Get-MailboxNowMs
 $script:polls = 0; $script:seen = 0
 function Write-Beat { Write-MailboxJsonFile -Path $paths.Listener -Value ([ordered]@{ channel = $Channel; pid = $PID; procStartMs = $procStartMs; startedMs = $startedMs; lastBeatMs = (Get-MailboxNowMs); nonce = $nonce; polls = $script:polls; inboxSeen = $script:seen }) }
 
+$eventsLog = Get-MailboxLogPath -Side listener -Channel $Channel
+Write-MailboxLog -Path $eventsLog -Entry ([ordered]@{ event = 'listen-start'; channel = $Channel; timeoutSeconds = $TimeoutSeconds })
 try {
     Write-Beat
-    $clock = [Diagnostics.Stopwatch]::StartNew()
     $lastBeat = 0; $lastPurge = 0
     while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
         if ($clock.ElapsedMilliseconds - $lastBeat -ge 1000) { Write-Beat; $lastBeat = $clock.ElapsedMilliseconds }
@@ -67,6 +69,8 @@ try {
             catch { }
             finally { try { [System.IO.File]::Delete($claimedFile) } catch { } }
             if ($null -eq $message -or -not $message.id) { continue }   # unreadable file: dropped, keep listening
+            $fp = Get-MailboxTextFingerprint ([string]$message.text)
+            Write-MailboxLog -Path $eventsLog -Entry ([ordered]@{ event = 'claim'; channel = $Channel; id = $message.id; kind = [string]$message.kind; from = [string]$message.from; length = $fp.Length; hash = $fp.Hash; ageMs = ((Get-MailboxNowMs) - [int64]$message.createdMs) })
             Write-MailboxJsonFile -Path (Join-Path $paths.Acks "$($message.id).json") -Value ([ordered]@{ id = $message.id; claimedMs = (Get-MailboxNowMs) })
             if ($message.kind -eq 'stop') {
                 $exitReason = 'stop'
@@ -88,4 +92,5 @@ finally {
     # Remove only our own registration, so a newer listener is never unregistered by an older one.
     $current = Read-MailboxJsonFile -Path $paths.Listener
     if ($current -and $current.nonce -eq $nonce) { try { [System.IO.File]::Delete($paths.Listener) } catch { }; Set-MailboxExit -Paths $paths -Reason $exitReason }
+    Write-MailboxLog -Path $eventsLog -Entry ([ordered]@{ event = 'listen-end'; channel = $Channel; reason = $exitReason; seconds = [int]$clock.Elapsed.TotalSeconds; polls = $script:polls })
 }

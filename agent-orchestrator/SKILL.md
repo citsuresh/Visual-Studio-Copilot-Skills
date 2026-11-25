@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 39`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 40`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,7 +243,12 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
-  - v39 - Adds `Send-AgentMessage.ps1`, which sends a message by mailbox when the worker chat is listening, else by
+  - v40 - Adds a troubleshooting log for mailbox messages. `Send-AgentMessage.ps1` and `Wait-AgentMailbox.ps1` write one
+    JSON line per event (send, post, listen start, claim, listen end) and `Get-AgentMailboxLog.ps1` shows both sides
+    merged for a channel. By default no message text is logged, only its length and a short hash (so one message can be
+    followed from the sender log to the listener log); `-LogText` adds the sender's own text, `-NoLog` turns logging off.
+    Disk use is bounded: a log rotates at 512 KB (one old file kept), log files and unused channel folders older than
+    30 days are deleted. Offline: 72 mailbox assertions (from 56), the log checked against real listener processes.  - v39 - Adds `Send-AgentMessage.ps1`, which sends a message by mailbox when the worker chat is listening, else by
     `Send-CopilotPrompt.ps1`, else by its new `-Conservative` path. A message posted to a listening worker is taken in
     under a second and nothing is typed or clicked (live, one machine, 3 messages: router 0.6 to 0.9 s, the worker's
     next command 4.8 to 5.2 s later; UI send about 10 s). The mailbox cannot wake an idle chat, so the first message
@@ -380,7 +385,8 @@ message, several matches the candidate list); `-Hwnd` wins when both are given.
 | `Send-CopilotPrompt.ps1` | Step 2: guard drafts, new session (optional), clear, paste, verify, then Send; `-OverwriteInput` permits draft replacement | Sends a prompt |
 | `Send-AgentMessage.ps1` | Step 2b: send one message by the fastest safe route: mailbox (worker listening), then `Send-CopilotPrompt.ps1`, then its `-Conservative` path; `-Bootstrap` starts mailbox mode, `-StopListening` ends it | Sends a message |
 | `Wait-AgentMailbox.ps1` | Run by the worker chat after each task in mailbox mode: waits for the next message and prints it | Writes only the mailbox folder |
-| `AgentMailbox.ps1` | Library for the two above (folder layout, liveness, limits); dot-sourced, runs nothing | No |
+| `Get-AgentMailboxLog.ps1` | Troubleshooting: shows the sender and listener logs of a channel merged, oldest first | No |
+| `AgentMailbox.ps1` | Library for the scripts above (folder layout, liveness, limits); dot-sourced, runs nothing | No |
 | `Watch-CopilotChatV2.ps1` | Step 3 (default): light poll until Pending, Idle, or timeout; no prompt text | No |
 | `Watch-CopilotChatV1.ps1` | Step 3: full-tree poll; returns prompt question/options, `AwaitingReply`, banners | No |
 | `Get-CopilotChatTranscript.ps1` | Step 3: full text of the latest reply/replies, with structural `Kind` per message | No |
@@ -734,6 +740,13 @@ Phased work: bootstrap once with phase 1, then send each later phase with `Send-
 finished the previous one (watch for it listening again, or Idle/Pending as in Step 3), and end with `-StopListening`. Send a
 phase only when the worker is listening: a message posted while it is still working waits up to 8 s and is then steered by
 the UI, which interrupts the phase in progress.
+**Troubleshooting log.** Every send and every listener event is logged as one JSON line: the sender side in
+`%LOCALAPPDATA%\AgentUi\logs\mailbox.jsonl`, each listener in `events.jsonl` in its channel folder under the temp folder.
+`.\Get-AgentMailboxLog.ps1 -Hwnd <h> -SinceMinutes 30` shows both, merged. Entries hold the route taken, timings, why a tier
+was skipped or failed, and each message's length and short hash, never its text (add `-LogText` to a send to keep the
+sender's own text; the listener never logs text). Logs rotate at 512 KB and anything older than 30 days is deleted
+automatically. When a send behaved oddly, read this log before guessing.
+
 **Always end it.** As soon as the to-and-fro is over (the last phase is done, or the person stops the work), send
 `.\Send-AgentMessage.ps1 -Hwnd <h> -StopListening` and check the worker went idle (Step 3), so its chat no longer shows as
 busy and no turns are spent waiting. Do this on early exits and failures too (Step 7). The worker is also told to stop

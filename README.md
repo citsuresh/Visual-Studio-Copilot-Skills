@@ -72,6 +72,8 @@ Agent-orchestrator v38 and ui-interaction v27 make `Send-CopilotPrompt.ps1` abou
 
 Agent-orchestrator v39 adds `Send-AgentMessage.ps1`: a message goes by mailbox when the worker chat is listening (a live test: sent in under 1 s, nothing typed or clicked, the worker acting about 5 s later against about 10 s by UI send), else by `Send-CopilotPrompt.ps1`, else by its `-Conservative` path. Mailbox mode is opt-in per worker (`-Bootstrap` starts it, `-StopListening` ends it); a mailbox cannot wake an idle chat.
 
+Agent-orchestrator v40 logs mailbox traffic for troubleshooting (`Get-AgentMailboxLog.ps1`): route, timings and reasons for both sides, with message length and a short hash instead of text by default, 512 KB rotation and 30-day cleanup.
+
 ## Prerequisites
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free

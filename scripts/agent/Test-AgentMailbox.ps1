@@ -14,7 +14,10 @@ $script:assertions = 0
 function Assert-True([bool]$Condition, [string]$Message) { $script:assertions++; if (-not $Condition) { throw $Message } }
 $root = Join-Path ([IO.Path]::GetTempPath()) ('mailbox-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $env:AGENTUI_MAILBOX_ROOT = $root
+$logDir = Join-Path ([IO.Path]::GetTempPath()) ('mailbox-test-logs-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$env:AGENTUI_LOG_DIR = $logDir
 $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$router = Join-Path $ScriptsPath 'Send-AgentMessage.ps1'
 $children = New-Object 'System.Collections.Generic.List[object]'
 function Start-Listener([string]$Channel, [int]$TimeoutSeconds = 30) {
     $out = Join-Path $root ("out-$Channel-" + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.txt')
@@ -160,10 +163,54 @@ try {
     Assert-True (-not (Test-Path (Get-MailboxPaths 'tmo').Listener)) 'A timed-out listener must remove its registration.'
     Assert-True ((Get-MailboxState -Channel 'tmo').LastExitReason -eq 'timeout') 'A timed-out listener must record timeout.'
     Assert-True ((Get-MailboxState -Channel 'nobody2').LastExitReason -eq $null) 'A channel that never had a listener has no exit reason.'
+
+    # ---- troubleshooting log ----
+    $secret = 'log-secret-phrase-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $l = Start-Listener 'logch'
+    $r = Send-AgentMailboxMessage -Channel 'logch' -Text "please do $secret"
+    Assert-True $r.Delivered 'A message for the log test must be delivered.'
+    $null = Read-Listener $l
+    $fp = Get-MailboxTextFingerprint "please do $secret"
+    $log = @(Read-MailboxLog -Channel 'logch' -Last 0)
+    $post = @($log | Where-Object { $_.Side -eq 'sender' -and $_.event -eq 'post' -and $_.id -eq $r.Id })
+    $claim = @($log | Where-Object { $_.Side -eq 'listener' -and $_.event -eq 'claim' -and $_.id -eq $r.Id })
+    Assert-True ($post.Count -eq 1 -and $post[0].delivered -eq $true -and $post[0].hash -eq $fp.Hash -and $post[0].length -eq $fp.Length) 'The sender log must record the post with the message length and hash.'
+    Assert-True ($claim.Count -eq 1 -and $claim[0].hash -eq $fp.Hash -and $claim[0].length -eq $fp.Length) 'The listener log must record the claim with the same hash, so one message can be followed across both logs.'
+    Assert-True (@($log | Where-Object { $_.Side -eq 'listener' -and $_.event -eq 'listen-start' }).Count -ge 1 -and @($log | Where-Object { $_.Side -eq 'listener' -and $_.event -eq 'listen-end' -and $_.reason -eq 'message' }).Count -ge 1) 'The listener log must record when it started and why it ended.'
+    foreach ($f in @((Get-MailboxLogPath -Side sender), (Get-MailboxLogPath -Side listener -Channel 'logch'))) { Assert-True ((Test-Path $f) -and -not ([IO.File]::ReadAllText($f) -match [regex]::Escape($secret))) "No message text may be written to a log by default: $f" }
+    Assert-True (@($log | Select-Object -ExpandProperty ts) -join ',' -ceq ((@($log | Select-Object -ExpandProperty ts) | Sort-Object) -join ',')) 'Merged log entries must be oldest first.'
+    Assert-True (@(Read-MailboxLog -Channel 'logch' -Last 2).Count -eq 2 -and @(Read-MailboxLog -Channel 'other-channel' -Last 0 | Where-Object { $_.Side -eq 'sender' }).Count -eq 0) 'Last must limit the entries, and another channel must not see this channel''s sender entries.'
+    Write-FakeListener $PID $startMs 100
+    $before = @(Read-MailboxLog -Channel 'live1' -Last 0 | Where-Object { $_.event -eq 'post' }).Count
+    $null = Send-AgentMailboxMessage -Channel 'live1' -Text 'unclaimed' -AckTimeoutMs 400
+    $after = @(Read-MailboxLog -Channel 'live1' -Last 0 | Where-Object { $_.event -eq 'post' })
+    Assert-True ($after.Count -eq $before + 1 -and $after[-1].delivered -eq $false -and $after[-1].reason -eq 'withdrawn') 'A withdrawn message must be logged as not delivered.'
+    Assert-True ((Get-Content -LiteralPath $router -Raw) -match 'if \(-not \$NoLog\)' -and (Get-Content -LiteralPath $router -Raw) -match 'if \(\$LogText\) \{ \$entry\.text') 'The router must log each send unless -NoLog, and add text only with -LogText.'
+
+    # ---- logs stay small ----
+    $bigPath = Join-Path $logDir 'rotate.jsonl'
+    1..40 | ForEach-Object { Write-MailboxLog -Path $bigPath -Entry ([ordered]@{ event = 'fill'; filler = ('x' * 20000) }) }
+    Assert-True ((Test-Path $bigPath) -and (Test-Path "$bigPath.1")) 'A log over 512 KB must be rotated, keeping one old file.'
+    Assert-True ((Get-Item $bigPath).Length -le 600000 -and (Get-Item "$bigPath.1").Length -le 600000) 'Each log file must stay near the size limit.'
+    [IO.File]::SetLastWriteTime("$bigPath.1", (Get-Date).AddDays(-31))
+    Write-MailboxLog -Path $bigPath -Entry ([ordered]@{ event = 'after' })
+    Assert-True (-not (Test-Path "$bigPath.1")) 'A rotated log older than 30 days must be deleted.'
+    $oldLog = Join-Path $logDir 'ancient.jsonl'; [IO.File]::WriteAllText($oldLog, '{}'); [IO.File]::SetLastWriteTime($oldLog, (Get-Date).AddDays(-45))
+    $freshLog = Join-Path $logDir 'recent.jsonl'; [IO.File]::WriteAllText($freshLog, '{}')
+    $oldChannel = Join-Path $root 'stalechannel'; $newChannel = Join-Path $root 'freshchannel'
+    foreach ($ch in @($oldChannel, $newChannel)) { New-Item -ItemType Directory -Path "$ch\inbox" -Force | Out-Null; [IO.File]::WriteAllText("$ch\events.jsonl", '{}') }
+    foreach ($item in @("$oldChannel\events.jsonl", "$oldChannel\inbox", $oldChannel)) { if (Test-Path -LiteralPath $item -PathType Leaf) { [IO.File]::SetLastWriteTime($item, (Get-Date).AddDays(-40)) } else { [IO.Directory]::SetLastWriteTime($item, (Get-Date).AddDays(-40)) } }
+    Remove-OldMailboxFiles -LogFolder $logDir
+    Assert-True (-not (Test-Path $oldLog) -and (Test-Path $freshLog)) 'Log files older than 30 days must be deleted and recent ones kept.'
+    Assert-True (-not (Test-Path $oldChannel) -and (Test-Path $newChannel)) 'A channel folder unused for 30 days must be deleted and a recent one kept.'
+    $noThrow = $true; try { Write-MailboxLog -Path 'Z:\no\such\drive\x.jsonl' -Entry ([ordered]@{ event = 'x' }) } catch { $noThrow = $false }
+    Assert-True $noThrow 'A log that cannot be written must never stop a message.'
 }
 finally {
     foreach ($c in $children) { try { if (-not $c.HasExited) { $c.Kill() } } catch { } }
     Remove-Item Env:AGENTUI_MAILBOX_ROOT -ErrorAction SilentlyContinue
+    Remove-Item Env:AGENTUI_LOG_DIR -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $logDir) { Remove-Item -LiteralPath $logDir -Recurse -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
 }
-"PASS: $script:assertions assertions; mailbox privacy, liveness (stale, gone, reused id, corrupt), claim/ack, withdrawal, limits, retention, order, second listener, stop, damaged message and timeout against real listener processes; no chat or UI."
+"PASS: $script:assertions assertions; mailbox privacy, liveness (stale, gone, reused id, corrupt), claim/ack, withdrawal, limits, retention, order, second listener, stop, damaged message and timeout against real listener processes, plus the troubleshooting log (hash not text, both sides, rotation, 30-day cleanup); no chat or UI."
