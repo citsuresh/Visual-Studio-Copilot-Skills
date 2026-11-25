@@ -540,3 +540,29 @@ control came back. **Limits:** a real presentation, several orchestrators sendin
 after a `UserInput` stop are not tested live; a key that arrives during one
 of the script's own steps is absorbed into that step (the exact read-back covers the pasted text); the amber dot is
 invisible when Windows hides the pointer while typing, which is why a sound is played too.
+
+## 2026-11-25 - Three more sender speed-ups, each with its guard kept, and an honest other-desktop message
+
+**Decision:** `Send-CopilotPrompt.ps1` (agent-orchestrator v35) checks that the chat input is showing in its own
+process (one UIA search) and falls back to the external wait only when that fails; it skips the early draft check for
+a plain send (kept for a new session and for a steer); and it does not clear on the first attempt when the input was
+just verified empty (a retry clears first, `-OverwriteInput` clears first). A target window on another virtual
+desktop is refused with its own message, because it is absent from the default window list and used to be reported
+as gone.
+
+**Rationale:** The draft check after the quiet wait is the authoritative one, and the exact read-back before sending
+catches stray text, so the early check and the first clear only cost time. The in-process lookup avoids launching
+`agentdebug-ui.exe` for a yes/no question. Sending to another desktop would switch the person's whole desktop; the old
+"no longer exists" wording sent people looking for a restarted Visual Studio.
+
+**Evidence (one machine, local session, 4 interleaved pairs against the committed v34, 8 sends all on the first
+attempt):** median total 13.9 s to 11.2 s; without the quiet wait, which varies with the person's typing, 9.9 s to
+7.2 s (about 27%). Stage medians before and after: first draft check 589 to 0 ms, input wait 619 to 0 ms, first clear
+1179 to 4 ms, chat-visible check inside the `foreground` stage 1704 to 1517 ms. 362 offline assertions pass.
+
+**Alternatives considered / still open:** the `foreground` stage is still about 1.5 s, mostly loading the shared
+helper script, which compiles three small C# types on every run (a prebuilt assembly would avoid it); the paste is
+1.8 s (`type --paste --verify` adds a stability wait the independent read-back makes redundant); the own-host check
+still launches a window listing (0.9 s); each foreground change waits 300 ms even when it succeeds; the final click
+launches `agentdebug-ui.exe` where an in-process Invoke would do. Each is a separate change to measure. **Limits:** one
+machine, 4 pairs, the quiet-wait stage is noisy.

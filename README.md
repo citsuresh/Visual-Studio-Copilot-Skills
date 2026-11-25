@@ -44,7 +44,7 @@ Agent-orchestrator v31 adds opt-in `Send-CopilotPrompt.ps1 -Steer` for an alread
 with exact input read-back and no Stop/Send fallback. Existing drafts remain protected; refusal
 diagnostics report character codes rather than draft text. Run supervising watchers as tracked
 async shell commands and retain their `shellId` for completion/recovery. Offline verification:
-`& .\scripts\agent\Test-SendCopilotPrompt.ps1` (348 assertions) and
+`& .\scripts\agent\Test-SendCopilotPrompt.ps1` (362 assertions) and
 `& .\scripts\agent\Test-WatcherProgress.ps1` (19 virtual-clock scenarios). Live supervisor tests
 also verified corrected sibling-layout steering, transcript submission and agent continuation.
 
@@ -60,7 +60,9 @@ Agent-orchestrator v33 makes `Send-CopilotPrompt.ps1` refuse at once with `Input
 chat input is outside the visible screen (the window moved below it or under the taskbar), instead
 of failing after three attempts with a generic foreground error. It does not move the window.
 
-Agent-orchestrator v34 and ui-interaction v25 stop the UI scripts from disturbing a person at the machine: `Send-CopilotPrompt.ps1` and `Select-ChoicePromptOption.ps1` queue behind other agents, wait for a quiet keyboard and mouse (typing, clicks and scrolling count, moving the pointer alone does not; amber cursor dot and a short sound while waiting, a spoken request after 30 s with `-SpeakRequest`), refuse during a presentation, full-screen app, Windows quiet time or a manual pause (`Set-AgentUiPause`), stop if the person starts typing or holds a mouse button, take the foreground only for the input steps, and give the person's window, focused control and pointer back. Offline tests: `& .\scripts\agent\Test-AgentUserActivity.ps1` (81) and `& .\scripts\agent\Test-SelectChoicePromptOption.ps1` (31). Live-tested on one machine for the sender (pause, typing, held button, lock, hand-back); not yet for card answers or a real presentation.
+Agent-orchestrator v34 and ui-interaction v25 stop the UI scripts from disturbing a person at the machine: `Send-CopilotPrompt.ps1` and `Select-ChoicePromptOption.ps1` queue behind other agents, wait for a quiet keyboard and mouse (typing, clicks and scrolling count, moving the pointer alone does not; amber cursor dot and a short sound while waiting, a spoken request after 30 s with `-SpeakRequest`), refuse during a presentation, full-screen app, Windows quiet time or a manual pause (`Set-AgentUiPause`), stop if the person starts typing or holds a mouse button, take the foreground only for the input steps, and give the person's window, focused control and pointer back. Offline tests: `& .\scripts\agent\Test-AgentUserActivity.ps1` (81) and `& .\scripts\agent\Test-SelectChoicePromptOption.ps1` (31). Live-tested on one machine for the sender and a card answer (pause, typing, held button, lock, hand-back); not yet for a real presentation or several orchestrators at once.
+
+Agent-orchestrator v35 makes `Send-CopilotPrompt.ps1` about 2.7 s faster per send (median 9.9 s to 7.2 s without the quiet wait, measured on one machine): it checks for the chat input in-process, skips the early draft check for a plain send, and does not clear an input that was just verified empty. A target window on another virtual desktop now gets its own message instead of "no longer exists".
 
 ## Prerequisites
 

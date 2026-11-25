@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 34`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 35`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,20 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v35 - `Send-CopilotPrompt.ps1` is about 2.7 s faster per send and no longer calls a window on another
+    virtual desktop "gone". It asks in this process whether the chat input is showing (one UIA search) instead of
+    launching `agentdebug-ui.exe`, and falls back to the old wait only when that says no; it skips the early
+    draft check for a plain send (the one after the quiet wait is the one that counts; a new session or a steer
+    still refuse a draft early); and it does not clear an input that was just verified empty on the first
+    attempt (the exact read-back still guards the pasted text, a retry clears first, and `-OverwriteInput` still
+    clears first). A target window on another virtual desktop is missing from the default window list, so it
+    used to be reported as "no longer exists"; the message now says it is on another virtual desktop and that
+    sending would switch the person's desktop, and nothing is typed. Measured live (one machine, 4 interleaved
+    pairs against the committed v34): median total 13.9 s to 11.2 s, and 9.9 s to 7.2 s without the quiet wait,
+    which varies with the person's typing. Stage changes: first draft check 0.59 s to 0, repeated input wait
+    0.62 s to 0, first clear 1.18 s to about 0. Still slow: loading the shared helper script (inside the
+    `foreground` stage, about 1.5 s), the paste (1.8 s), the own-host window list (0.9 s) and the foreground
+    changes (each waits 300 ms).
   - v34 - `Send-CopilotPrompt.ps1` and `Select-ChoicePromptOption.ps1` now wait for a quiet keyboard and
     mouse before taking the foreground, and hand the person's window back afterwards. Keystrokes typed while
     the script held the target window used to land in the target chat, possibly before a paste. Now the read-only

@@ -246,7 +246,13 @@ Assert-True ($null -eq (Get-OwnHostError)) 'A different devenv process (main or 
 $Hwnd = '0x3000'
 Assert-True ($null -eq (Get-OwnHostError)) 'A non-devenv process must remain targetable.'
 $Hwnd = '0x9999'
+$script:otherDesktop = $false
+function Test-TargetOnOtherDesktop { return $script:otherDesktop }
 Assert-True ((Get-OwnHostError) -match 'no longer exists') 'A stale handle was accepted.'
+$script:otherDesktop = $true
+$desktopError = Get-OwnHostError
+Assert-True ($desktopError -match 'another virtual desktop' -and $desktopError -notmatch 'no longer exists' -and $desktopError -match 'nothing was typed') 'A window on another virtual desktop must be refused with its own explanation, not reported as gone.'
+$script:otherDesktop = $false
 $Hwnd = '0x2000'
 $script:fixtureWindows = $null
 Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unreadable window list did not fail closed.'
@@ -525,7 +531,7 @@ $realInterruption = ${function:Get-InputBlockInterruption}
 $script:interruptAt = 0; $script:interruptCalls = 0
 function Get-InputBlockInterruption { param([switch]$RequireForeground) $script:interruptCalls++; if ($script:interruptCalls -eq $script:interruptAt) { return 'UserInput: test interruption' }; return $null }
 $NoSend = $false; $Quiet = $false; $script:textRead = $Text
-foreach ($case in @(@(1, ''), @(2, ''), @(3, 'clear'), @(4, 'clear,type'))) {
+foreach ($case in @(@(1, ''), @(2, ''), @(3, ''), @(4, 'type'))) {
     $script:events = New-Object 'Collections.Generic.List[string]'
     $script:interruptAt = $case[0]; $script:interruptCalls = 0
     $result = & $sendLoop 6>$null
@@ -535,7 +541,51 @@ foreach ($case in @(@(1, ''), @(2, ''), @(3, 'clear'), @(4, 'clear,type'))) {
 $script:events = New-Object 'Collections.Generic.List[string]'; $script:interruptAt = 0; $script:interruptCalls = 0
 $result = & $sendLoop 6>$null
 Assert-True ($result.Sent -and $script:interruptCalls -eq 4) 'An uninterrupted send must pass all four checks and send.'
+Assert-True (@($script:events | Where-Object { $_ -eq 'clear' }).Count -eq 0) 'The first attempt must not clear an input that was just verified empty.'
 Set-Item function:Get-InputBlockInterruption $realInterruption
+# -OverwriteInput skipped the draft check, so it still clears first
+$OverwriteInput = $true
+$script:events = New-Object 'Collections.Generic.List[string]'
+$result = & $sendLoop 6>$null
+Assert-True ($result.Sent -and ($script:events -join ',') -match '^clear,type') '-OverwriteInput must clear before it pastes.'
+$OverwriteInput = $false
+# a retry clears first: a first read-back that does not match leaves stray text to remove
+$script:retryReads = 0
+$realReadText = ${function:Get-ChatInputText}
+function Get-ChatInputText { $script:retryReads++; if ($script:retryReads -eq 1) { return 'stray text' } else { return $Text } }
+$script:events = New-Object 'Collections.Generic.List[string]'
+$result = & $sendLoop 6>$null
+Assert-True ($result.Sent -and $result.Attempts -eq 2 -and ($script:events -join ',') -match '^type,clear,type') 'A retry after a bad read-back must clear before pasting again.'
+Set-Item function:Get-ChatInputText $realReadText
+# the in-process input check: one enabled input counts, nothing else does
+$inputShowingFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-ChatInputShowing' }, $true)
+Assert-True ($null -ne $inputShowingFunction) 'The in-process input check is missing.'
+. ([scriptblock]::Create($inputShowingFunction.Extent.Text))
+$realInputElements = ${function:Get-ChatInputElements}
+$enabledInput = [pscustomobject]@{ Current = [pscustomobject]@{ IsEnabled = $true } }
+$disabledInput = [pscustomobject]@{ Current = [pscustomobject]@{ IsEnabled = $false } }
+function Get-ChatInputElements { return @($enabledInput) }
+Assert-True (Test-ChatInputShowing) 'One enabled input must count as showing.'
+function Get-ChatInputElements { return @($disabledInput) }
+Assert-True (-not (Test-ChatInputShowing)) 'A disabled input must not count as showing.'
+function Get-ChatInputElements { return @() }
+Assert-True (-not (Test-ChatInputShowing)) 'No input must not count as showing.'
+function Get-ChatInputElements { return @($enabledInput, $enabledInput) }
+Assert-True (-not (Test-ChatInputShowing)) 'An ambiguous input must not count as showing.'
+function Get-ChatInputElements { throw 'search failed' }
+Assert-True (-not (Test-ChatInputShowing)) 'A failed search must fall back to the slower wait, not count as showing.'
+Set-Item function:Get-ChatInputElements $realInputElements
+$script:inputFixtures = @($inputElement)
+# the early draft check applies only to a new session or a steer; a plain send relies on the check after the quiet wait
+$script:textRead = 'draft before a plain send'
+$NewSession = $false; $Steer = $false; $OverwriteInput = $false
+Assert-True ($null -eq (& ([scriptblock]::Create($preflight.Extent.Text)))) 'A plain send must skip the early draft check (the later one refuses).'
+$NewSession = $true
+Assert-True ((& ([scriptblock]::Create($preflight.Extent.Text))).Error -match 'InputNotEmpty') 'A new session must still refuse a draft early.'
+$NewSession = $false; $Steer = $true
+Assert-True ((& ([scriptblock]::Create($preflight.Extent.Text))).Error -match 'InputNotEmpty') 'A steer must still refuse a draft early.'
+$Steer = $false
+Assert-True ($tryStatement.Body.Statements[0].Extent.Text -match 'inputSeen' -and ($statements | Where-Object { $_.Extent.Text -match '^\$navigate = ' } | Select-Object -First 1).Extent.Text -match '-not \$inputSeen') 'The navigation decision must use the in-process input check before the slower wait.'
 function New-MockChatButton([string]$Id, [string]$Name, [bool]$Enabled = $true, [bool]$Offscreen = $false, [bool]$Invokable = $true) {
     $button = [pscustomobject]@{
         Current = [pscustomobject]@{ AutomationId = $Id; Name = $Name; IsEnabled = $Enabled; IsOffscreen = $Offscreen; ClassName = 'Button'; ControlType = [Windows.Automation.ControlType]::Button.Id }
@@ -664,6 +714,7 @@ Assert-True (-not $result.Sent -and $result.Error -match 'OwnHostWindow') 'Steer
 
 $tabNavigation = $statements | Where-Object { $_.Extent.Text -match '^if \(\$navigate -and -not \$NoNavigate.*Select-ChatTabIfHidden' } | Select-Object -First 1
 $navigate = $true
+$inputSeen = $false
 $sessionNavigation = $statements | Where-Object { $_.Extent.Text -match '^if \(\$NewSession\)' } | Select-Object -First 1
 Assert-True ($null -ne $tabNavigation -and $null -ne $sessionNavigation) 'Navigation statements must be available for offline verification.'
 $navigation = [scriptblock]::Create($tabNavigation.Extent.Text + [Environment]::NewLine + $sessionNavigation.Extent.Text)

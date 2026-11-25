@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 34,
-      "whatsNew": "Send-CopilotPrompt.ps1 and Select-ChoicePromptOption.ps1 now wait for a quiet keyboard and mouse before taking the foreground, and hand the person's window back afterwards."
+      "version": 35,
+      "whatsNew": "Send-CopilotPrompt.ps1 is about 2.7 s faster per send and no longer calls a window on another virtual desktop \"gone\"."
     },
     "project-memory-management": {
       "version": 3,

@@ -390,6 +390,33 @@ function Get-CallerProcessIds {
     return $ids.ToArray()
 }
 
+# A window on another virtual desktop is missing from the default window list although it exists. Sending would
+# switch the person's desktop, so it is refused, and this lets the message say so instead of claiming the window is gone.
+function Test-TargetOnOtherDesktop {
+    try {
+        if (-not ('SenderDesktopProbe' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class SenderDesktopProbe {
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+    [ComImport, Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IVirtualDesktopManager { [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr h, out bool on); }
+    [ComImport, Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")] class VirtualDesktopManagerClass { }
+    // True when the window exists and is not on the desktop the person is looking at.
+    public static bool IsOnOtherDesktop(IntPtr h) {
+        if (!IsWindow(h)) return false;
+        bool on;
+        int hr = ((IVirtualDesktopManager)new VirtualDesktopManagerClass()).IsWindowOnCurrentVirtualDesktop(h, out on);
+        return hr == 0 && !on;
+    }
+}
+'@
+        }
+        return [SenderDesktopProbe]::IsOnOtherDesktop([IntPtr][Convert]::ToInt64($Hwnd, 16))
+    }
+    catch { return $false }
+}
+
 # Fails closed: an unreadable window list or process chain refuses instead of guessing.
 function Get-OwnHostError {
     $windows = Get-TopLevelWindows
@@ -399,6 +426,9 @@ function Get-OwnHostError {
     $wanted = [Convert]::ToInt64($Hwnd, 16)
     $target = @($windows | Where-Object { [Convert]::ToInt64($_.Hwnd, 16) -eq $wanted })
     if ($target.Count -ne 1) {
+        if (Test-TargetOnOtherDesktop) {
+            return "Window $Hwnd is on another virtual desktop, so it is not in the window list. Sending would switch the person's desktop, so nothing was typed. Ask the person to switch to the desktop with that Visual Studio window, then try again."
+        }
         return "Window $Hwnd no longer exists (the app may have been restarted, so the handle is stale). Look it up again, or pass -TitleContains. Nothing was typed."
     }
     try { $callerIds = @(Get-CallerProcessIds) }
@@ -473,6 +503,16 @@ function Test-ChatInput {
     return [bool]$r.success
 }
 
+# The same question answered in this process (one UIA search, no external process): is the chat input showing and
+# enabled right now? $false also when the search fails, so a caller falls back to the slower wait.
+function Test-ChatInputShowing {
+    try {
+        $inputs = @(Get-ChatInputElements)
+        return ($inputs.Count -eq 1 -and [bool]$inputs[0].Current.IsEnabled)
+    }
+    catch { return $false }
+}
+
 # The Chat tab can sit behind a sibling tab in the same pane (for example Git Changes), in which
 # case neither the input nor the "Create new session" button is rendered. Select the Chat tab.
 function Select-ChatTabIfHidden {
@@ -533,7 +573,9 @@ if (-not $AllowOwnHost) {
 }
 Set-StageMark 'ownHost'
 
-if (-not $OverwriteInput) {
+# An early refusal only matters before a new session is created or a steer is attempted; for a plain send the
+# draft check after the quiet wait is the one that counts, so the first one is skipped (it cost about 0.4 s).
+if (-not $OverwriteInput -and ($NewSession -or $Steer)) {
     $draftError = Get-ChatDraftError -AllowMissing
     if ($draftError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $draftError }
 }
@@ -629,7 +671,9 @@ function Stop-InputBlock {
 try {
     # Everything read-only runs first, with the person's window still in front. The foreground is needed here
     # only to navigate (select the Chat tab, create a session); input verbs refuse a background window.
-    $navigate = $NewSession -or (-not $NoNavigate -and -not $Steer -and -not (Test-ChatInput -TimeoutMs 1500))
+    $inputSeen = $false
+    if (-not $NewSession -and -not $NoNavigate -and -not $Steer) { $inputSeen = Test-ChatInputShowing }
+    $navigate = $NewSession -or (-not $NoNavigate -and -not $Steer -and -not $inputSeen -and -not (Test-ChatInput -TimeoutMs 1500))
     if ($navigate) {
         $blockError = Start-InputBlock
         if ($blockError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $blockError }
@@ -662,6 +706,9 @@ try {
         if (-not (Test-ChatInput -TimeoutMs 30000)) {
             return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'Chat input did not appear after creating a session.'
         }
+    }
+    elseif ($inputSeen) {
+        # The input was seen in this process a moment ago; the checks below search for it again before any input.
     }
     elseif (-not $NoNavigate -and -not $Steer) {
         $chatError = Ensure-ChatInput
@@ -713,8 +760,10 @@ try {
         }
         $interrupted = Get-InputBlockInterruption -RequireForeground
         if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
-        Clear-ChatInput
-        Update-InputBlockStamp
+        # The input was verified empty a moment ago (the draft check, or a new session), so the first attempt has
+        # nothing to clear; the exact read-back below catches stray text and a retry clears first. -OverwriteInput
+        # skipped that draft check, so it clears.
+        if ($attempt -gt 1 -or $OverwriteInput) { Clear-ChatInput; Update-InputBlockStamp }
         Set-StageMark 'clear'
         $interrupted = Get-InputBlockInterruption -RequireForeground
         if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
