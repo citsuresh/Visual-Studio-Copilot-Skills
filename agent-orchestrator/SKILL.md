@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 41`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 42`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,7 +243,13 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
-  - v41 - Both directions now show in the worker's chat. A stop message is acknowledged with `From orchestrator: stop
+  - v42 - `Send-CopilotPrompt.ps1` refuses a plain send into a busy chat before typing anything (`ChatBusy`: the chat shows Stop
+    or Steer instead of Send). Found in a live failure test: a message sent to a worker that was busy and not listening was
+    pasted, the Send click then failed twice (UI and conservative tier, 24 s) and the text stayed in the input as a draft.
+    The refusal is a decision, so `Send-AgentMessage.ps1` returns it as it is and does not retry; use `-Steer` to redirect a
+    busy chat on purpose. `-Steer` and `-NewSession` are unaffected. Live: a killed listener fell back to a single UI send
+    with no duplicate and no draft; a bootstrap into a busy chat was refused with nothing typed. Offline: 417 sender and
+    49 router assertions.  - v41 - Both directions now show in the worker's chat. A stop message is acknowledged with `From orchestrator: stop
     listening.` (before, only the final "Stopped listening." appeared), and the worker starts its final answer to each
     instruction with `Replying to orchestrator: <a few words>`, so it is clear the answer is meant for the orchestrator.
     The listener's output and the bootstrap carry both rules. No other behaviour changed.  - v40 - Adds a troubleshooting log for mailbox messages. `Send-AgentMessage.ps1` and `Wait-AgentMailbox.ps1` write one

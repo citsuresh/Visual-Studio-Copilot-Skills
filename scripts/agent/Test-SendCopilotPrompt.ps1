@@ -27,7 +27,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Set-HeldChatInput', 'Get-ChatInputElementsCached', 'Invoke-ChatSendButton', 'Get-WindowProcessId', 'Invoke-ChatPasteAtFocus', 'Write-Result', 'Set-StageMark', 'Start-InputBlock', 'Get-InputBlockInterruption', 'Update-InputBlockStamp', 'Stop-InputBlock')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Set-HeldChatInput', 'Get-ChatInputElementsCached', 'Invoke-ChatSendButton', 'Get-ChatBusyError', 'Get-WindowProcessId', 'Invoke-ChatPasteAtFocus', 'Write-Result', 'Set-StageMark', 'Start-InputBlock', 'Get-InputBlockInterruption', 'Update-InputBlockStamp', 'Stop-InputBlock')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -381,7 +381,7 @@ function Get-ChatInputElements { return $script:inputFixtures }   # back to the 
 $savedValueSupported = $script:valueSupported; $savedValueRead = $script:valueRead
 $script:invokeCount = 0; $script:invokeThrows = $false; $script:hasInvoke = $true
 function New-ActionButton([string]$Id, [bool]$Enabled = $true, [bool]$Offscreen = $false) {
-    $b = [pscustomobject]@{ Current = [pscustomobject]@{ AutomationId = $Id; IsEnabled = $Enabled; IsOffscreen = $Offscreen } }
+    $b = [pscustomobject]@{ Current = [pscustomobject]@{ AutomationId = $Id; Name = $(if ($Id -eq 'SteerButton') { 'Steer' } else { $Id }); IsEnabled = $Enabled; IsOffscreen = $Offscreen } }
     $b | Add-Member -MemberType ScriptMethod -Name TryGetCurrentPattern -Value {
         param($patternId, $reference)
         if (-not $script:hasInvoke) { return $false }
@@ -416,6 +416,25 @@ Assert-True ((Invoke-ChatSendButton) -eq $true -and $script:invokeCount -eq 1) '
 $script:valueRead = 'still here'; $script:invokeCount = 0
 $threw = $false; try { $null = Invoke-ChatSendButton } catch { $threw = $true }
 Assert-True ($threw -and $script:invokeCount -eq 1) 'An Invoke error with the prompt still in the input must be reported, and never retried here.'
+# ---- a busy chat is refused before anything is typed ----
+$script:actionButtonsThrow = $false
+foreach ($case in @(
+    @{ Label = 'Stop only'; Buttons = { @((New-ActionButton 'CancelButton')) }; Busy = $true },
+    @{ Label = 'Steer only'; Buttons = { @((New-ActionButton 'SteerButton')) }; Busy = $true },
+    @{ Label = 'Stop beside Steer'; Buttons = { @((New-ActionButton 'CancelButton'), (New-ActionButton 'SteerButton')) }; Busy = $true },
+    @{ Label = 'Send only'; Buttons = { @((New-ActionButton 'SendButton')) }; Busy = $false },
+    @{ Label = 'disabled Send only (empty input)'; Buttons = { @((New-ActionButton 'SendButton' $false)) }; Busy = $false },
+    @{ Label = 'Stop beside Send'; Buttons = { @((New-ActionButton 'CancelButton'), (New-ActionButton 'SendButton')) }; Busy = $false },
+    @{ Label = 'off-screen Stop'; Buttons = { @((New-ActionButton 'CancelButton' $true $true)) }; Busy = $false },
+    @{ Label = 'no buttons read'; Buttons = { @() }; Busy = $false }
+)) {
+    $script:actionButtons = & $case.Buttons
+    $busyText = Get-ChatBusyError -Elements @($inputElement)
+    Assert-True ((($null -ne $busyText) -and $busyText -match '^ChatBusy: .*nothing was typed') -eq $case.Busy) "Busy detection wrong for: $($case.Label)"
+}
+$script:actionButtonsThrow = $true
+Assert-True ($null -eq (Get-ChatBusyError -Elements @($inputElement))) 'Unreadable buttons must never block a send.'
+$script:actionButtonsThrow = $false
 $script:invokeThrows = $false; $script:valueSupported = $savedValueSupported; $script:valueRead = $savedValueRead
 # ---- paste at the keyboard focus: only when the input holds the focus and the target window is in front ----
 function New-FocusInput([bool]$Focus = $true, [bool]$Throws = $false) {
@@ -453,6 +472,8 @@ foreach ($name in @('Invoke-Ui', 'Get-ChatActionButtons', 'Get-ChatInputElements
 $script:HeldInput = $null   # nothing held from these checks for the send-loop tests
 $Hwnd = $savedHwnd; if ($null -ne $savedText) { $Text = $savedText }
 $sendSource = $ast.Extent.Text
+Assert-True ($sendSource -match 'if \(-not \$Steer -and -not \$NewSession\) \{\s+\$busyError = Get-ChatBusyError -Elements \$inputElements') 'Only a plain send into an existing chat may be refused as busy; steer and new session are unaffected.'
+Assert-True ($sendSource.IndexOf('Get-ChatBusyError -Elements $inputElements') -lt $sendSource.IndexOf('$typed = if ($Conservative)')) 'The busy check must come before anything is pasted.'
 Assert-True ($sendSource -match '\$typed = if \(\$Conservative\) \{ \$null \} else \{ Invoke-ChatPasteAtFocus \}\s+if \(\$null -eq \$typed\) \{ \$typed = Invoke-Ui @\(''type'', .*--paste.*--verify') 'The paste step must try the focus paste first and keep the verified type-paste as the fallback.'
 Assert-True ($sendSource -match 'if \(-not \$Steer -and -not \$Conservative\) \{\s+try \{ \$invoked = Invoke-ChatSendButton \}') 'Only a plain, non-conservative send may use the in-process click; a steer or -Conservative keeps the helper.'
 Assert-True ($sendSource -match '\$script:HeldInput -and -not \$Conservative') '-Conservative must search for the input again instead of reusing the held element.'

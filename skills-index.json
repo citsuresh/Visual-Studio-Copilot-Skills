@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 41,
-      "whatsNew": "Both directions now show in the worker's chat."
+      "version": 42,
+      "whatsNew": "Send-CopilotPrompt.ps1 refuses a plain send into a busy chat before typing anything (ChatBusy: the chat shows Stop or Steer instead of Send)."
     },
     "project-memory-management": {
       "version": 3,

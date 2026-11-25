@@ -39,7 +39,7 @@ function New-Ui([bool]$Sent, [string]$Err = $null, [string]$InputValue = $null) 
 foreach ($mechanical in @('Not sent; input never matched the prompt. Last error: read-back-mismatch: x', 'Send click failed: element-not-found ', 'Could not bring the target window to the foreground, even after a second try.', 'verify-unstable: changed')) {
     Assert-True (Test-MechanicalUiFailure -ErrorText $mechanical) "Mechanical failure not recognised: $mechanical"
 }
-foreach ($decision in @($null, '', 'InputNotEmpty: the chat input holds a draft.', 'UserActive: the keyboard stayed in use', 'DoNotDisturb (PresentationMode): x', 'InputOffScreen: the chat input centre', 'Chat shows HarnessWorkspaceMismatchBanner: x', 'OwnHostWindow: window 0x1 belongs to process 4', 'UiBusy: other agents kept the keyboard', 'SessionNotPresent: locked', 'Window 0x1 is on another virtual desktop', 'SteerRequiresBusy: no', 'SenderFailed: boom')) {
+foreach ($decision in @($null, '', 'InputNotEmpty: the chat input holds a draft.', 'UserActive: the keyboard stayed in use', 'DoNotDisturb (PresentationMode): x', 'InputOffScreen: the chat input centre', 'Chat shows HarnessWorkspaceMismatchBanner: x', 'OwnHostWindow: window 0x1 belongs to process 4', 'UiBusy: other agents kept the keyboard', 'SessionNotPresent: locked', 'Window 0x1 is on another virtual desktop', 'SteerRequiresBusy: no', 'ChatBusy: the chat is working (it shows Stop or Steer instead of Send), so nothing was typed.', 'SenderFailed: boom')) {
     Assert-True (-not (Test-MechanicalUiFailure -ErrorText $decision)) "A refusal or decision must not be retried with the older steps: $decision"
 }
 

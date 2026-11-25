@@ -452,6 +452,20 @@ function Invoke-ChatPasteAtFocus {
     [pscustomobject]@{ success = [bool]$r.success; error = $r.error; message = $r.message; actual = $null }
 }
 
+# A busy chat shows Stop (or Steer) in place of Send. Pasting into it only leaves a draft behind and the Send click then
+# fails, so a plain send is refused before anything is typed. Unreadable buttons never block (the click would fail safely).
+function Get-ChatBusyError {
+    param([object[]]$Elements)
+    try {
+        $visible = @(@(Get-ChatActionButtons -Elements $Elements) | Where-Object { -not $_.Current.IsOffscreen })
+        $send = @($visible | Where-Object { $_.Current.AutomationId -eq 'SendButton' })
+        $working = @($visible | Where-Object { $_.Current.AutomationId -eq 'CancelButton' -or ($_.Current.AutomationId -eq 'SteerButton' -and $_.Current.Name -eq 'Steer') })
+        if ($send.Count -eq 0 -and $working.Count -ge 1) { return 'ChatBusy: the chat is working (it shows Stop or Steer instead of Send), so nothing was typed. Wait until it is idle, or pass -Steer to redirect it.' }
+    }
+    catch { }
+    return $null
+}
+
 function Get-ChatSteerError {
     param([switch]$RequireButton)
     $buttons = @(Get-ChatActionButtons)
@@ -892,6 +906,11 @@ try {
     $screenError = Get-ChatInputScreenError -Elements $inputElements
     if ($screenError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $screenError }
     Set-StageMark 'screenCheck'
+
+    if (-not $Steer -and -not $NewSession) {
+        $busyError = Get-ChatBusyError -Elements $inputElements
+        if ($busyError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $busyError }
+    }
 
     if (-not $OverwriteInput) {
         $draftError = Get-ChatDraftError -Elements $inputElements
