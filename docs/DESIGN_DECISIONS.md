@@ -534,7 +534,9 @@ characters landing in the scratch window and the window handed back; a held mous
 until release; a lock held by another process made the send queue behind it; a normal send handed back the same
 window and focused control; a key pressed in the gap before the first input step stopped the send with `UserInput`,
 nothing sent. A first held-button run stopped falsely because the person's pointer jitter counted as input, which is
-why pointer movement alone is now ignored. **Limits:** card answers, a real presentation, several orchestrators
-sending at once and the person's window after a `UserInput` stop are not tested live; a key that arrives during one
+why pointer movement alone is now ignored. A real card (Red, Green, Blue, Other) was answered live with
+`Select-ChoicePromptOption.ps1`: it closed, echoed `User entered: Green`, and the person's window and focused
+control came back. **Limits:** a real presentation, several orchestrators sending at once and the person's window
+after a `UserInput` stop are not tested live; a key that arrives during one
 of the script's own steps is absorbed into that step (the exact read-back covers the pasted text); the amber dot is
 invisible when Windows hides the pointer while typing, which is why a sound is played too.

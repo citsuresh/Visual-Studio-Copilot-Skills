@@ -265,8 +265,11 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     foreground away until release; a lock held by another process made it queue, then send; a key pressed in the
     gap before the first input step stopped the send with `UserInput`, nothing sent and no stray text. A key that
     arrives during one of the script's own steps is absorbed into that step (the exact read-back protects the
-    pasted text). Not tested live: answering a card, a real presentation, several orchestrators at once, and
-    whether the person's window returns after a `UserInput` stop (the result of a stopped send has no `Handback`).
+    pasted text). Answering a real card also passed live: the card (Red, Green, Blue, Other) was answered with
+    `Select-ChoicePromptOption.ps1 -Option Green`, closed, echoed `User entered: Green`, and the person's window
+    and focused control (the Claude prompt box) came back. Not tested live: a real presentation, several
+    orchestrators at once, and whether the person's window returns after a `UserInput` stop (the result of a
+    stopped send has no `Handback`).
   - v33 - `Send-CopilotPrompt.ps1` refuses at once with `InputOffScreen` when the chat input lies
     outside the visible screen, instead of failing after three attempts with a generic foreground
     error. A window pushed partly below the screen still reports `IsOffscreen` false, so the check
