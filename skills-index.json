@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 32,
-      "whatsNew": "Corrects the claim that the Ask Copilot input Name appears only while the input is empty, and adds an opt-in -Trace switch to Send-CopilotPrompt.ps1 that returns per-stage timings."
+      "version": 33,
+      "whatsNew": "Send-CopilotPrompt.ps1 refuses at once with InputOffScreen when the chat input lies outside the visible screen, instead of failing after three attempts with a generic foreground error."
     },
     "project-memory-management": {
       "version": 3,

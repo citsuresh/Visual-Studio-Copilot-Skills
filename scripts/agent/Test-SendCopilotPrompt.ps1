@@ -265,6 +265,42 @@ $script:bannerFixtures = @(New-BannerElement 'WorkspaceTrustWarningBanner')
 Assert-True ((@(Get-ChatBannerIds) -join ',') -ceq 'WorkspaceTrustWarningBanner') 'A trust banner must be reported.'
 $script:bannerFixtures = @((New-BannerElement 'HarnessWorkspaceMismatchBanner'), (New-BannerElement 'WorkspaceTrustWarningBanner'), (New-BannerElement 'WorkspaceTrustWarningBanner'))
 Assert-True ((@(Get-ChatBannerIds | Sort-Object) -join ',') -ceq 'HarnessWorkspaceMismatchBanner,WorkspaceTrustWarningBanner') 'Both banners must be reported once each.'
+# On-screen check: the input centre must lie in a monitor working area; unreadable geometry never blocks a send.
+Add-Type -AssemblyName WindowsBase
+$screenFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ChatInputScreenError' }, $true)
+Assert-True ($null -ne $screenFunction) 'The on-screen input check is missing.'
+. ([scriptblock]::Create($screenFunction.Extent.Text))
+function New-ScreenArea([int]$L, [int]$T, [int]$R, [int]$B) { [pscustomobject]@{ Left = $L; Top = $T; Right = $R; Bottom = $B } }
+function New-RectInput($rect) { [pscustomobject]@{ Current = [pscustomobject]@{ BoundingRectangle = $rect } } }
+$script:areas = @(New-ScreenArea 0 0 1920 1008)
+function Get-ChatScreenAreas { if ($script:areas -eq 'unreadable') { throw 'screens unreadable' }; return $script:areas }
+function Test-ScreenCase([double[]]$Xywh, $Expect, [string]$Why) {
+    $element = New-RectInput (New-Object System.Windows.Rect($Xywh[0], $Xywh[1], $Xywh[2], $Xywh[3]))
+    $error1 = Get-ChatInputScreenError -Elements @($element)
+    if ($Expect) { Assert-True ($error1 -match '^InputOffScreen:' -and $error1 -match 'Nothing was typed or clicked') "Expected an off-screen refusal: $Why" }
+    else { Assert-True ($null -eq $error1) "Expected the input to count as on screen: $Why" }
+}
+Test-ScreenCase 128, 779, 510, 26 $false 'docked input on a 1920x1008 working area'
+Test-ScreenCase 100, 985, 400, 40 $false 'partly below the working area but the centre is visible'
+Test-ScreenCase 1292, 1520, 366, 26 $true 'input below the screen (the observed case)'
+Test-ScreenCase 100, 1030, 400, 20 $true 'input centre under the taskbar band'
+Test-ScreenCase 2500, 500, 300, 30 $true 'input to the right of every screen'
+Test-ScreenCase -3000, 500, 300, 30 $true 'input to the left of every screen'
+Test-ScreenCase 0, 0, 0, 0 $true 'zero-size rectangle'
+$script:areas = @((New-ScreenArea 0 0 1920 1008), (New-ScreenArea 1920 0 3840 1040))
+Test-ScreenCase 2500, 500, 300, 30 $false 'input on a second monitor'
+Test-ScreenCase 2500, 1100, 300, 30 $true 'input below the second monitor'
+$script:areas = @(New-ScreenArea 0 0 1920 1008)
+$emptyError = Get-ChatInputScreenError -Elements @(New-RectInput ([System.Windows.Rect]::Empty))
+Assert-True ($emptyError -match '^InputOffScreen: the chat input has no visible rectangle') 'An empty rectangle must be refused with its own wording.'
+Assert-True ($null -eq (Get-ChatInputScreenError -Elements @())) 'A missing input is left to the draft check.'
+Assert-True ($null -eq (Get-ChatInputScreenError -Elements @((New-RectInput (New-Object System.Windows.Rect(1, 1, 5, 5))), (New-RectInput (New-Object System.Windows.Rect(1, 1, 5, 5)))))) 'An ambiguous input is left to the draft check.'
+$script:areas = 'unreadable'
+Assert-True ($null -eq (Get-ChatInputScreenError -Elements @((New-RectInput (New-Object System.Windows.Rect(1292, 1520, 366, 26)))))) 'Unreadable screens must never block a send.'
+$script:areas = @()
+Assert-True ($null -eq (Get-ChatInputScreenError -Elements @((New-RectInput (New-Object System.Windows.Rect(1292, 1520, 366, 26)))))) 'No screens must never block a send.'
+Assert-True ($null -eq (Get-ChatInputScreenError -Elements @([pscustomobject]@{ Current = $null }))) 'An unreadable rectangle must never block a send.'
+$script:areas = @(New-ScreenArea 0 0 1920 1008)
 $ownGuard = $ast.EndBlock.Statements | Where-Object {
     $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'Get-OwnHostError'
 } | Select-Object -First 1
@@ -293,8 +329,17 @@ $finalGuard = $statements | Where-Object {
 Assert-True ($null -ne $finalGuard -and $finalGuard.Extent.EndOffset -lt $statements[$start].Extent.StartOffset) 'Missing draft recheck before clearing.'
 $OverwriteInput = $false
 $script:textRead = 'draft appeared during navigation'
+$inputElements = @($script:inputFixtures)   # the sender looks the input up once and shares it with this check
 $result = & ([scriptblock]::Create($finalGuard.Extent.Text))
 Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'InputNotEmpty') 'Final guard did not preserve a newly exposed draft.'
+# The on-screen refusal must come before any clear, paste or click, and must send nothing.
+$screenGuard = $statements | Where-Object { $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match '\$screenError' } | Select-Object -First 1
+Assert-True ($null -ne $screenGuard -and $screenGuard.Extent.EndOffset -lt $statements[$start].Extent.StartOffset) 'The on-screen refusal must precede the clear/paste/send loop.'
+Assert-True ($screenGuard.Extent.StartOffset -lt $finalGuard.Extent.StartOffset) 'The on-screen refusal must precede the second draft check.'
+$screenError = 'InputOffScreen: test'
+$script:events = New-Object 'Collections.Generic.List[string]'
+$result = & ([scriptblock]::Create($screenGuard.Extent.Text))
+Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match '^InputOffScreen' -and $script:events.Count -eq 0) 'The on-screen refusal must send nothing and make no attempt.'
 $sendLoop = [scriptblock]::Create((@($statements | Select-Object -Skip $start | ForEach-Object { $_.Extent.Text }) -join "`n"))
 $Hwnd = '0x1234'
 $InputName = 'Ask Copilot'

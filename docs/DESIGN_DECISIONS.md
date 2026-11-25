@@ -471,3 +471,30 @@ could not be raised and is untested live. The own-host refusal has not been reru
 Studio chat. One earlier send failed at the final click with
 `foreground-activation-failed` (the draft was kept and no message was sent); it did not recur in the later
 8 sends and its cause is unknown. The numbers have not been reproduced on the agent's machine.
+
+## 2026-11-25 - Refuse at once when the chat input is off-screen; do not move the window
+
+**Decision:** `Send-CopilotPrompt.ps1` (agent-orchestrator v33) compares the chat input's centre with each
+monitor's working area before any draft check, clear, paste or click, and returns `Sent: false` with an
+`InputOffScreen` error that says what to do. It does not move the window. If the screen geometry cannot be
+read the check returns nothing and the send proceeds as before, because it is a convenience check and not a
+safety guard.
+
+**Rationale:** A window pushed partly below the screen still reports `IsOffscreen: false`, and the input
+verbs then fail only with `foreground-activation-failed` after three attempts (15 to 17 s on the agent's
+machine), with no hint of the cause. The selector click has no screen-bounds check, so a failed attempt can
+move or click the pointer near the screen edge. The check shares the single input search with the second
+draft check, so it adds no lookup.
+
+**Evidence:** Live on this machine, with the window moved so the input sat at y=1479 on a 1008-pixel working
+area and UIA still reporting `IsOffscreen: false`: the check returned `InputOffScreen` in 29 ms in isolation,
+and the real script refused in 5.8 s with `Attempts: 0`, nothing typed or clicked and the input empty; the
+pointer moved from (1118,625) to (1104,612). The window was restored exactly. Offline tests (296 assertions)
+cover single and dual monitors, the taskbar band, a partly visible input, an empty rectangle, the fail-open
+paths and the ordering before the send loop.
+
+**Alternatives considered:** Moving the window back automatically (as the agent's cached sender did with
+`SetWindowPos`) was not adopted: it moves the user's own window and was tested by the agent only on the docked
+main window. It remains a possible opt-in switch. Relying on `IsOffscreen` was rejected because it reports
+false for this case. **Limits:** one machine, one monitor, one window; the dual-monitor and empty-rectangle
+cases are offline tests only; a floating (undocked) chat window is not handled by this script at all.

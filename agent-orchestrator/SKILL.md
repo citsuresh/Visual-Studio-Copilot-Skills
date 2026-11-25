@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 32`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 33`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,18 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v33 - `Send-CopilotPrompt.ps1` refuses at once with `InputOffScreen` when the chat input lies
+    outside the visible screen, instead of failing after three attempts with a generic foreground
+    error. A window pushed partly below the screen still reports `IsOffscreen` false, so the check
+    compares the input's centre with each monitor's working area (taskbar band excluded) and names
+    the fix: move the window and run again. It runs after the chat is found and before any draft
+    check, clear, paste or click, shares the one input search with the second draft check (no extra
+    lookup), and never blocks when the screen geometry cannot be read. It does not move the window;
+    moving it would be a separate, opt-in decision. Live check on this machine (window moved so the
+    input sat at y=1479 on a 1008-pixel working area): refused in 5.8 s with nothing typed and the
+    input empty, against 15 to 17 s and three attempts before (the earlier figures are from the
+    other machine). The multi-monitor, taskbar and empty-rectangle cases are covered by offline
+    tests only. `-Trace` gains a `screenCheck` stage.
 
 # Agent Orchestrator
 
@@ -511,6 +523,12 @@ shows a working-directory mismatch or untrusted-workspace banner (see Step 4); d
   `-NoNavigate` to require the chat to be open already, and `-NewSession` to always start a new
   one (it waits up to 30s for the input). Do the same by hand when you use raw verbs:
   `click --strategy Name --value Chat --controlType TabItem`, then `createNewThread`.
+- **Chat input off-screen.** When the input's centre lies outside every monitor's working area (a
+  window moved partly below the screen, or under the taskbar), the script returns `Sent: false` with
+  an `InputOffScreen` error before typing or clicking anything. UIA keeps reporting `IsOffscreen`
+  false for such a window, so do not rely on that flag. Ask the user to move the Visual Studio
+  window back (or do it deliberately yourself with their agreement), then send again; the script
+  does not move windows and does not retry.
 - **`-Quiet`** returns `InputText` as `$null` on success, so a long prompt is not echoed back
   into your context. Failures still return it, except text-free Steer availability/click failures.
 - **Brief the agent so it does not stop to ask.** Many repos make the agent ask permission for

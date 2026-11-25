@@ -89,7 +89,7 @@
 
 .PARAMETER Trace
     Diagnostics only. Adds a Timings property to the result: milliseconds spent in each stage
-    (resolve, ownHost, draft1, foreground, tabCheck, banner, ensureInput, draft2, and per
+    (resolve, ownHost, draft1, foreground, tabCheck, banner, ensureInput, screenCheck, draft2, and per
     attempt loopForeground, clear, paste, readback; then send) and totalMs. Contains no chat or
     draft text. Without -Trace the result has no Timings property and behaviour is unchanged.
     Appended last to preserve all prior positional parameter indices.
@@ -209,6 +209,40 @@ function Get-ChatBannerIds {
     return @(Get-ChatBannerElements | ForEach-Object { $_.Current.AutomationId } | Select-Object -Unique)
 }
 
+# Visible areas as this process sees them: monitor working areas, so the taskbar band is excluded. UIA
+# rectangles read in the same process use the same coordinate space, so the two can be compared directly.
+function Get-ChatScreenAreas {
+    Add-Type -AssemblyName System.Windows.Forms
+    return @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { $_.WorkingArea })
+}
+
+# Fast refusal when the chat input is outside the visible screen. Windows reports IsOffscreen false for a
+# partly off-screen window, and the input verbs then fail only with a generic foreground error after several
+# retries (about 15 s). The input's centre must lie in a monitor working area. This is a convenience check,
+# not a safety guard: if the geometry cannot be read it returns $null and the send proceeds as before.
+function Get-ChatInputScreenError {
+    param([object[]]$Elements)
+    try {
+        $inputs = @(if ($PSBoundParameters.ContainsKey('Elements')) { $Elements } else { Get-ChatInputElements })
+        if ($inputs.Count -ne 1) { return $null }
+        $rect = $inputs[0].Current.BoundingRectangle
+        $areas = @(Get-ChatScreenAreas)
+        if ($areas.Count -eq 0) { return $null }
+        $where = (@($areas | ForEach-Object { '{0},{1} {2}x{3}' -f $_.Left, $_.Top, ($_.Right - $_.Left), ($_.Bottom - $_.Top) }) -join '; ')
+        $advice = 'Nothing was typed or clicked. Move the Visual Studio window so the chat input is on screen, then run this again.'
+        if ($rect.IsEmpty -or $rect.Width -le 0 -or $rect.Height -le 0) {
+            return "InputOffScreen: the chat input has no visible rectangle (visible areas: $where). $advice"
+        }
+        $x = $rect.X + $rect.Width / 2
+        $y = $rect.Y + $rect.Height / 2
+        foreach ($area in $areas) {
+            if ($x -ge $area.Left -and $x -lt $area.Right -and $y -ge $area.Top -and $y -lt $area.Bottom) { return $null }
+        }
+        return ('InputOffScreen: the chat input centre ({0},{1}) is outside the visible screen area (visible areas: {2}). {3}' -f [int]$x, [int]$y, $where, $advice)
+    }
+    catch { return $null }
+}
+
 function Get-ChatInputText {
     # -Elements lets a caller that has just searched for the input reuse that result instead of
     # searching the whole window a second time; without it the input is searched for as before.
@@ -228,8 +262,8 @@ function Get-ChatInputText {
 }
 
 function Get-ChatDraftError {
-    param([switch]$AllowMissing)
-    $inputs = @(Get-ChatInputElements)
+    param([switch]$AllowMissing, [object[]]$Elements)
+    $inputs = @(if ($PSBoundParameters.ContainsKey('Elements')) { $Elements } else { Get-ChatInputElements })
     if ($inputs.Count -eq 0 -and $AllowMissing) { return $null }
     if ($inputs.Count -ne 1) { return 'Chat input is missing or ambiguous; no input was changed.' }
     $draft = Get-ChatInputText -Elements $inputs
@@ -520,8 +554,14 @@ try {
     }
     Set-StageMark 'ensureInput'
 
+    # One search for the input, shared by the on-screen check and the second draft check.
+    $inputElements = @(Get-ChatInputElements)
+    $screenError = Get-ChatInputScreenError -Elements $inputElements
+    if ($screenError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $screenError }
+    Set-StageMark 'screenCheck'
+
     if (-not $OverwriteInput) {
-        $draftError = Get-ChatDraftError
+        $draftError = Get-ChatDraftError -Elements $inputElements
         if ($draftError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $draftError }
     }
     Set-StageMark 'draft2'
