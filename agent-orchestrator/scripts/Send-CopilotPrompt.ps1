@@ -376,6 +376,28 @@ function Get-ChatSteerError {
 # One process snapshot is read once and walked in memory (a lookup per ancestor cost about 350 ms each).
 function Get-CallerProcessIds {
     $ids = New-Object 'System.Collections.Generic.List[int]'
+    $pairs = $null
+    if ('AgentProcessNative' -as [type]) { $pairs = [AgentProcessNative]::ParentPairs() }
+    if ($pairs) {
+        # In-process snapshot (about 5 ms). A parent that started after its child is a recycled PID. A start time that
+        # cannot be read keeps the parent in the list: refusing a window too often is the safe direction.
+        $parentOf = @{}
+        for ($i = 0; $i + 1 -lt $pairs.Length; $i += 2) { $parentOf[[int]$pairs[$i]] = [int]$pairs[$i + 1] }
+        $current = [int]$PID
+        if (-not $parentOf.ContainsKey($current)) { throw "Process $PID was not found." }
+        $ids.Add($current)
+        for ($depth = 0; $depth -lt 32; $depth++) {
+            if (-not $parentOf.ContainsKey($current)) { break }
+            $parent = $parentOf[$current]
+            if (-not $parent -or -not $parentOf.ContainsKey($parent) -or $ids.Contains($parent)) { break }
+            $childStart = [AgentProcessNative]::StartTime($current)
+            $parentStart = [AgentProcessNative]::StartTime($parent)
+            if ($childStart -gt 0 -and $parentStart -gt $childStart) { break }
+            $ids.Add($parent)
+            $current = $parent
+        }
+        return $ids.ToArray()
+    }
     $byId = @{}
     foreach ($process in @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate -ErrorAction Stop)) { $byId[[int]$process.ProcessId] = $process }
     $current = $byId[[int]$PID]
@@ -389,6 +411,7 @@ function Get-CallerProcessIds {
     }
     return $ids.ToArray()
 }
+
 
 # A window on another virtual desktop is missing from the default window list although it exists. Sending would
 # switch the person's desktop, so it is refused, and this lets the message say so instead of claiming the window is gone.
@@ -567,6 +590,12 @@ if (-not $Hwnd) {
 }
 Set-StageMark 'resolve'
 
+# Loaded before the own-host check, which uses its native process helper (no WMI query). It also provides the red-dot cursor
+# shown while this script activates the window, types and clicks (always restored). Shared with ui-interaction; agent-orchestrator and ui-interaction are sibling skill folders.
+$agentCursor = Join-Path $PSScriptRoot '..\..\ui-interaction\scripts\AgentCursor.ps1'
+if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not found at $agentCursor. Install the ui-interaction skill (Install-Skills.ps1)." }
+. $agentCursor
+
 if (-not $AllowOwnHost) {
     $ownHostError = Get-OwnHostError
     if ($ownHostError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $ownHostError }
@@ -586,12 +615,6 @@ if ($Steer) {
     $steerError = Get-ChatSteerError
     if ($steerError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $steerError }
 }
-
-# Red-dot cursor while this script activates the window, types and clicks; always restored.
-# Shared with ui-interaction; agent-orchestrator and ui-interaction are sibling skill folders.
-$agentCursor = Join-Path $PSScriptRoot '..\..\ui-interaction\scripts\AgentCursor.ps1'
-if (-not (Test-Path -LiteralPath $agentCursor)) { throw "AgentCursor.ps1 not found at $agentCursor. Install the ui-interaction skill (Install-Skills.ps1)." }
-. $agentCursor
 
 # ---- Be considerate of a person using the machine. Taking the foreground while someone types sends their
 # keystrokes into the target chat, so: queue behind other agents (one input block at a time), wait for a quiet

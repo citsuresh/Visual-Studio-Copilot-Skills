@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 35,
-      "whatsNew": "Send-CopilotPrompt.ps1 is about 2.7 s faster per send and no longer calls a window on another virtual desktop \"gone\"."
+      "version": 36,
+      "whatsNew": "Send-CopilotPrompt.ps1 is about 1.5 s faster per send (measured), mostly in start-up."
     },
     "project-memory-management": {
       "version": 3,
@@ -18,8 +18,8 @@
       "whatsNew": "Distinguish server acceptance from phone delivery and offer optional user-confirmed receipt checks without automatic resends or changing notification consent."
     },
     "ui-interaction": {
-      "version": 25,
-      "whatsNew": "Adds user-activity helpers to AgentCursor.ps1: a quiet wait before taking the foreground, an amber waiting dot with a sound, an input lock, and a hand-back of the person's window and focus."
+      "version": 26,
+      "whatsNew": "AgentCursor.ps1 loads about 1.2 s faster by caching its native helpers."
     },
     "ui-navigation-orchestrator": {
       "version": 8,

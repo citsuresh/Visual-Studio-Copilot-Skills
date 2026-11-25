@@ -566,3 +566,15 @@ helper script, which compiles three small C# types on every run (a prebuilt asse
 still launches a window listing (0.9 s); each foreground change waits 300 ms even when it succeeds; the final click
 launches `agentdebug-ui.exe` where an in-process Invoke would do. Each is a separate change to measure. **Limits:** one
 machine, 4 pairs, the quiet-wait stage is noisy.
+
+## 2026-11-25 - Cached native helpers, polled foreground wait and in-process own-host check (v36)
+
+**Decision:** cut the sender's fixed start-up costs without touching any guard. The three C# helper types in
+`AgentCursor.ps1` are compiled together once and cached as `%LOCALAPPDATA%\AgentUi\AgentCursor.Native.<hash>.dll`
+(hash of the source, so a changed source never loads a stale DLL; publish by rename so parallel agents are safe;
+in-memory compile if the cache cannot be written or loaded). The foreground change polls up to 300 ms instead of
+sleeping 300 ms. The own-host check reads the process chain with a Toolhelp snapshot (a parent whose start time
+cannot be read is kept, so the error direction is over-refusing); WMI remains the fallback. **Evidence:** loading
+the helper script 1.67 s to 0.42 s (6 interleaved runs); chain 525 ms to 54 ms with an identical chain; live,
+4 interleaved pairs against v35: 7.9 s to 6.4 s without the quiet wait. **Limits:** one machine; the cache is a
+per-user build artifact in the profile. **Open:** the validated click-point/handle cache (v37).

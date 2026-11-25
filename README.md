@@ -64,6 +64,8 @@ Agent-orchestrator v34 and ui-interaction v25 stop the UI scripts from disturbin
 
 Agent-orchestrator v35 makes `Send-CopilotPrompt.ps1` about 2.7 s faster per send (median 9.9 s to 7.2 s without the quiet wait, measured on one machine): it checks for the chat input in-process, skips the early draft check for a plain send, and does not clear an input that was just verified empty. A target window on another virtual desktop now gets its own message instead of "no longer exists".
 
+Agent-orchestrator v36 and ui-interaction v26 make `Send-CopilotPrompt.ps1` about 1.5 s faster again (median 7.9 s to 6.4 s without the quiet wait, one machine): the shared native helpers are compiled once and cached as a small DLL, the foreground change polls instead of always sleeping 300 ms, and the own-host check reads the process chain in-process instead of through WMI. No guard changed.
+
 ## Prerequisites
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free

@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 25`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 26`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -100,6 +100,11 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
   - v23 - Resolves managed executable paths from the successful-build marker when available and
     distinguishes observational remote-session diagnostics from an RDP activation fix.
+  - v26 - `AgentCursor.ps1` loads about 1.2 s faster by caching its native helpers.
+    Its three native C# helper types (plus a new process
+    snapshot helper) are compiled together once and cached as `%LOCALAPPDATA%\AgentUi\AgentCursor.Native.<hash>.dll`,
+    with an in-memory compile as fallback (`AGENTUI_NO_NATIVE_CACHE=1` forces it, `AGENTUI_CACHE_DIR` moves the
+    cache). `Set-AgentForegroundWindow` polls for the foreground change instead of always sleeping 300 ms.
   - v25 - Adds user-activity helpers to `AgentCursor.ps1`: a quiet wait before taking the foreground, an
     amber waiting dot with a sound, an input lock, and a hand-back of the person's window and focus. The quiet
     wait considers idle time, held mouse buttons and modifiers, do-not-disturb states and a manual pause. The

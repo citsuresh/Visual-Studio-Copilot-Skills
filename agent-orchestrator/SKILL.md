@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 35`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 36`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,15 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v36 - `Send-CopilotPrompt.ps1` is about 1.5 s faster per send (measured), mostly in start-up. The three native C#
+    helper types in `AgentCursor.ps1` are compiled together once and cached as
+    `%LOCALAPPDATA%\AgentUi\AgentCursor.Native.<hash>.dll` (loading the helper script 1.67 s to 0.42 s; it compiles
+    in memory as before if the cache cannot be written or loaded, and `AGENTUI_NO_NATIVE_CACHE=1` forces that).
+    The foreground change polls for up to 300 ms instead of always sleeping 300 ms, and the own-host check reads
+    the process chain with an in-process snapshot (about 54 ms instead of about 525 ms from WMI; same chain, WMI
+    is the fallback). Measured live (one machine, 4 interleaved pairs against the committed v35): 7.9 s to 6.4 s
+    median without the quiet wait; own-host stage 0.93 s to 0.54 s, foreground 1.58 s to 0.78 s. No guard
+    changed. Still slow: the paste (1.7 s), screen check (0.9 s), banner lookup (0.7 s) and Send click (0.7 s).
   - v35 - `Send-CopilotPrompt.ps1` is about 2.7 s faster per send and no longer calls a window on another
     virtual desktop "gone". It asks in this process whether the chat input is showing (one UIA search) instead of
     launching `agentdebug-ui.exe`, and falls back to the old wait only when that says no; it skips the early

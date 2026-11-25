@@ -86,13 +86,17 @@ param(
     [int]$Seconds = 5
 )
 
-Add-Type -AssemblyName System.Drawing
-if (-not ('AgentCursorNativeV2' -as [type])) {
-    Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+# ---- Native helpers: compiled once, cached as a small assembly --------------------------------------------------
+# Compiling these three C# types on every run cost about 1.1 s of every UI script. They are compiled together,
+# cached as %LOCALAPPDATA%\AgentUi\AgentCursor.Native.<hash of the source>.dll (AGENTUI_CACHE_DIR overrides the
+# folder) and loaded from there next time. If the cache cannot be written or loaded (a locked-down machine, a
+# read-only profile) they are compiled in memory as before; AGENTUI_NO_NATIVE_CACHE=1 forces that.
+$script:AgentNativeSource = @'
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+
 
 public static class AgentCursorNativeV2 {
     [StructLayout(LayoutKind.Sequential)]
@@ -162,8 +166,130 @@ public static class AgentCursorNativeV2 {
         return SystemParametersInfo(SPI_SETCURSORS, 0, IntPtr.Zero, 0);
     }
 }
-'@
+
+
+public static class AgentForegroundNative {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
 }
+
+
+public static class AgentUserActivityNative {
+    [StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
+        public uint cbSize; public uint flags; public IntPtr hwndActive; public IntPtr hwndFocus; public IntPtr hwndCapture;
+        public IntPtr hwndMenuOwner; public IntPtr hwndMoveSize; public IntPtr hwndCaret; public RECT rcCaret;
+    }
+    [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO info);
+    [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
+
+    // GUITHREADINFO.flags of the foreground thread: 0x2 move or size in progress, 0x4 menu mode, 0x10 popup menu.
+    public static uint ForegroundGuiFlags() {
+        GUITHREADINFO info = new GUITHREADINFO();
+        info.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
+        return GetGUIThreadInfo(0, ref info) ? info.flags : 0;
+    }
+
+    // QUERY_USER_NOTIFICATION_STATE as an int (1 not present ... 5 accepts notifications ... 7 app), 0 when unreadable.
+    public static int NotificationState() {
+        int state;
+        return SHQueryUserNotificationState(out state) == 0 ? state : 0;
+    }
+
+    // True while the physical key or button is held down. GetAsyncKeyState reports physical state, so a
+    // swapped-button setting does not matter as long as every mouse button is checked.
+    public static bool IsDown(int vKey) { return (GetAsyncKeyState(vKey) & 0x8000) != 0; }
+
+    // True while the key or button is down, or if it was pressed since this process last asked (the low bit):
+    // a quick click that is over between two polls is still seen.
+    public static bool DownOrPressed(int vKey) { return (GetAsyncKeyState(vKey) & 0x8001) != 0; }
+
+    // Tick count of the last keyboard or mouse input in this session (0 when it cannot be read).
+    public static uint LastInputTick() {
+        LASTINPUTINFO info = new LASTINPUTINFO();
+        info.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+        return GetLastInputInfo(ref info) ? info.dwTime : 0;
+    }
+
+    // Milliseconds since that input, or -1 when it cannot be read.
+    public static long IdleMs() {
+        uint last = LastInputTick();
+        if (last == 0) return -1;
+        return unchecked((uint)Environment.TickCount - last);
+    }
+}
+// Process ids and start times without a WMI query (a Win32_Process snapshot cost 0.6 to 0.9 s).
+public static class AgentProcessNative {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct PROCESSENTRY32 {
+        public uint dwSize; public uint cntUsage; public uint th32ProcessID; public UIntPtr th32DefaultHeapID;
+        public uint th32ModuleID; public uint cntThreads; public uint th32ParentProcessID; public int pcPriClassBase;
+        public uint dwFlags; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32First(IntPtr s, ref PROCESSENTRY32 e);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32Next(IntPtr s, ref PROCESSENTRY32 e);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll")] static extern bool GetProcessTimes(IntPtr h, out long create, out long exit, out long kernel, out long user);
+
+    // Flat array: process id, parent process id, process id, parent process id, ... Null when the snapshot fails.
+    public static int[] ParentPairs() {
+        IntPtr snap = CreateToolhelp32Snapshot(0x2, 0);
+        if (snap == IntPtr.Zero || snap == new IntPtr(-1)) return null;
+        try {
+            var list = new System.Collections.Generic.List<int>();
+            var e = new PROCESSENTRY32(); e.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32));
+            if (!Process32First(snap, ref e)) return null;
+            do { list.Add((int)e.th32ProcessID); list.Add((int)e.th32ParentProcessID); } while (Process32Next(snap, ref e));
+            return list.ToArray();
+        } finally { CloseHandle(snap); }
+    }
+
+    // Process creation time (FILETIME ticks), or 0 when it cannot be read.
+    public static long StartTime(int pid) {
+        IntPtr h = OpenProcess(0x1000, false, (uint)pid);
+        if (h == IntPtr.Zero) return 0;
+        try { long c, x, k, u; return GetProcessTimes(h, out c, out x, out k, out u) ? c : 0; } finally { CloseHandle(h); }
+    }
+}
+'@
+
+function Initialize-AgentNative {
+    $names = 'AgentCursorNativeV2', 'AgentForegroundNative', 'AgentUserActivityNative', 'AgentProcessNative'
+    if (-not @($names | Where-Object { -not ($_ -as [type]) })) { return }
+    Add-Type -AssemblyName System.Drawing
+    if (-not $env:AGENTUI_NO_NATIVE_CACHE) {
+        try {
+            $hash = ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($script:AgentNativeSource))) -replace '-', '').Substring(0, 12)
+            $dir = if ($env:AGENTUI_CACHE_DIR) { $env:AGENTUI_CACHE_DIR } else { Join-Path $env:LOCALAPPDATA 'AgentUi' }
+            $dll = Join-Path $dir "AgentCursor.Native.$hash.dll"
+            if (-not (Test-Path -LiteralPath $dll)) {
+                New-Item -ItemType Directory -Force -Path $dir | Out-Null
+                $tmp = Join-Path $dir "AgentCursor.Native.$hash.$PID.tmp.dll"
+                Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition $script:AgentNativeSource -OutputAssembly $tmp
+                # Several agents may start together: publish with one rename; the loser just discards its copy.
+                try { Move-Item -LiteralPath $tmp -Destination $dll -ErrorAction Stop } catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+            }
+            if (@($names | Where-Object { -not ($_ -as [type]) })) { Add-Type -Path $dll }
+        }
+        catch { }
+    }
+    if (@($names | Where-Object { -not ($_ -as [type]) })) {
+        Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition $script:AgentNativeSource
+    }
+}
+Initialize-AgentNative
 
 $script:AgentCursorSessionFlag = Join-Path $env:TEMP 'agent-cursor-session.flag'
 
@@ -254,20 +380,7 @@ function Stop-AgentCursorSession {
     return $true
 }
 
-if (-not ('AgentForegroundNative' -as [type])) {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
 
-public static class AgentForegroundNative {
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
-    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
-}
-'@
-}
 
 function Set-AgentForegroundWindow {
     <#
@@ -293,69 +406,13 @@ function Set-AgentForegroundWindow {
             [AgentForegroundNative]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
         }
         [void][AgentForegroundNative]::SetForegroundWindow($Handle)
-        Start-Sleep -Milliseconds 300
+        # Poll instead of a fixed 300 ms sleep: the switch normally lands within a few tens of ms.
+        for ($wait = 0; $wait -lt 12 -and [AgentForegroundNative]::GetForegroundWindow() -ne $Handle; $wait++) { Start-Sleep -Milliseconds 25 }
     }
     return ([AgentForegroundNative]::GetForegroundWindow() -eq $Handle)
 }
 
-if (-not ('AgentUserActivityNative' -as [type])) {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
 
-public static class AgentUserActivityNative {
-    [StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
-    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
-    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
-    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
-    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-    [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
-        public uint cbSize; public uint flags; public IntPtr hwndActive; public IntPtr hwndFocus; public IntPtr hwndCapture;
-        public IntPtr hwndMenuOwner; public IntPtr hwndMoveSize; public IntPtr hwndCaret; public RECT rcCaret;
-    }
-    [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO info);
-    [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
-
-    // GUITHREADINFO.flags of the foreground thread: 0x2 move or size in progress, 0x4 menu mode, 0x10 popup menu.
-    public static uint ForegroundGuiFlags() {
-        GUITHREADINFO info = new GUITHREADINFO();
-        info.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
-        return GetGUIThreadInfo(0, ref info) ? info.flags : 0;
-    }
-
-    // QUERY_USER_NOTIFICATION_STATE as an int (1 not present ... 5 accepts notifications ... 7 app), 0 when unreadable.
-    public static int NotificationState() {
-        int state;
-        return SHQueryUserNotificationState(out state) == 0 ? state : 0;
-    }
-
-    // True while the physical key or button is held down. GetAsyncKeyState reports physical state, so a
-    // swapped-button setting does not matter as long as every mouse button is checked.
-    public static bool IsDown(int vKey) { return (GetAsyncKeyState(vKey) & 0x8000) != 0; }
-
-    // True while the key or button is down, or if it was pressed since this process last asked (the low bit):
-    // a quick click that is over between two polls is still seen.
-    public static bool DownOrPressed(int vKey) { return (GetAsyncKeyState(vKey) & 0x8001) != 0; }
-
-    // Tick count of the last keyboard or mouse input in this session (0 when it cannot be read).
-    public static uint LastInputTick() {
-        LASTINPUTINFO info = new LASTINPUTINFO();
-        info.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
-        return GetLastInputInfo(ref info) ? info.dwTime : 0;
-    }
-
-    // Milliseconds since that input, or -1 when it cannot be read.
-    public static long IdleMs() {
-        uint last = LastInputTick();
-        if (last == 0) return -1;
-        return unchecked((uint)Environment.TickCount - last);
-    }
-}
-'@
-}
 
 # ---- Be considerate of a person using the machine -----------------------------------------------
 # The helpers below let an input script wait for a quiet moment before it takes the foreground, notice
