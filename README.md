@@ -44,9 +44,17 @@ Agent-orchestrator v31 adds opt-in `Send-CopilotPrompt.ps1 -Steer` for an alread
 with exact input read-back and no Stop/Send fallback. Existing drafts remain protected; refusal
 diagnostics report character codes rather than draft text. Run supervising watchers as tracked
 async shell commands and retain their `shellId` for completion/recovery. Offline verification:
-`& .\scripts\agent\Test-SendCopilotPrompt.ps1` (266 assertions) and
+`& .\scripts\agent\Test-SendCopilotPrompt.ps1` (277 assertions) and
 `& .\scripts\agent\Test-WatcherProgress.ps1` (19 virtual-clock scenarios). Live supervisor tests
 also verified corrected sibling-layout steering, transcript submission and agent continuation.
+
+Agent-orchestrator v32 corrects the note that the `Ask Copilot` input name appears only while the
+input is empty (the name stays with a draft), makes the draft check search for the input once,
+reads the own-host process chain from one snapshot, checks for the two chat banners with a targeted
+lookup (a failed read now refuses), and adds an opt-in `Send-CopilotPrompt.ps1 -Trace` that returns
+per-stage milliseconds without chat text. Ui-interaction v24 adds PowerShell 5.1 and
+off-screen-window gotchas. The timings come from one noisy machine, and banner detection was
+confirmed live for the working-directory banner only (the trust banner is untested).
 
 ## Prerequisites
 

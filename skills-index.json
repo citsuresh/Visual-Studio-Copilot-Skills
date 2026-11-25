@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 31,
-      "whatsNew": "Requires tracked async watchers and explicit wait/recovery checks, adds text-free draft refusal diagnostics and opt-in busy-chat steering without weakening draft protection, and forbids unverified cause claims."
+      "version": 32,
+      "whatsNew": "Corrects the claim that the Ask Copilot input Name appears only while the input is empty, and adds an opt-in -Trace switch to Send-CopilotPrompt.ps1 that returns per-stage timings."
     },
     "project-memory-management": {
       "version": 3,
@@ -18,8 +18,8 @@
       "whatsNew": "Distinguish server acceptance from phone delivery and offer optional user-confirmed receipt checks without automatic resends or changing notification consent."
     },
     "ui-interaction": {
-      "version": 23,
-      "whatsNew": "Resolves managed executable paths from the successful-build marker when available and distinguishes observational remote-session diagnostics from an RDP activation fix."
+      "version": 24,
+      "whatsNew": "Documents Windows PowerShell 5.1 pitfalls, partly off-screen windows that still report IsOffscreen: false, and floating tool windows, from a 2026-11-25 cross-chat sender test."
     },
     "ui-navigation-orchestrator": {
       "version": 8,

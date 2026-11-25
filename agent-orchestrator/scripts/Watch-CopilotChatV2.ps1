@@ -68,7 +68,7 @@
         - "Allow this time" button                  -> Pending, PermissionPrompt
         - "Allow" button beside a "Deny" button     -> Pending, PermissionPrompt (both enabled and on screen)
         - "Submit" / "Next question" button         -> Pending, ChoiceCard
-        - "Ask Copilot" placeholder                 -> the chat pane is showing (input empty)
+        - "Ask Copilot" input                       -> the chat pane is showing (present with or without a draft)
 
       End of the message list, read only when the list is scrolled to its end. The list can end with empty
       view-model placeholder items (name "Microsoft.VisualStudio....") that carry no text; they are skipped to

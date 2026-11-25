@@ -406,3 +406,68 @@ the on-screen check keep the match tied to a live prompt. This mirrors the sibli
 **Alternatives considered:** Matching any Allow name was rejected as too loose. Treating Cancel as a
 permission signal was rejected because it is also the normal streaming state. Offline mock tests were
 run; no live approval prompt was available, so the exact structure is assumed from V1's rules.
+
+## 2026-11-25 - Do not ship the cached UI sender or the folder mailbox; measure and trim the shipped sender
+
+**Decision:** Do not add the agent-comm feedback bundle's cached UI sender (`Send-ChatMessageFast.ps1`)
+or its folder-mailbox scripts to any skill. Keep `Send-CopilotPrompt.ps1` as the sender. It gains an
+opt-in `-Trace` switch that returns per-stage milliseconds with no chat or draft text. Speed-ups for it
+are candidates to be checked live one at a time, not decisions. The bundle files stay outside the repo
+(they hold machine-specific handles and paths).
+
+**Evidence (one machine, one remote session, Windows PowerShell 5.1, five timed runs each, Send-CopilotPrompt
+vs cached sender, median sender time):** 12.5 s vs 4.0 s. The cached sender passed its validation with a
+draft present and deleted it (`^a{DEL}`), delivered `Path C:\temp\"x" end` as `Path C:\temp\x"` while
+reporting submitted, and has no banner check, own-host refusal or read-back (stray characters were seen
+in earlier messages sent with it). `Send-CopilotPrompt.ps1` refused the draft and delivered the text
+exactly. A six-run trace of the shipped sender (median ms): banner 2820, paste 1435, foreground 1277,
+clear 1083, second draft check 1011, first draft check 953, own-host 773, input check 749, send 732, tab
+check 677, read-back 478; total 12216. Much of the gap sits in repeated lookups, not in the safeguards.
+The mailbox's wake of an idle chat was not demonstrated; its router counts a listener by process, so an
+untracked listener looks alive (v31 records 5.4 hours lost to an untracked watcher); inbox files have no
+authentication; `processed` and `archive` keep chat text on disk.
+
+**Alternatives considered:** Shipping the cached sender with a draft refusal, exact read-back and
+banner check added was deferred until the shipped sender's speed-ups are measured. A separate mailbox
+skill was deferred until wake-up, listener liveness and retention limits are resolved. Both stay out
+for now. Limits: small samples, remote session, off-screen behaviour of the cached sender not measured,
+speed-up gains not yet measured.
+
+## 2026-11-25 - Sender speed-ups adopted after a local measurement: one process snapshot, targeted banner lookup, single draft search
+
+**Decision:** Keep three changes to `Send-CopilotPrompt.ps1` (agent-orchestrator v32), each leaving a
+safeguard in place: the own-host check reads one process snapshot instead of one lookup per ancestor;
+the banner check searches for the two banner IDs instead of dumping the tree with `inspect`, and a failed
+banner read now refuses (`BannerCheckFailed`) instead of reading as no banner; the draft check reuses the
+input element it has just found. Not adopted yet, pending their own runs: dropping the first draft check,
+skipping the first clear when the input was just verified empty, and reusing the tab check's result.
+Follows the 2026-11-25 entry above, whose speed-up gains were then unmeasured.
+
+**Evidence (this machine, local session, Windows PowerShell 5.1, one idle chat in a Visual Studio
+Insiders window, build `66ecbfc`, `-Trace` timings in ms):**
+- Baseline, six traced sends of the earlier script: median 13.8 s in-script (agent's machine: 12.2 s).
+- Interleaved before/after, 4 runs each in the order before, after, after, before, before, after,
+  after, before; all 8 sent on the first attempt. Median total 21.3 s before (16.0 to 26.7) and 12.6 s
+  after (10.1 to 22.1). Stage medians before and after: banner 4970 to 610, ownHost 3583 to 1238,
+  draft2 1618 to 546, draft1 1314 to 1057. Stages left unchanged (foreground, paste, send) were alike in
+  both variants.
+- Read-only timings of the functions in isolation: own-host chain 2.1 to 2.3 s with a lookup per ancestor
+  against 0.34 to 0.43 s with one snapshot, identical chain; banner `inspect --maxDepth 25` 2.5 to 2.9 s
+  (85,558 characters) against 0.37 to 0.46 s for one targeted lookup.
+- The full-tree dump grows with the chat: the banner stage rose from about 2.0 s to about 5.0 s as the test
+  chat reached about 25 messages, while the targeted lookup stayed at 0.3 to 0.6 s.
+- 277 offline assertions pass, including a check that the snapshot chain equals the per-lookup chain on
+  the real process tree.
+
+**Alternatives considered:** Keeping the full-tree banner dump was rejected because its cost scales with
+chat length and its failure looked like "no banner". A cached click point was deferred: the remaining gap
+to the unsafe cached sender is mostly repeated lookups by name, to be measured after the pending changes.
+
+**Limits:** Four runs per variant, one machine, free memory about 1.6 GB of 15.8 GB, so absolute times are
+noisy. Banner detection was later confirmed live with a real working-directory mismatch banner: the new
+lookup and the old `inspect` method found the same banner (1.7 s against 7.0 s on that tree, under load)
+and the real script refused with `Sent=false`, nothing typed and the input still empty. The trust banner
+could not be raised and is untested live. The own-host refusal has not been rerun from inside a Visual
+Studio chat. One earlier send failed at the final click with
+`foreground-activation-failed` (the draft was kept and no message was sent); it did not recur in the later
+8 sends and its cause is unknown. The numbers have not been reproduced on the agent's machine.

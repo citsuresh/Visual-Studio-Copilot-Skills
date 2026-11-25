@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 31`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 32`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -224,6 +224,25 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     SendButton are direct Chat pane children, not input-host descendants. Discovery now scans
     only those children; a matching offline regression fails against the old scope and excludes
     historical message-list buttons. The corrected script has not been rerun live here.
+  - v32 - Corrects the claim that the `Ask Copilot` input Name appears only while the input is
+    empty, and adds an opt-in `-Trace` switch to `Send-CopilotPrompt.ps1` that returns per-stage
+    timings. The Name stays with a draft, so finding it proves the input exists, not that it is
+    empty (fixed in the Step 2 selector note, Step 3 "Verify cheaply" and the V2 header). A live test
+    on another machine (2026-11-25) confirmed it: an Ask Copilot-keyed cache check passed with a
+    draft present. That test also saw the input expose TextPattern but not ValuePattern. `-Trace`
+    returns per-stage milliseconds (no chat or draft text) and leaves the default output unchanged.
+    The draft check now reuses the input element it has
+    just found instead of searching the whole window a second time (refusals and diagnostics are
+    unchanged; the saving is expected, not measured). The own-host check reads one process snapshot
+    instead of one lookup per ancestor (same chain, tested against the old walk; on a 6-process chain
+    the guard fell from about 3.5 s to about 0.7 s). The banner check searches for the two banner IDs
+    instead of dumping the tree with `inspect` (about 2.0 to 2.9 s before, about 0.4 to 0.7 s after),
+    and a failed banner read now refuses with `BannerCheckFailed` instead of reading as no banner
+    (`-IgnoreBanners` still skips it). Detection was confirmed live with a real working-directory
+    mismatch banner: the new lookup and the old `inspect` method found the same banner, and the
+    script refused with nothing typed. The trust banner could not be raised and is untested live.
+    An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
+    before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
 
 # Agent Orchestrator
 
@@ -547,8 +566,9 @@ preference, confirmed this session):
 & $exe type --hwnd <h> --strategy Name --value "Ask Copilot" --text "<task text>" --paste --verify
 ```
 
-- `--strategy Name --value "Ask Copilot"` targets the chat input via its placeholder Name (shown
-  only when the chat box is empty). This is currently the only reliable selector for the real
+- `--strategy Name --value "Ask Copilot"` targets the chat input via its Name. The Name stays
+  while the box holds a draft, so it identifies the input but says nothing about whether the box
+  is empty; read the text for that (TextPattern, or ValuePattern where exposed). This is currently the only reliable selector for the real
   Copilot Chat input/Send button, because they expose no `AutomationId` — `AutomationId=WpfTextView`
   is ambiguous (resolves to either the chat input or the code editor pane depending on UIA
   traversal/focus state). This is a fact about this specific control, not a generic
@@ -753,7 +773,8 @@ Check that the scroll actually moved: the helper returns `PercentBefore`, `Perce
 the read. `ScrollPattern.SetScrollPercent` does not move this list, and `scroll-container
 --verticalPercent 100` may not either, so do not rely on them alone; `Read-CopilotReply.ps1` does
 its own scroll and check; (3) `find-first --hwnd <h> --strategy Name --value "<element name>"`
-for a single element (`--value "Ask Copilot"` is found only while the input is empty, and
+for a single element (`--value "Ask Copilot"` is found whether or not the input holds text, so it
+proves the chat input exists, not that it is empty, and
 `--value "Allow this time"` is found only while a permission prompt is waiting) or `inspect --hwnd
 <h> --nameContains <text> --maxDepth <small>`; (4) a screenshot only when layout or an unknown
 dialog matters. Never run an unfiltered `inspect` of a chat window: its output can be very large

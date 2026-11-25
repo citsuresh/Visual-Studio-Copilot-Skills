@@ -11,10 +11,12 @@ no real chat, clipboard, cursor, focus or repository files are modified.
 #>
 [CmdletBinding()]
 param(
-    [string]$SenderPath = (Join-Path $PSScriptRoot '..\..\agent-orchestrator\scripts\Send-CopilotPrompt.ps1'),
+    [string]$SenderPath,
     [string]$TemporaryRoot = [IO.Path]::GetTempPath()
 )
 $ErrorActionPreference = 'Stop'
+# Default set in the body: under powershell.exe 5.1 -File, $PSScriptRoot is empty inside a param() default of an advanced script.
+if (-not $SenderPath) { $SenderPath = Join-Path $PSScriptRoot '..\..\agent-orchestrator\scripts\Send-CopilotPrompt.ps1' }
 Set-StrictMode -Version 2
 $tokens = $null
 $errors = $null
@@ -25,7 +27,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
     $script:assertions++
     if (-not $Condition) { throw $Message }
 }
-foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result')) {
+foreach ($name in @('ConvertTo-NativeArgument', 'Invoke-Ui', 'Get-ChatInputText', 'Get-ChatDraftError', 'Get-ChatActionButtons', 'Get-ChatSteerError', 'Get-CallerProcessIds', 'Get-OwnHostError', 'Write-Result', 'Set-StageMark')) {
     $function = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -107,6 +109,7 @@ $script:textSupported = $true
 $Quiet = $false
 $AsJson = $false
 $Steer = $false
+$Trace = $false
 foreach ($draftText in @('user draft', ' ', 'original "quoted text"')) {
     $script:textRead = $draftText
     Assert-True ((Get-ChatDraftError) -match 'InputNotEmpty') 'A non-empty draft was accepted.'
@@ -114,6 +117,15 @@ foreach ($draftText in @('user draft', ' ', 'original "quoted text"')) {
 }
 $script:textRead = ''
 Assert-True ($null -eq (Get-ChatDraftError)) 'An empty input should be allowed.'
+# The draft check must search the window for the input once, not once to count and again to read.
+$script:findCount = 0
+function Get-ChatInputElements { $script:findCount++; return $script:inputFixtures }
+Assert-True ($null -eq (Get-ChatDraftError) -and $script:findCount -eq 1) 'An empty-input draft check must search for the input once.'
+$script:findCount = 0
+$script:textRead = 'user draft'
+Assert-True ((Get-ChatDraftError) -match 'InputNotEmpty' -and $script:findCount -eq 1) 'A refused draft check must search for the input once.'
+$script:textRead = ''
+function Get-ChatInputElements { return $script:inputFixtures }
 foreach ($useValue in @($false, $true)) {
     $script:valueSupported = $useValue
     foreach ($case in @(
@@ -172,7 +184,7 @@ $enableCursor = $ast.Find({ param($node)
 Assert-True ($preflight.Extent.EndOffset -lt $enableCursor.Extent.StartOffset) 'Draft refusal must precede cursor/input actions.'
 $OverwriteInput = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($preflight.Extent.Text)))) 'Explicit overwrite should bypass draft refusal.'
-Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-3] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
+Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-4] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
 $callerPath = Join-Path (Split-Path -Parent $SenderPath) 'Invoke-CopilotReview.ps1'
 $callerAst = [Management.Automation.Language.Parser]::ParseFile($callerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
@@ -201,6 +213,16 @@ Assert-True (($callerAst.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -
 $ownerProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $PID"
 $callerIds = @(Get-CallerProcessIds)
 Assert-True ($callerIds[0] -eq $PID -and $callerIds -contains [int]$ownerProcess.ParentProcessId) 'Caller process chain must include this process and its parent.'
+# The snapshot walk must give the same chain as the earlier one-lookup-per-ancestor walk.
+$legacyIds = New-Object 'System.Collections.Generic.List[int]'
+$legacyCurrent = $ownerProcess
+$legacyIds.Add([int]$legacyCurrent.ProcessId)
+for ($legacyDepth = 0; $legacyDepth -lt 32 -and $legacyCurrent.ParentProcessId; $legacyDepth++) {
+    $legacyParent = Get-CimInstance Win32_Process -Filter "ProcessId = $($legacyCurrent.ParentProcessId)"
+    if (-not $legacyParent -or $legacyParent.CreationDate -gt $legacyCurrent.CreationDate -or $legacyIds.Contains([int]$legacyParent.ProcessId)) { break }
+    $legacyIds.Add([int]$legacyParent.ProcessId); $legacyCurrent = $legacyParent
+}
+Assert-True ((@($legacyIds.ToArray()) -join ',') -ceq (@($callerIds) -join ',')) 'The snapshot process chain must equal the per-lookup chain.'
 $script:ListWindowsError = ''
 $script:fixtureWindows = @(
     [pscustomobject]@{ Hwnd = '0x1234'; Pid = 100; ProcessName = 'devenv' },
@@ -227,6 +249,22 @@ Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unreadable wind
 $script:fixtureWindows = @([pscustomobject]@{ Hwnd = '0x2000'; Pid = 200; ProcessName = 'devenv' })
 $script:fixtureCallers = $null
 Assert-True ((Get-OwnHostError) -match 'OwnHostCheckFailed') 'An unreadable process chain did not fail closed.'
+# Banner lookup: a targeted AutomationId search, never a full-tree dump, and a failed read refuses.
+$bannerIdsFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ChatBannerIds' }, $true)
+$bannerElementsFunction = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ChatBannerElements' }, $true)
+Assert-True ($null -ne $bannerIdsFunction -and $null -ne $bannerElementsFunction) 'Banner lookup functions are missing.'
+. ([scriptblock]::Create($bannerIdsFunction.Extent.Text))
+Assert-True ($bannerElementsFunction.Extent.Text -match 'HarnessWorkspaceMismatchBanner' -and $bannerElementsFunction.Extent.Text -match 'WorkspaceTrustWarningBanner') 'The banner lookup must search both banner ids.'
+Assert-True ($ast.Extent.Text -notmatch 'inspect --hwnd \$Hwnd --maxDepth 25') 'The banner check must not dump the whole tree with inspect.'
+Assert-True ($ast.Extent.Text -match 'BannerCheckFailed') 'A failed banner read must refuse instead of reading as no banner.'
+function New-BannerElement([string]$Id) { [pscustomobject]@{ Current = [pscustomobject]@{ AutomationId = $Id } } }
+$script:bannerFixtures = @()
+function Get-ChatBannerElements { return $script:bannerFixtures }
+Assert-True (@(Get-ChatBannerIds).Count -eq 0) 'No banner element must give no banner ids.'
+$script:bannerFixtures = @(New-BannerElement 'WorkspaceTrustWarningBanner')
+Assert-True ((@(Get-ChatBannerIds) -join ',') -ceq 'WorkspaceTrustWarningBanner') 'A trust banner must be reported.'
+$script:bannerFixtures = @((New-BannerElement 'HarnessWorkspaceMismatchBanner'), (New-BannerElement 'WorkspaceTrustWarningBanner'), (New-BannerElement 'WorkspaceTrustWarningBanner'))
+Assert-True ((@(Get-ChatBannerIds | Sort-Object) -join ',') -ceq 'HarnessWorkspaceMismatchBanner,WorkspaceTrustWarningBanner') 'Both banners must be reported once each.'
 $ownGuard = $ast.EndBlock.Statements | Where-Object {
     $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'Get-OwnHostError'
 } | Select-Object -First 1
@@ -238,8 +276,9 @@ $result = & ([scriptblock]::Create($ownGuard.Extent.Text))
 Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'OwnHostWindow') 'Default own-host guard did not return a refusal.'
 $AllowOwnHost = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($ownGuard.Extent.Text)))) 'Explicit AllowOwnHost should bypass the guard.'
-Assert-True (($ast.ParamBlock.Parameters[-2].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
-Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'Steer') 'Steer must be appended after existing positional parameters.'
+Assert-True (($ast.ParamBlock.Parameters[-3].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
+Assert-True (($ast.ParamBlock.Parameters[-2].Name.VariablePath.UserPath) -eq 'Steer') 'Steer must be appended after existing positional parameters.'
+Assert-True (($ast.ParamBlock.Parameters[-1].Name.VariablePath.UserPath) -eq 'Trace') 'Trace must be appended after existing positional parameters.'
 
 $tryStatement = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] } | Select-Object -Last 1
 $statements = @($tryStatement.Body.Statements)

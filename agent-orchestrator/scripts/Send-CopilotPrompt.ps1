@@ -87,8 +87,16 @@
     with Sent=false and a text-free Error; verified unsent text is left as a protected draft.
     Appended to preserve all prior positional parameter indices.
 
+.PARAMETER Trace
+    Diagnostics only. Adds a Timings property to the result: milliseconds spent in each stage
+    (resolve, ownHost, draft1, foreground, tabCheck, banner, ensureInput, draft2, and per
+    attempt loopForeground, clear, paste, readback; then send) and totalMs. Contains no chat or
+    draft text. Without -Trace the result has no Timings property and behaviour is unchanged.
+    Appended last to preserve all prior positional parameter indices.
+
 .OUTPUTS
-    PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error. When the window
+    PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error (plus Timings with
+    -Trace). When the window
     cannot be brought to the foreground and it no longer exists, Error says so (typically
     Visual Studio was restarted and the handle is stale). When the window exists but still
     cannot be brought forward after one retry, Error tells the person to click the target
@@ -132,7 +140,9 @@ param(
 
     [switch]$AllowOwnHost,
 
-    [switch]$Steer
+    [switch]$Steer,
+
+    [switch]$Trace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -185,8 +195,25 @@ function Get-ChatInputElements {
     return @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition))
 }
 
+# The two banners that make a send go to the wrong folder; found by AutomationId anywhere in the window.
+function Get-ChatBannerElements {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $window = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr][Convert]::ToInt64($Hwnd, 16))
+    $ids = New-Object System.Windows.Automation.OrCondition(
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'HarnessWorkspaceMismatchBanner')),
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'WorkspaceTrustWarningBanner')))
+    return @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $ids))
+}
+
+function Get-ChatBannerIds {
+    return @(Get-ChatBannerElements | ForEach-Object { $_.Current.AutomationId } | Select-Object -Unique)
+}
+
 function Get-ChatInputText {
-    $inputs = @(Get-ChatInputElements)
+    # -Elements lets a caller that has just searched for the input reuse that result instead of
+    # searching the whole window a second time; without it the input is searched for as before.
+    param([object[]]$Elements)
+    $inputs = @(if ($PSBoundParameters.ContainsKey('Elements')) { $Elements } else { Get-ChatInputElements })
     if ($inputs.Count -ne 1) { throw 'Chat input is missing or ambiguous; text was not verified and Send was not clicked.' }
     $pattern = $null
     if ($inputs[0].TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
@@ -205,7 +232,7 @@ function Get-ChatDraftError {
     $inputs = @(Get-ChatInputElements)
     if ($inputs.Count -eq 0 -and $AllowMissing) { return $null }
     if ($inputs.Count -ne 1) { return 'Chat input is missing or ambiguous; no input was changed.' }
-    $draft = Get-ChatInputText
+    $draft = Get-ChatInputText -Elements $inputs
     if ($draft.Length -gt 0) {
         $counts = @{}
         $codePointCount = 0
@@ -276,13 +303,16 @@ function Get-ChatSteerError {
 }
 
 # This process and its ancestors; a parent that started after its child is a recycled PID, so the walk stops.
+# One process snapshot is read once and walked in memory (a lookup per ancestor cost about 350 ms each).
 function Get-CallerProcessIds {
     $ids = New-Object 'System.Collections.Generic.List[int]'
-    $current = Get-CimInstance Win32_Process -Filter "ProcessId = $PID" -ErrorAction Stop
+    $byId = @{}
+    foreach ($process in @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate -ErrorAction Stop)) { $byId[[int]$process.ProcessId] = $process }
+    $current = $byId[[int]$PID]
     if (-not $current) { throw "Process $PID was not found." }
     $ids.Add([int]$current.ProcessId)
     for ($depth = 0; $depth -lt 32 -and $current.ParentProcessId; $depth++) {
-        $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($current.ParentProcessId)" -ErrorAction Stop
+        $parent = $byId[[int]$current.ParentProcessId]
         if (-not $parent -or $parent.CreationDate -gt $current.CreationDate -or $ids.Contains([int]$parent.ProcessId)) { break }
         $ids.Add([int]$parent.ProcessId)
         $current = $parent
@@ -313,6 +343,13 @@ function Write-Result {
     param([bool]$Sent, [int]$Attempts, [string]$InputText, [string]$ErrorText)
     if ($Quiet -and $Sent) { $InputText = $null }
     $result = [pscustomobject]@{ Sent = $Sent; Attempts = $Attempts; InputText = $InputText; Error = $ErrorText }
+    # -Trace only: the variables exist only when the script body enabled tracing.
+    $stages = Get-Variable -Name SendStages -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+    $clock = Get-Variable -Name SendClock -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+    if ($stages -and $clock) {
+        $stages['totalMs'] = [int]$clock.ElapsedMilliseconds
+        Add-Member -InputObject $result -NotePropertyName Timings -NotePropertyValue $stages
+    }
     if ($AsJson) { $result | ConvertTo-Json -Depth 3 } else { $result }
 }
 
@@ -384,6 +421,22 @@ function Ensure-ChatInput {
     return 'The chat input did not appear after creating a session.'
 }
 
+# -Trace: record elapsed milliseconds since the previous mark under a stage name. No-op otherwise.
+if ($Trace) {
+    $script:SendStages = [ordered]@{}
+    $script:SendClock = [Diagnostics.Stopwatch]::StartNew()
+    $script:SendLastMark = 0
+}
+function Set-StageMark {
+    param([string]$Name)
+    if (-not $Trace) { return }
+    $now = [int]$script:SendClock.ElapsedMilliseconds
+    $key = $Name
+    for ($n = 2; $script:SendStages.Contains($key); $n++) { $key = "$Name#$n" }
+    $script:SendStages[$key] = $now - $script:SendLastMark
+    $script:SendLastMark = $now
+}
+
 if (-not $Hwnd) {
     $found = Get-TopLevelWindows -Filter @('--titleContains', $TitleContains)
     if ($null -eq $found) {
@@ -399,16 +452,19 @@ if (-not $Hwnd) {
     }
     $Hwnd = [string]$candidates[0].Hwnd
 }
+Set-StageMark 'resolve'
 
 if (-not $AllowOwnHost) {
     $ownHostError = Get-OwnHostError
     if ($ownHostError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $ownHostError }
 }
+Set-StageMark 'ownHost'
 
 if (-not $OverwriteInput) {
     $draftError = Get-ChatDraftError -AllowMissing
     if ($draftError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $draftError }
 }
+Set-StageMark 'draft1'
 
 if ($Steer) {
     if ($NewSession) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'SteerRequiresExistingChat: -Steer cannot be combined with -NewSession; nothing was typed or clicked.' }
@@ -427,16 +483,20 @@ try {
     if (-not (Request-Foreground)) {
         return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "$(Get-ForegroundFailureText) Nothing was typed or clicked."
     }
+    Set-StageMark 'foreground'
     if (-not $NoNavigate -and -not $Steer) { Select-ChatTabIfHidden }
+    Set-StageMark 'tabCheck'
 
     # Banner check before any input; banners only render while the chat is visible.
     if (-not $IgnoreBanners) {
-        $tree = (& $ExePath inspect --hwnd $Hwnd --maxDepth 25 2>&1 | Out-String)
-        $found = @([regex]::Matches($tree, '"automationId"\s*:\s*"(HarnessWorkspaceMismatchBanner|WorkspaceTrustWarningBanner)"', 'IgnoreCase') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+        # A targeted lookup instead of a full-tree dump. A failed lookup refuses; it must not read as "no banner".
+        try { $found = @(Get-ChatBannerIds) }
+        catch { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "BannerCheckFailed: the chat banners could not be read ($($_.Exception.Message)). Nothing was typed; pass -IgnoreBanners to skip the check." }
         if ($found.Count -gt 0) {
             return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText "Chat shows $($found -join ', '): the session's folder does not match the open folder (or is untrusted). Nothing was typed. Ask the user, then fix it or pass -IgnoreBanners."
         }
     }
+    Set-StageMark 'banner'
 
     if ($NewSession) {
         $created = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', 'createNewThread')
@@ -458,11 +518,13 @@ try {
         if ($Steer) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'SteerRequiresBusy: the existing chat input is no longer available; nothing was typed or clicked.' }
         return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText 'The chat input is not showing (-NoNavigate was given). Nothing was typed.'
     }
+    Set-StageMark 'ensureInput'
 
     if (-not $OverwriteInput) {
         $draftError = Get-ChatDraftError
         if ($draftError) { return Write-Result -Sent $false -Attempts 0 -InputText $null -ErrorText $draftError }
     }
+    Set-StageMark 'draft2'
 
     $attempt = 0
     $lastError = $null
@@ -471,16 +533,21 @@ try {
         $attempt++
         if (-not (Set-AgentForegroundWindow -Handle ([IntPtr][Convert]::ToInt64($Hwnd, 16)))) {
             $lastError = Get-ForegroundFailureText
+            Set-StageMark 'loopForeground-failed'
             continue
         }
+        Set-StageMark 'loopForeground'
         if ($Steer) {
             $steerError = Get-ChatSteerError
             if ($steerError) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $steerError }
         }
         Clear-ChatInput
+        Set-StageMark 'clear'
         $typed = Invoke-Ui @('type', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--text', $Text, '--paste', '--verify')
+        Set-StageMark 'paste'
         if ($typed.success) {
             $actual = Get-ChatInputText
+            Set-StageMark 'readback'
             if ([string]::Equals(($actual.Replace("`r`n", "`n").Replace("`r", "`n")), $Text, [StringComparison]::Ordinal)) {
                 $lastError = $null
                 break
@@ -510,6 +577,7 @@ try {
         $buttonId = 'SteerButton'
     }
     $sent = Invoke-Ui @('click', '--hwnd', $Hwnd, '--strategy', 'AutomationId', '--value', $buttonId)
+    Set-StageMark 'send'
     if (-not $sent.success) {
         if ($Steer) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText 'SteerClickFailed: SteerButton was not invoked; no fallback was attempted.' }
         return Write-Result -Sent $false -Attempts $attempt -InputText $actual -ErrorText "Send click failed: $($sent.error) $($sent.message)"

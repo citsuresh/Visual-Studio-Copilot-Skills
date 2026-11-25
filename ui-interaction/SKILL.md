@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 23`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 24`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -100,6 +100,11 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
   - v23 - Resolves managed executable paths from the successful-build marker when available and
     distinguishes observational remote-session diagnostics from an RDP activation fix.
+  - v24 - Documents Windows PowerShell 5.1 pitfalls, partly off-screen windows that still report
+    `IsOffscreen: false`, and floating tool windows, from a 2026-11-25 cross-chat sender test. The
+    5.1 pitfalls are single-result `.Count`, `$PSScriptRoot` empty in `param()` defaults for advanced
+    scripts run with `-File`, backslash-before-quote native argument corruption and DPI-unaware window
+    coordinates. Documentation only; no script or toolkit verb changed.
 
 # UI Interaction
 
@@ -629,6 +634,32 @@ consumer of this skill — not an app-specific fact (those belong in that app's 
   send empty and `--`-prefixed values in `--flag=value` form.
   For the new identity verb only, `--verifyPackage` may also be bare; `activate --restore`
   requires an explicit `true` or `false`.
+- **Windows PowerShell 5.1 script pitfalls** (observed 2026-11-25 on 5.1.26100):
+  - `.Count` on a single result can be `$null` (seen for one `Get-CimInstance` object): wrap the
+    result in `@(...)` before counting.
+  - `$PSScriptRoot` is empty inside a `param()` default when the script runs with
+    `powershell -File` and has `[CmdletBinding()]` or any `[Parameter()]` attribute (reproduced; a
+    plain `param()` block and the script body work). Set such defaults in the body.
+  - Native arguments: escaping only `"` as `\"` corrupts text with a backslash before a quote
+    (`Path C:\temp\"x" end` arrived as `Path C:\temp\x"` and the caller still reported success).
+    Double the backslashes that precede a quote and any trailing backslashes, as
+    `agent-orchestrator\scripts\Send-CopilotPrompt.ps1` does in `ConvertTo-NativeArgument`, and read
+    back what arrived.
+  - A DPI-unaware PowerShell sees window rectangles scaled (1/1.5 at 150%). Call
+    `SetProcessDPIAware` before `GetWindowRect`/`SetWindowPos`, or use the toolkit's physical values.
+- **A partly off-screen window can look on-screen.** Observed: a chat input at y=1520 on a
+  1080-pixel-high screen still reported `IsOffscreen: false`, and the input verb failed only with
+  `foreground-activation-failed`, which does not say the target is outside the screen. The
+  coordinate verbs check a point against the window rectangle, not the screen, and the toolkit's
+  selector click does not check the element against the screen: from reading the source, Windows
+  clamps `SetCursorPos` to the screen, so an element centred outside it would be clicked at the
+  screen edge (the pointer was seen ending near the bottom row; whether a click was dispatched is
+  unverified). Compare the element's `boundingRect` with the monitor's working area before acting,
+  and move the window back or ask the user rather than clicking at the edge.
+- **Floating tool windows.** `list-windows --pid` also returns undocked tool windows of the same
+  process; their titles may lack the product name and they can be listed with `IsModal: true` and an
+  owner. When a control is not found in the main window, try every top-level window of that process
+  before concluding it is missing.
 - *(Resolved, kept for reference of the format above)* the toolkit's `send-keys` verb used to
   auto-focus an element with a click before sending keys, which broke reliable arrow-key
   navigation on custom listbox controls exposing zero UIA children. Fixed upstream in
