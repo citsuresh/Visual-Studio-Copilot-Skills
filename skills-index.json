@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 38,
-      "whatsNew": "Send-CopilotPrompt.ps1 is about 2 s faster per send (measured) and no longer moves the pointer to paste."
+      "version": 39,
+      "whatsNew": "Adds Send-AgentMessage.ps1, which sends a message by mailbox when the worker chat is listening, else by Send-CopilotPrompt.ps1, else by its new -Conservative path."
     },
     "project-memory-management": {
       "version": 3,

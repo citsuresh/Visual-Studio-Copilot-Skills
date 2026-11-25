@@ -70,6 +70,8 @@ Agent-orchestrator v37 makes `Send-CopilotPrompt.ps1` about 2.2 s faster again (
 
 Agent-orchestrator v38 and ui-interaction v27 make `Send-CopilotPrompt.ps1` about 2 s faster again (median 5.8 s to 3.4 s, 3.7 s to 2.6 s without the quiet wait, one machine) and stop it clicking the chat input to paste: the prompt is pasted at the keyboard focus of the input it already holds, the own-host check no longer lists windows, and the red-dot lead is 250 ms. The old click-and-paste path remains as the fallback.
 
+Agent-orchestrator v39 adds `Send-AgentMessage.ps1`: a message goes by mailbox when the worker chat is listening (a live test: sent in under 1 s, nothing typed or clicked, the worker acting about 5 s later against about 10 s by UI send), else by `Send-CopilotPrompt.ps1`, else by its `-Conservative` path. Mailbox mode is opt-in per worker (`-Bootstrap` starts it, `-StopListening` ends it); a mailbox cannot wake an idle chat.
+
 ## Prerequisites
 
 - Visual Studio 2026, **Professional or Enterprise** (Agent Skills is not available in the free

@@ -117,6 +117,12 @@
     Speak the request to pause (read-aloud skill) instead of repeating the sound. Pass it only when speech is
     on in this chat.
 
+.PARAMETER Conservative
+    Use the older, slower input steps: click the input and paste with `type --paste --verify` (instead of pasting at the
+    keyboard focus of the input already held), click Send through the helper (instead of invoking the button in this
+    process), and search the window again at each stage instead of reusing the input found a moment ago. Every check and
+    guard is the same. Used by Send-AgentMessage.ps1 as its last fallback. Appended last to preserve positional order.
+
 .OUTPUTS
     PSCustomObject (or JSON with -AsJson): Sent, Attempts, InputText, Error (plus Timings with
     -Trace, and Handback after a send that borrowed the keyboard: Restored, UserInput, NotVerified and so on).
@@ -178,7 +184,9 @@ param(
 
     [switch]$NoRestoreFocus,
 
-    [switch]$SpeakRequest
+    [switch]$SpeakRequest,
+
+    [switch]$Conservative
 )
 
 $ErrorActionPreference = 'Stop'
@@ -253,7 +261,7 @@ function Set-HeldChatInput {
 }
 function Get-ChatInputElementsCached {
     param([int]$MaxAgeSeconds = 10)
-    if ($script:HeldInput) {
+    if ($script:HeldInput -and -not $Conservative) {
         try {
             $age = ([Diagnostics.Stopwatch]::GetTimestamp() - $script:HeldInputAt) / [Diagnostics.Stopwatch]::Frequency
             $c = $script:HeldInput.Current
@@ -918,7 +926,7 @@ try {
         Set-StageMark 'clear'
         $interrupted = Get-InputBlockInterruption -RequireForeground
         if ($interrupted) { return Write-Result -Sent $false -Attempts $attempt -InputText $null -ErrorText $interrupted }
-        $typed = Invoke-ChatPasteAtFocus
+        $typed = if ($Conservative) { $null } else { Invoke-ChatPasteAtFocus }
         if ($null -eq $typed) { $typed = Invoke-Ui @('type', '--hwnd', $Hwnd, '--strategy', 'Name', '--value', $InputName, '--text', $Text, '--paste', '--verify') }
         Update-InputBlockStamp
         Set-StageMark 'paste'
@@ -958,7 +966,7 @@ try {
     # Plain send: invoke the button in this process when that is unambiguous (0.2 s instead of 0.7 s); otherwise,
     # and for a steer, use the helper's click as before.
     $invoked = $false
-    if (-not $Steer) {
+    if (-not $Steer -and -not $Conservative) {
         try { $invoked = Invoke-ChatSendButton }
         catch { return Write-Result -Sent $false -Attempts $attempt -InputText $actual -ErrorText "Send click failed: the Send button could not be invoked ($($_.Exception.Message)). The prompt is in the input; check the chat before trying again." }
     }

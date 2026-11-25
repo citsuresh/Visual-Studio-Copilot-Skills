@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 38`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 39`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,7 +243,17 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
-  - v38 - `Send-CopilotPrompt.ps1` is about 2 s faster per send (measured) and no longer moves the pointer to paste.
+  - v39 - Adds `Send-AgentMessage.ps1`, which sends a message by mailbox when the worker chat is listening, else by
+    `Send-CopilotPrompt.ps1`, else by its new `-Conservative` path. A message posted to a listening worker is taken in
+    under a second and nothing is typed or clicked (live, one machine, 3 messages: router 0.6 to 0.9 s, the worker's
+    next command 4.8 to 5.2 s later; UI send about 10 s). The mailbox cannot wake an idle chat, so the first message
+    goes by UI with `-Bootstrap`, which tells the worker to run `Wait-AgentMailbox.ps1` after each task; `-StopListening`
+    ends it. A listener counts as alive only with a fresh heartbeat from the recorded process; the folder is private to
+    the user, messages are deleted once read and after 10 minutes, and an unclaimed message is withdrawn before the UI
+    is used, so it cannot arrive twice. The mailbox lives under the temp folder, because a worker's terminal did not see
+    files put under %LOCALAPPDATA%\AgentUi in a live test. `Send-CopilotPrompt.ps1` gains `-Conservative` (the older
+    click-and-paste steps). Every send returns a one-line `Display` for the person, and the worker is told to start each reply
+    with `From orchestrator:`. Offline: 56 mailbox, 48 router and 406 sender assertions.  - v38 - `Send-CopilotPrompt.ps1` is about 2 s faster per send (measured) and no longer moves the pointer to paste.
     The prompt is pasted at the keyboard focus: the input element already held is given focus through UI Automation,
     it must report keyboard focus and the target window must be in front, and then `paste-text` sends Ctrl+V
     (0.9 s instead of 1.5 s; the old `type --paste --verify` click-and-search path is the fallback whenever any of
@@ -368,6 +378,9 @@ message, several matches the candidate list); `-Hwnd` wins when both are given.
 | Script | Use it for | Changes anything? |
 | --- | --- | --- |
 | `Send-CopilotPrompt.ps1` | Step 2: guard drafts, new session (optional), clear, paste, verify, then Send; `-OverwriteInput` permits draft replacement | Sends a prompt |
+| `Send-AgentMessage.ps1` | Step 2b: send one message by the fastest safe route: mailbox (worker listening), then `Send-CopilotPrompt.ps1`, then its `-Conservative` path; `-Bootstrap` starts mailbox mode, `-StopListening` ends it | Sends a message |
+| `Wait-AgentMailbox.ps1` | Run by the worker chat after each task in mailbox mode: waits for the next message and prints it | Writes only the mailbox folder |
+| `AgentMailbox.ps1` | Library for the two above (folder layout, liveness, limits); dot-sourced, runs nothing | No |
 | `Watch-CopilotChatV2.ps1` | Step 3 (default): light poll until Pending, Idle, or timeout; no prompt text | No |
 | `Watch-CopilotChatV1.ps1` | Step 3: full-tree poll; returns prompt question/options, `AwaitingReply`, banners | No |
 | `Get-CopilotChatTranscript.ps1` | Step 3: full text of the latest reply/replies, with structural `Kind` per message | No |
@@ -695,6 +708,45 @@ Then click Send:
 ```
 (`SendButton`'s `AutomationId` IS reliable, unlike the input.)
 
+## Step 2b - Faster messages by mailbox (opt-in per worker)
+
+**When to use it.** Only for work that needs to-and-fro between you and the worker: phases you hand over one by one,
+questions you expect to answer, instructions you will adjust. A one-shot task (send it, wait for the result) goes by
+`Send-CopilotPrompt.ps1`: a listening worker costs a turn on every wait and shows as busy, which a one-shot task never needs.
+
+`Send-AgentMessage.ps1` is the sender to use when a worker will receive several messages. Routes, in order:
+1. **Mailbox.** If the worker chat is running `Wait-AgentMailbox.ps1` (heartbeat under 3 s old, from the recorded
+   process), the message is posted as a file and claimed in about 0.2 s. Nothing is typed, no window is touched and
+   the person at the keyboard is not disturbed: no quiet wait, no focus or pointer taken, no red dot, and it does not
+   matter which window or virtual desktop the person is using (the UI routes refuse a window on another desktop).
+   This is the main reason to prefer it when the person is working on the same machine. A worker that has just taken a message listens again within seconds;
+   the router waits up to 8 s for that (`-ReListenWaitSeconds`) instead of typing into its chat.
+2. **UI sender.** `Send-CopilotPrompt.ps1`, with every guard. A chat that was listening is busy, so this tier steers it.
+3. **Conservative UI sender.** `-Conservative`: the older steps, only after a mechanical failure of tier 2. A refusal
+   that is a decision (a draft in the input, the person typing, off-screen input, a banner, own-host window) is
+   returned as it is.
+
+Starting it: the mailbox cannot wake an idle chat. Send the first task with
+`.\Send-AgentMessage.ps1 -Hwnd <h> -Bootstrap -Text '<one-line task>'`; it goes by UI and adds one line telling the worker
+to run `Wait-AgentMailbox.ps1 -Channel <name>` after each task and treat its printed MESSAGE as the next instruction.
+Later messages: `.\Send-AgentMessage.ps1 -Hwnd <h> -Text '<message>'` (multi-line text is fine by mailbox, not by UI).
+Phased work: bootstrap once with phase 1, then send each later phase with `Send-AgentMessage.ps1` once the worker has
+finished the previous one (watch for it listening again, or Idle/Pending as in Step 3), and end with `-StopListening`. Send a
+phase only when the worker is listening: a message posted while it is still working waits up to 8 s and is then steered by
+the UI, which interrupts the phase in progress.
+**Always end it.** As soon as the to-and-fro is over (the last phase is done, or the person stops the work), send
+`.\Send-AgentMessage.ps1 -Hwnd <h> -StopListening` and check the worker went idle (Step 3), so its chat no longer shows as
+busy and no turns are spent waiting. Do this on early exits and failures too (Step 7). The worker is also told to stop
+by itself after two timeouts in a row (about 13 minutes without a message) and to tell the person.
+Ending it: `-StopListening`. The worker keeps listening only while it obeys the loop (each wait ends after 400 s and the
+worker runs it again); a worker that stops, errors or is stopped by the person drops back to the UI routes by itself.
+The result has `Sent`, `Tier`, `Attempts` (one line per tier tried), `Preview` (the first 120 characters of the message) and
+`Display`, one line to show the person.
+- **Keep the exchange visible.** For every message you send, show the person the `Display` line in your reply (direction,
+  route, time, preview) and, when the worker answers, a one- or two-line summary of its reply. The bootstrap tells the worker
+  to begin each reply to a mailbox message with `From orchestrator: <a few words>`, so someone watching the worker's chat can
+  follow it too; the printed message itself also shows in the worker's command output. Never send or summarize secrets. While a worker listens its chat shows as
+busy. Messages are private to the user's account, deleted when read or after 10 minutes, and limited to 8000 characters.
 ## Step 3 — Poll for state (Working / Pending / Idle)
 
 WARNING: Run the watcher as a tracked async shell command: shell tool mode async, retain the
@@ -1035,7 +1087,9 @@ Run this when the orchestration session ends, including when it ends early or fa
 2. **Index check**, only if `scripts\SCRIPTS.md` exists: every index line points to an existing
    file (`Test-Path`), and every non-core `.ps1` in `scripts\` has an index line. Add a missing
    line for an unlisted learned script; report anything else and change nothing.
-3. **Clear the indicator:** `AgentCursor.ps1 -Session Stop`.
+3. **End mailbox mode:** for every worker started with `-Bootstrap`, run `Send-AgentMessage.ps1 -Hwnd <h> -StopListening`
+   (if it reports no live listener, the worker has already stopped or is between waits: check its chat once). Then
+   **clear the indicator:** `AgentCursor.ps1 -Session Stop`.
 4. Report in a few lines: scripts saved/updated, mismatches, proposals. Skip any part with
    nothing to say.
 

@@ -188,7 +188,7 @@ $enableCursor = $ast.Find({ param($node)
 Assert-True ($preflight.Extent.EndOffset -lt $enableCursor.Extent.StartOffset) 'Draft refusal must precede cursor/input actions.'
 $OverwriteInput = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($preflight.Extent.Text)))) 'Explicit overwrite should bypass draft refusal.'
-Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-9] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
+Assert-True (@($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)[-10] -eq 'OverwriteInput') 'Draft switch must stay in its published position.'
 $callerPath = Join-Path (Split-Path -Parent $SenderPath) 'Invoke-CopilotReview.ps1'
 $callerAst = [Management.Automation.Language.Parser]::ParseFile($callerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
@@ -328,6 +328,7 @@ Assert-True ($null -eq (Get-ChatInputScreenError -Elements @([pscustomobject]@{ 
 $script:areas = @(New-ScreenArea 0 0 1920 1008)
 # ---- reuse of the input element found a moment ago (revalidated; never a stale or changed element) ----
 $InputName = 'Ask Copilot'
+$Conservative = $false
 $script:HeldInput = $null; $script:HeldInputRect = $null; $script:HeldInputAt = 0
 $script:searches = 0
 $script:searchResult = @()
@@ -452,8 +453,9 @@ foreach ($name in @('Invoke-Ui', 'Get-ChatActionButtons', 'Get-ChatInputElements
 $script:HeldInput = $null   # nothing held from these checks for the send-loop tests
 $Hwnd = $savedHwnd; if ($null -ne $savedText) { $Text = $savedText }
 $sendSource = $ast.Extent.Text
-Assert-True ($sendSource -match '\$typed = Invoke-ChatPasteAtFocus\s+if \(\$null -eq \$typed\) \{ \$typed = Invoke-Ui @\(''type'', .*--paste.*--verify') 'The paste step must try the focus paste first and keep the verified type-paste as the fallback.'
-Assert-True ($sendSource -match 'if \(-not \$Steer\) \{\s+try \{ \$invoked = Invoke-ChatSendButton \}') 'Only a plain send may use the in-process click; a steer keeps the helper.'
+Assert-True ($sendSource -match '\$typed = if \(\$Conservative\) \{ \$null \} else \{ Invoke-ChatPasteAtFocus \}\s+if \(\$null -eq \$typed\) \{ \$typed = Invoke-Ui @\(''type'', .*--paste.*--verify') 'The paste step must try the focus paste first and keep the verified type-paste as the fallback.'
+Assert-True ($sendSource -match 'if \(-not \$Steer -and -not \$Conservative\) \{\s+try \{ \$invoked = Invoke-ChatSendButton \}') 'Only a plain, non-conservative send may use the in-process click; a steer or -Conservative keeps the helper.'
+Assert-True ($sendSource -match '\$script:HeldInput -and -not \$Conservative') '-Conservative must search for the input again instead of reusing the held element.'
 Assert-True ($sendSource -match '\$inputSeen -and \$null -ne \$script:SeenBannerIds') 'The banner stage may reuse the combined search only when the input was found by it.'
 $ownGuard = $ast.EndBlock.Statements | Where-Object {
     $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text -match 'Get-OwnHostError'
@@ -466,11 +468,11 @@ $result = & ([scriptblock]::Create($ownGuard.Extent.Text))
 Assert-True (-not $result.Sent -and $result.Attempts -eq 0 -and $result.Error -match 'OwnHostWindow') 'Default own-host guard did not return a refusal.'
 $AllowOwnHost = $true
 Assert-True ($null -eq (& ([scriptblock]::Create($ownGuard.Extent.Text)))) 'Explicit AllowOwnHost should bypass the guard.'
-Assert-True (($ast.ParamBlock.Parameters[-8].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
-Assert-True (($ast.ParamBlock.Parameters[-7].Name.VariablePath.UserPath) -eq 'Steer') 'Steer must be appended after existing positional parameters.'
-Assert-True (($ast.ParamBlock.Parameters[-6].Name.VariablePath.UserPath) -eq 'Trace') 'Trace must be appended after existing positional parameters.'
-$newNames = @($ast.ParamBlock.Parameters[-5..-1] | ForEach-Object { $_.Name.VariablePath.UserPath })
-Assert-True (($newNames -join ',') -ceq 'QuietSeconds,MaxWaitSeconds,IgnoreUserActivity,NoRestoreFocus,SpeakRequest') 'The user-activity parameters must be appended last, in this order.'
+Assert-True (($ast.ParamBlock.Parameters[-9].Name.VariablePath.UserPath) -eq 'AllowOwnHost') 'Sender switch must preserve prior positional parameter order.'
+Assert-True (($ast.ParamBlock.Parameters[-8].Name.VariablePath.UserPath) -eq 'Steer') 'Steer must be appended after existing positional parameters.'
+Assert-True (($ast.ParamBlock.Parameters[-7].Name.VariablePath.UserPath) -eq 'Trace') 'Trace must be appended after existing positional parameters.'
+$newNames = @($ast.ParamBlock.Parameters[-6..-1] | ForEach-Object { $_.Name.VariablePath.UserPath })
+Assert-True (($newNames -join ',') -ceq 'QuietSeconds,MaxWaitSeconds,IgnoreUserActivity,NoRestoreFocus,SpeakRequest,Conservative') 'The user-activity parameters must be appended last, in this order.'
 $quietParam = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'QuietSeconds' }
 $waitParam = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'MaxWaitSeconds' }
 Assert-True ($quietParam.DefaultValue.Extent.Text -eq '3' -and $waitParam.DefaultValue.Extent.Text -eq '120') 'Defaults must be a 3 second quiet period and a 120 second limit.'
