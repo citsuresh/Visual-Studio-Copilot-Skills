@@ -1,281 +1,66 @@
 # Project State
 
-This file is overwritten (not appended) at the end of each working session.
+This file is overwritten (not appended) at the end of each working session. Earlier snapshots are in git history.
 
 ## Current focus
 
-2026-11-25: made messaging between the orchestrator and a worker Copilot chat faster and safe for the person at the keyboard.
-`agent-orchestrator` is at v42 and `ui-interaction` at v27 (committed, pushed and installed; `origin/main` b379c49).
-- `Send-CopilotPrompt.ps1` (v32 to v38): about 12 s down to about 3.4 s per send (median, one machine). It waits for a
-  quiet keyboard and mouse, takes the foreground only for input steps, stops if the person starts typing, and gives their
-  window, focus and pointer back; refuses an input that is off-screen, a draft, a banner, its own host window, a window on
-  another virtual desktop (v42: also a busy chat). The helpers compile once into a cached DLL, the input found is reused
-  while it still looks the same, the Send click is made in-process, and the paste goes to the keyboard focus without
-  clicking. `-Conservative` keeps the older steps as a fallback.
-- Mailbox (v39 to v41): `Send-AgentMessage.ps1` sends by mailbox when the worker chat is running `Wait-AgentMailbox.ps1`
-  (message taken in about 0.2 s, nothing typed or clicked, works on another desktop), else by the UI sender, else by the
-  conservative path. Opt-in per worker (`-Bootstrap`, `-StopListening`), for to-and-fro work only. Private folder under the
-  temp folder (the worker's terminal cannot see new folders under AppData), heartbeat liveness, unclaimed messages are
-  withdrawn before the UI is used. The worker shows `From orchestrator:` and `Replying to orchestrator:` lines.
-- v40: troubleshooting log (`Get-AgentMailboxLog.ps1`): sender log in `%LOCALAPPDATA%\AgentUi\logs`, listener log in the
-  channel folder under the temp folder; lengths and hashes, never text unless `-LogText`; 512 KB rotation, 30-day cleanup.
-- Offline suites (all pass at last run): sender 417, mailbox 72, router 49, choice-prompt 31, user-activity 81, watcher 19
-  (the watcher suite passes only via `-Command "& script"`, not `-File`).
-- Live evidence (one machine, Skills VS chat): mailbox message in 0.6 to 1.6 s, worker's next command 4.8 to 7.9 s later
-  (UI send about 10 s); resume after a stop, killed listener falling back to one UI send, and a bootstrap into a busy chat
-  refused all worked. Not run live: the worker ending its loop by itself after two timeouts, a worker that never listens
-  again, a mailbox send while the person is on another virtual desktop, the Teams screen-share detection.
-- Standing user rules: UI automation must never disturb a person typing; keep testing cheap (offline first, batch live
-  runs); switch to a model that suits the task or ask the person to.
-
-### Prior snapshot (2026-11-19, kept for reference)
-2026-11-19: Applied the user's reviewed generic hardware-session feedback to three skills:
-read-aloud explicitly reports failed audio as not notifying the user; push-notifications v5
-distinguishes acceptance from delivery and supports optional user-confirmed receipt; orchestrator
-v24 documents async result retrieval, live step/iteration evidence and verified reusable cleanup.
-No helper implementation, framework code or hardware was changed. Four reported framework
-patterns are recorded as unverified candidates in `docs/framework-improvements.md`.
-README, code summary and generated skills index reflect the changes. Offline mocked speech/
-auto-TTS and sender/privacy regressions pass; approved source/draft hashes match and the index
-check passes. These checks do not prove audible speech, phone delivery or hardware cleanup.
-User chose publication only, without local installation, and approved commit/push of the
-reviewed eight-file feedback batch. Commit identity belongs in Git history; remote publication
-must be verified separately rather than inferred from this snapshot. No new reusable script
-was written.
-
-Earlier in this session, approved Bootstrap synced project memory from v27 to v28. All four
-core docs and the 11-entry script index exist. Docs-only mode has no solutions/graphs/Key Flows;
-optional domain patterns, known findings and feature checklist are absent. Graph viewer matches
-the installed skill. GraphTools is current; AgentDebugToolkit is two commits behind and was not
-updated. Speech and pushes remain off in this chat. Bootstrap's instructions change is separate
-from the feedback publication batch; no old session's mode or action approval carries forward.
-
-### Prior-session snapshot (historical; not current-chat mode or action approval)
-
-2026-11-19: user explicitly approved applying packaged vs-chat-history v13 after unified-diff
-review. Source now bundles the canonical `vs-chat-history/scripts/Invoke-IdleChatRename.ps1`;
-the old root path forwards unchanged parameters/output, and expanded tests stay repository-only.
-The installer already recursively discovers the runtime; no installer/toolkit change is needed.
-README, code summary, script catalog, append-only design notes and generated index are aligned.
-
-Current-chat renaming requires an explicitly approved independent worker, exact final-message
-hash, stable idle, pinned host/header and empty draft. Other verified idle chats use optimized
-direct UI steps. No rename during generation, store edits, automatic restart or uncertain retry.
-Clipboard omission is valid only with a complete snapshot; denied foreground activation stops
-before navigation. "Active session" identifies selection, not generation.
-
-Validation: strict clipboard/focus/idle/hash/title/timing, compatibility and mocked documented
-launcher regressions pass against the applied source and installed payload. Skill/forwarder/tests
-exactly match their approved drafts; bundled runtime differs only by its file-creation terminal
-newline, not code. Index check is UpToDate; pre-install check identified exactly the skill and
-new runtime. No application build applies in this docs/PowerShell repository.
-
-Prior live evidence remains: optimized independent temporary self-rename/restore passed every
-idle/foreground/title/context/cursor check; UI phases took 20.271s and 21.491s. Full cycle took
-182.353s, including 118.679s first idle waiting. The other chat was restored with target context
-verified, but its older caller-message return check was unavailable; user accepted that limit
-and requested no additional rerun. Both titles are restored; no live worker remains.
-
-User separately approved installation. Installed v13 using `-Force -SkipToolkits`; both skill
-and bundled runtime SHA256 hashes match the repository. Installed-payload regressions pass;
-post-check reports `RESULT: UpToDate`. Updated instructions apply in a new chat session.
-User explicitly approved retrying commit and push of the manually reviewed ten-file batch.
-An earlier native Git fetch could not connect to github.com:443; GitHub API reads verified
-upstream main at `ad543ac`. Publication must verify the remote commit, not assume a successful
-push. Commit identity belongs in Git history. Private test controllers/results/logs remain
-outside Git and are not distributed with the skill. No new UI rename, toolkit update or MCP
-restart in this delivery batch.
-
-Prior feedback batch is published: skills `ad543ac`, toolkit fixes `be9e735`, separate historical
-metadata/log `66ecbfc`; both remote identities and clean trees were verified at publication.
-User independently reported matching installed `66ecbfc` identities, 92 focused plus 20 additional
-compatibility passes, passing PowerShell regressions and equal seven-poll baseline/heartbeat
-runs. Treat that as current evidence for the validated environment, not this host's installation
-or proof of live recovery. Historical 252/72 results are not fresh validation. This host's last
-installer check still reported AgentDebugToolkit Behind at `68bbd1c`.
-
-Remaining: two unexplained desktop-sensitive failures, approved disposable RDP reproduction,
-original NoVoice/audible recovery, live agent handoff/dedup behavior and prolonged/retry waits.
-No device/framework changes; Radio T25 remains out of scope. Pushes and auto TTS are enabled for
-this chat only; phone delivery is not inferred from server acceptance. Historical notes below
-are superseded by this current-focus snapshot.
-
-2026-11-18 closeout (supersedes historical pending statuses below): user explicitly accepted
-the intermittent desktop-test limitation and authorized toolkit commit/push/install. Published
-Batch B `ac3fd7b` and C `68bbd1c`; exact remote HEAD and installed clone/executable build identity
-are independently verified as `68bbd1c27852c6ea403cc500ded77a932cfa0b6d`, clean-source build.
-Installer rebuilt all four tools with 0 warnings/errors; final `RESULT: UpToDate`. Protected
-pre-existing toolkit files remain uncommitted and unchanged. No portable release or MCP restart
-was performed. New capabilities are present in installed UI/debugger `info` output.
-
-Notification v2 packaging draft was shown and explicitly approved, then applied to source:
-canonical unchanged sender/setup now ship under `push-notifications/scripts/`; old paths forward.
-Approved skill/runtime hashes match; forwarders differ from drafts only by the existing EOF
-newline. Offline compatibility-sender/privacy and bundled setup fixtures passed; setup forwarder
-WhatIf passed. After separate explicit approval, v2 was installed and all three installed-file
-hashes verified; post-check `RESULT: UpToDate` (`-SkipToolkits`). Installed sender offline checks
-and setup WhatIf passed without reading real credentials. Actual XML stays unchanged outside Git.
-The old current-chat flow is OFF; installed v2 alerts are ON for this chat under explicit user
-consent. Auto TTS remains independently ON. The normal-title Question dry run used only the
-installed sender; the server accepted it and the user confirmed phone delivery and correct
-MacroDroid routing. The user then explicitly approved commit/push of the reviewed 17-file skills
-batch; its final revision belongs in Git history rather than this self-referential snapshot.
-
-AgentDebugToolkit Phase 1a was published as `6587af7`; Batch A as `75e2b4d`, with its exact ten-file
-scope and remote hash independently verified. Batch A's independent full build had zero warnings/
-errors and all 388 tests passed. Batch B is implemented; its final TRX independently confirms
-106 passed / 0 failed / 0 skipped. The agent reported a successful build, without a warning count.
-Its 25 exact source files are frozen outside Git and staged under explicit user approval;
-staging is not commit approval. The primary cumulative B source audit found no confirmed new
-defect. An isolated base-A checkout plus all 25 hash-verified B files independently built with
-0 errors and 6 NU1900 warnings from unavailable configured vulnerability feeds; this was not a
-warning-clean build. Its fresh-checkout missing-assets failure and successful restore/build logs
-are preserved. Independent targeted runs passed 48 + 58 distinct cases, verified to match all
-106 original case names exactly; the first selector omitted debugger classes named differently
-from their source filename. No cases were repeated to hide a failure. Publisher syntax passed.
-All five protected baseline hashes were independently unchanged before the C handoff.
-
-Batch C Phase 3 bounded inspection is implemented in 14 unstaged files; its actual final reply
-and 86-pass/0-failure/0-skip TRX were independently verified. Phase 4 structured paged UIA readers
-is implemented; the actual final reply and 174 distinct passing TRX cases were independently
-verified, including all 86 selected Phase 3 cases. CLI/MCP now have `read-rows` and
-`read-tree-items`; successful live provider integration remains untested. Phase 5 verified
-selection has reported implementation/build completion. Its original combined run was
-267 passed / 33 failed; a corrected fake-resolution counter recheck passed the entire 58-case
-selection-engine class. The primary independently verified 242 unaffected passes + those 58
-corrected cases cover exactly the original 300 names, NOT one clean combined run. Failures stay
-preserved. The 26-file cumulative C source snapshot is reviewed with no confirmed new production
-defect. The actual `msg-provider-fixtures` reply and its new six-method WPF integration test
-file were reviewed; its reported build succeeded, but tests were deliberately not run. Review
-caught an incorrect tree-offset expectation before execution and a minor CLI budget-scope doc
-ambiguity. The actual `msg-provider-corrections` completion and exact corrected lines are verified:
-tree index 1 must be child B with its exact ID; grid selection must contain one item; docs allow
-budgets on the other supported verbs. No assertions were weakened. Independent final full-solution
-CLI build passed with 0 warnings / 0 errors. The host VS build tool could not build the external
-project because it lacks an active configuration here; CLI validation succeeded instead. Source
-hash comparison shows only the expected new test and contract-doc changes since the C audit;
-the 124-file final baseline is saved. Frozen B index hash and its 25-path scope are verified.
-The authorized final full suite ran with the desktop idle: 764 tests, 762 passed, 2 failed, 0 skipped.
-Five of six new provider-fixture tests passed. The bounded inspect/text fixture failed because its
-maxNodes=6 budget stops before the first TextBlock; this is a test expectation defect, not evidence
-that bounded traversal returned a wrong value. An existing minimized coordinate double-click case
-also failed while click and right-click variants passed; this needs a focused diagnosis before any
-claim of full regression success. Full log is preserved externally. No retry or assertion weakening
-was performed. No WinForms/x86/hardware or real publication claim is established. The B staged
-fingerprint must remain unchanged, and C must remain unstaged. No commit/push/publication/toolkit
-installation, production apps/debugger/hardware actions. The toolkit agent then fixed both failures in test scope: the bounded fixture uses maxNodes=8
-so its first text node is reachable while the budget assertion remains; the minimized pointer
-fixture waits for the native IsIconic state before invoking restore/double-click. Focused evidence
-is 7 passed / 0 failed / 0 skipped and the covering test-project build succeeded. No production
-code changed. The full-suite rerun cleared both original failures but reported four focus-sensitive failures
-(760 passed / 4 failed): two window-input and two scroll cases returned foreground-activation-failed.
-The agent suspected desktop foreground contention: fixtures use ShowActivated=false
-and depend on SetForegroundWindow; the root cause is not proven. A focused run passed send-keys,
-paste-text, vertical scroll and horizontal-left; horizontal-right delivered the CLI success response
-but did not produce the expected fixture message. No reproducible production regression or contract-
-correct fix was established, so no files changed in that diagnosis. Evidence is preserved in the
-focused TRX and both full-suite logs. Do not claim a clean full suite or publish until the desktop
-focus issue and horizontal-right behavior are separately resolved or explicitly accepted.
-At the user's request, a single additional focused invocation passed all five affected cases
-(send-keys, paste-text, vertical scroll, horizontal-left/right): 5 passed / 0 failed / 0 skipped.
-The primary verified all five named TRX results and counters; log/TRX are preserved externally
-as `focus-five-user-requested-once`. No source changes or repeated attempts accompanied that run.
-This verifies this invocation only, not a clean full suite or resolution of intermittent failures.
-Closeout verification: final solution build passed again with 0 warnings/errors. Frozen B index
-still matches its approved fingerprint. Hash comparison against the pre-validation baseline
-shows only the reviewed two test edits and two generated ignored TRX files; protected files
-are unchanged. User authorized toolkit commit/push/install once changes are good; accepting
-the remaining intermittent full-suite limitation versus further diagnosis is pending.
-Notification packaging v2 is prepared only in an external draft: installed-relative bundled
-sender/setup, unchanged runtime implementations, and compatibility forwarders for old paths.
-Unified skill diff was shown; draft offline privacy/setup checks and PowerShell parsing passed.
-Source/installed skill remain v1 pending explicit apply approval; install and live dry run follow.
-Earlier watcher/activation failures did not establish that the agent stopped; host focus was
-returned and the cursor indicator cleared after the successful handoff.
-
-
-
-This repo remains docs-only. Bootstrap has now synced its project marker to v28. Eleven reusable
-scripts are indexed, including notification helpers, the exact TRX coverage comparator and the
-bundled idle-chat rename worker.
+2026-11-26: a way to supervise a Claude desktop chat, a fix to reading a worker's answer, and the model-switch rules.
+`agent-orchestrator` is at v46, `ui-interaction` at v29, `read-aloud` is unversioned (not in the index); all committed and pushed
+(`origin/main` 30ac9dc) and installed.
+- v45 (`-WaitReply` fix): the worker's `Replying to orchestrator:` line is matched at the start of ANY line, because a worker that
+  follows the bootstrap text puts `From orchestrator:` and `Replying to orchestrator:` in one chat message (seen live). The
+  first guess, a wait card not yet drawn, was not supported by the chat data. `ui-interaction` v29 deletes stale
+  `AgentCursor.Native.<hash>.dll` copies (older than 7 days) after a new compile.
+- v46 (Claude desktop chat): Step 1b of the orchestrator skill identifies the chat type first (`devenv.exe` is Copilot,
+  `Claude.exe` class `Chrome_WidgetWin_1` title `Claude` is Claude). For Claude the window is used once for the first message
+  (`Send-ClaudePrompt.ps1`), later messages go by mailbox with `-Channel`, and the answer is read from the worker's transcript
+  file (`Read-ClaudeReply.ps1`, picks the file by channel name). `-WaitIdleSeconds` waits for a working chat instead of refusing.
+  Live evidence, one machine, Claude 6.28899.6: a value set through UIA applies asynchronously (read-back matched after 117 to
+  178 ms, so it is polled), the box emptied 282 to 334 ms after Send, only the ACTIVE chat exposes a `Prompt`, the busy refusal
+  (`ClaudeBusy`) worked on the real UI, and a Copilot agent in Visual Studio sent the test line into a Claude chat three times
+  (ad hoc code twice, the installed script once). No Claude worker with a mailbox listener was exercised end to end.
+- read-aloud meeting check (`Test-MeetingActive.ps1`, written by another Claude session and reviewed here): stays quiet while
+  an app that is not excluded holds the microphone; `mute` (default), `duck` or `off` in `tts-settings.json`; fails open.
+  `Test-ReadAloud.ps1` passes (8 groups, via `-Command` only). A literal tab in the settings path in the skill text was fixed.
+- Model switching: a session can switch its own model by driving the window's model menu with UIA (applies from the NEXT
+  reply). The rules (suggest with a reason, Switch or Stay card, switch only on a click, 30 s wait then stay) are in the user's
+  GLOBAL `~/.claude/CLAUDE.md`, together with the general working habits and the PowerShell 5.1 pitfalls. This repo's
+  `CLAUDE.md` now holds only project-specific instructions.
+- Offline suites at last run: sender 418, mailbox 76, router 75, Claude sender 28, Claude reader 23, input watcher 13,
+  choice prompt 31, user activity 81, watcher 19 (via `-Command` only), read-aloud 8 groups.
+- Standing user rules: UI automation must never disturb a person typing; keep testing cheap (offline first, batch live runs);
+  commit, push and install only when asked; model suggestions follow the global file.
 
 ## Recently changed
 
-- 2026-11-25 (all pushed): v36 `ec02380`, v37 `e38eacf`, v38 `47f3012`, v39 `5fb70e9` (mailbox), v40 `d6389bf` (log),
-  v41 `33378e1`, v42 `b379c49` (busy-chat refusal). New scripts: `Send-AgentMessage.ps1`, `Wait-AgentMailbox.ps1`,
-  `AgentMailbox.ps1`, `Get-AgentMailboxLog.ps1`; new tests `Test-AgentMailbox.ps1`, `Test-SendAgentMessage.ps1`.
-- Pending commit: four notification/handoff skills, generated index, script catalog, README,
-  code summary/design notes, credential ignore rule and the three notification helper/test scripts.
-- Added `scripts/agent/Compare-TrxCoverage.ps1`: read-only reference-versus-combined-run coverage
-  verification, rejecting duplicates, missing/extra cases and non-passing/incomplete runs.
-- Live Pushbullet tests reached the phone; the user confirmed MacroDroid routing works with the
-  fixed titles. Current sender prefixes approved repository names without accepting arbitrary
-  message bodies. Offline tests cover payload privacy and encrypted first-machine setup using
-	disposable dummy credentials, not the real token. The authorized nearby-helper copy is now
-  hash-verified. All three live-sender `-WhatIf` previews passed with no network sends or token
-  reads; interactive enable/stop and actual-phone handoff tests remain pending. The nine approved
-  draft/diff artifacts were cleaned up after exact-match verification.
-- Bootstrap: `.github/copilot-instructions.md` and this file.
-- Committed/pushed `99b9173`: `ui-interaction` v21, `vs-debug` v10,
-  `agent-orchestrator` v20 and `skills-index.json`. Installed copies were hash-verified.
-- Committed/pushed `3ce128e`: `read-aloud/SKILL.md` now requires hosting-repository identity
-  and announcements before blocking questions in both speech modes. Installed copy matches
-  the approved draft/source hash; post-install check reports `RESULT: UpToDate`.
-
-## Secrets / personal-data review (2026-11-13)
-
-All four repos, working trees and full history: no tokens, keys, passwords, databases or binaries. Fixed and
-pushed to the public toolkit repos the same day (GraphTools 91e46d6, AgentDebugToolkit 67f28aa,
-VsChatHistoryToolkit 65e7594): personal email line removed from GraphTools copilot-instructions.md;
-session-state/ added to AgentDebugToolkit .gitignore; MIT LICENSE added to all three. Left as is: the
-committed graph JSONs in AgentDebugToolkit and VsChatHistoryToolkit contain C:\Users\sveluswa\.nuget\...`npaths (username only; the graphs are those repos' own project memory, so they stay tracked).
-In this repo only `.github/copilot-instructions.md` (Bootstrap-generated) holds a username path.
+- 2026-11-26 (pushed): v45 and ui-interaction v29 `83060ef`, v46 `29cf23e`, read-aloud meeting check `30ac9dc`. New scripts:
+  `Send-ClaudePrompt.ps1`, `Read-ClaudeReply.ps1` (both in `agent-orchestrator/scripts/`), `read-aloud/scripts/Test-MeetingActive.ps1`;
+  new tests `Test-SendClaudePrompt.ps1`, `Test-ReadClaudeReply.ps1`.
+- This commit: this file, the trimmed repo `CLAUDE.md`, the five-column fix of four `docs/SCRIPTS.md` rows (they had two),
+  and a design note.
+- Not committed: `ui-interaction/scripts/Watch-UserInput.ps1` and `scripts/agent/Test-WatchUserInput.ps1` (a watcher that counts
+  key presses, clicks and scrolls and ignores mouse movement; 13 offline assertions; not in the skill text, the index or
+  `docs/SCRIPTS.md`; not tried with real input; not used by any flow yet).
 
 ## Open tasks/bugs
 
-- Mailbox: the listener-side log, the worker's self-stop after two timeouts and a worker that never listens again are
-  tested offline only; waits longer than 400 s are untried; the first mailbox test files under `%LOCALAPPDATA%\AgentUi`
-  were invisible to the worker's terminal (AppData virtualization, not antivirus or sync).
+- Not verified: a reply read from a live Claude worker that runs the mailbox listener; a send into a busy Claude chat that
+  queues; multi-line text; reaching a chat that is not the active one (split view or a second window); the idle suggestion
+  text some users see in the chat box (not exposed in any UIA property read). The meeting check can stay silent if a crashed
+  app leaves its microphone entry open (a guess, not seen); `"meeting":"off"` is the workaround.
 - `Test-AgentMailbox.ps1` failed once in a run of five suites and passed in six reruns; cause not found.
-- The sender's stop-message log entry records length 0 (the listener records 4); cosmetic.
-- Ten other scripts still use `$PSScriptRoot` in a `param()` default, which is empty under `powershell.exe -File`
-  (user chose to leave them). `.github/copilot-instructions.md` has uncommitted changes that are not from this work.
+- Mailbox: the worker's self-stop after two timeouts and a worker that never listens again are tested offline only; waits longer
+  than 400 s are untried.
+- Ten other scripts still use `$PSScriptRoot` in a `param()` default, empty under `powershell.exe -File` (user chose to leave
+  them). `Test-ReadAloud.ps1` and `Test-WatcherProgress.ps1` run only via `-Command`.
 - Teams screen-share detection for the quiet wait is untested until the person can share a screen.
-- Notification v2 packaging, installed hash/offline checks and the user-confirmed phone/routing
-	dry run are complete. The reviewed skills batch has explicit commit/push approval.
-  The old flow is disabled and the installed skill enabled for this chat only. Enable/stop
-  command/timing branches remain partly untested. Missing-XML skill guidance
-  has been reviewed but not exercised interactively; the real credential was never moved/deleted.
-  New skill discovery may require a new chat. No incoming-phone-reply bridge is implemented.
-- TTS pre-question timing: user confirmed the repo-labelled auto-TTS announcement finished
-  before the question card while this VS was inactive. Regular TTS, active-window silence,
-  both-mode precedence and disabled-mode scenarios remain untested for this change.
-- The graph skill's Step 0 toolkit check ran in this chat and reported `GraphTools UpToDate`;
-  repair/error branches were not exercised.
-- Not run: I-39 (missing `skills-source.json`),
-  `SOURCE: Differs` / `NotRecorded`. Not observed: Defender/SmartScreen on locally built unsigned
-  executables; PowerShell 7 (only 5.1 installed).
-- TTS: new `read-aloud` skill (committed, installed, hashes verified) with `Speak-Text.ps1` plus
-  opt-in ducking (`AudioDucker.cs`); graph skill v27 (Step 7c is now a pointer bullet; its `Speak-Text.ps1`
-  is a forwarder). Tested in a temp folder: helper round trip, manual-change case, ducking during speech,
-  kill mid-speech then recovery, stub installed and not installed; live ducking heard and accepted at
-  `duckPercent` 10 (user's machine setting, not in the repo). Not tested: NoVoice with ducking on,
-  PowerShell 7, a real chat triggering the skill from "enable tts".
-- Hooks need `git config core.hooksPath .githooks` once per clone (set here); web-UI edits and
-  `--no-verify` bypass them. No GitHub Action exists.
-- The `install-skills` skill ran in this chat: remote check, approved install with
-  `-SkipToolkits`, installed-file hash comparison and post-install check all succeeded.
-- Not tested: `Speak-Text.ps1` on a machine with no voice (simulated only).
-- Not run live: tool permission prompts, workspace banners, the V2 Idle-to-Pending upgrade path, a card
-  above a scrolled-up chat list, the `Send-CopilotPrompt.ps1` new-session path. All `AgentCursor` and
-  `Compare-RepoSnapshot` cases are marked not run; `Install-Skills` I-01 to I-19 and I-24 to I-35 ran in a
-  sandbox only.
-- AgentDebugToolkit repo (separate): `tools/Watch-CopilotChat.ps1` still has the old name and is not
-  synced with V1; improve the list-windows
-  flag error message; add a test trait for the interactive-desktop click test. It also has two
-  uncommitted graph doc files, deliberately left out. Feedback review confirmed current MCP
-  `ui_inspect` is already read-only and has no screenshot option.
-- `docs/DESIGN_DECISIONS.md` has an unrelated pre-existing typo ("ersion" in the 2026-11-13 skills index
-  entry), not fixed.
-- No code graph or Key Flows file is generated here. Documentation changes need no application
-  build; installer consistency and generated-index checks apply.
+- The Windows agent-activity limit: input sent by this machine's agents cannot be told from the person's input.
+- Carried forward from earlier sessions, not re-checked in this one: notification v2 enable/stop branches partly untested and no
+  phone-reply bridge; TTS cases not run (NoVoice with ducking, PowerShell 7, a real chat triggering "enable tts"); hooks need
+  `git config core.hooksPath .githooks` once per clone; the separate AgentDebugToolkit repo (old `Watch-CopilotChat.ps1` name,
+  list-windows flag message, an interactive-desktop test trait, two uncommitted graph doc files); an unrelated typo ("ersion")
+  in the 2026-11-13 entry of `docs/DESIGN_DECISIONS.md`; the 2026-11-13 secrets/personal-data review found nothing in the four
+  repos (a username path remains only in the Bootstrap-generated `.github/copilot-instructions.md`).
+- This repo is docs-only: no code graph or Key Flows file is generated, and documentation changes need no application build;
+  installer consistency and generated-index checks apply. The graph was not updated in this session's End Session (no solution
+  registered; run Bootstrap only if one is added).
