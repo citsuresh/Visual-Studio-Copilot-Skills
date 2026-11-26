@@ -174,6 +174,15 @@ $r = Select-WorkerReply -Messages @((New-Msg 1 $wait), (New-Msg 2 "Replying to o
 Assert-True ($r.Found -and $r.Text -ceq 'B') 'With two answers in the window the latest one wins.'
 Assert-True (-not (Select-WorkerReply -Messages @()).Found) 'No messages must read as no answer.'
 Assert-True (-not (Select-WorkerReply -Messages @((New-Msg 1 $wait), (New-Msg 2 'From orchestrator: x.'), (New-Msg 3 'Some other reply without the marker'), (New-Msg 4 $wait))).Found) 'An answer without the Replying line is not guessed at.'
+# the real chat shape (seen live): ONE Body entry holds both the "From orchestrator:" line and the "Replying to orchestrator:" line
+$r = Select-WorkerReply -Messages @((New-Msg 9 'Run command: Wait for next orchestrator mailbox instruction'), (New-Msg 10 "From orchestrator: mailbox test message 1.`n`nReplying to orchestrator: test message 1 received."), (New-Msg 11 'Run command: Wait for next orchestrator mailbox instruction'))
+Assert-True ($r.Found -and $r.Text -ceq 'test message 1 received.') 'A reply on a later line of a From orchestrator message must be found, without the From line.'
+$r = Select-WorkerReply -Messages @((New-Msg 9 $wait), (New-Msg 10 "From orchestrator: count.`r`n`r`nReplying to orchestrator: root count.`r`n1"), (New-Msg 11 $wait))
+Assert-True ($r.Found -and $r.Text -ceq '1') 'A reply with a body in a combined message returns the lines after the marker (CRLF too).'
+$r = Select-WorkerReply -Messages @((New-Msg 9 $wait), (New-Msg 10 'From orchestrator: x. I will be Replying to orchestrator: later'), (New-Msg 11 $wait))
+Assert-True (-not $r.Found) 'The marker in the middle of a sentence is not a reply.'
+$r = Select-WorkerReply -Messages @((New-Msg 1 "From orchestrator: old.`nReplying to orchestrator: old answer."), (New-Msg 2 $wait), (New-Msg 3 'From orchestrator: new.'), (New-Msg 4 'Run command: work'), (New-Msg 5 $wait))
+Assert-True (-not $r.Found) 'A combined message from an earlier instruction must not be returned for this one.'
 # the real transcript JSON shape: an array of objects (Windows PowerShell 5.1 returns it as one object unless unrolled)
 $json = '[ { "Index": 6, "Text": "Run command: Wait for the next mailbox instruction", "Kind": "Body" }, { "Index": 7, "Text": "Replying to orchestrator: root Markdown count.\n1", "Kind": "Body" }, { "Index": 8, "Text": "Run command: Wait for the next mailbox instruction", "Kind": "Body" } ]'
 $parsed = @(ConvertFrom-TranscriptJson -Json ("log line before`r`n" + $json))

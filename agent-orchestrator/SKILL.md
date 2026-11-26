@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 44`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 45`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v45 - `Send-AgentMessage.ps1 -WaitReply` now finds a worker's answer that sits on a later line of a `From orchestrator:` message. Before, `Select-WorkerReply` accepted only a message that began with `Replying to orchestrator:`, but a worker that follows the bootstrap text puts both lines in one chat message, so the answer was missed (seen live, one machine: the worker answered correctly, `ReplyFound` was False). The marker is now matched at the start of any line and the answer is the text after it, so the `From orchestrator:` line is not returned. A marker in the middle of a sentence still does not count, and the bounds between the last two wait cards still keep an older answer out. Offline: 75 router assertions, including the real one-message shape; the earlier tests had only separate messages. Not changed: the timing of the read; the first guess (a wait card not yet drawn) was not supported by the chat data.
   - v44 - `Send-AgentMessage.ps1` can now return the worker's answer (`-WaitReply`) and report a worker that is stuck on
     its first listen command (`-Bootstrap -WaitListening`). From an agent's feedback after a long task: the answer to a
     mailbox message is not a user prompt in the chat, so `Read-CopilotReply.ps1 -AfterPrompt` could not find it.

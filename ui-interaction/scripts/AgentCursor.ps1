@@ -300,6 +300,13 @@ function Initialize-AgentNative {
                 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition $script:AgentNativeSource -OutputAssembly $tmp
                 # Several agents may start together: publish with one rename; the loser just discards its copy.
                 try { Move-Item -LiteralPath $tmp -Destination $dll -ErrorAction Stop } catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+                # A new source hash leaves the old copies behind: drop other copies older than 7 days and leftover temp
+                # files older than 1 day. A copy still loaded by a running agent cannot be deleted; that is ignored.
+                foreach ($old in @([IO.Directory]::GetFiles($dir, 'AgentCursor.Native.*.dll'))) {
+                    if ($old -eq $dll) { continue }
+                    $days = if ($old -like '*.tmp.dll') { 1 } else { 7 }
+                    try { if (([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($old)).TotalDays -ge $days) { [IO.File]::Delete($old) } } catch { }
+                }
             }
             if (@($names | Where-Object { -not ($_ -as [type]) })) { Add-Type -Path $dll }
         }

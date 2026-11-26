@@ -5,7 +5,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 28`. Compare this file's version against the source-of-truth copy at
+- `CURRENT_SKILL_VERSION = 29`. Compare this file's version against the source-of-truth copy at
   `<skills repo>\ui-interaction\SKILL.md` (the clone path is in
   `%USERPROFILE%\.copilot\skills-source.json`, see Step 0), and against that clone's
   GitHub upstream, once at the start of a
@@ -100,6 +100,7 @@ description: 'Generic Windows UI automation primitives via AgentDebugToolkit''s 
     paged UIA readers, verified state/selection changes and explicit minimized-window restoration.
   - v23 - Resolves managed executable paths from the successful-build marker when available and
     distinguishes observational remote-session diagnostics from an RDP activation fix.
+  - v29 - `AgentCursor.ps1` removes old copies of its cached native helper. Each change to the helper source leaves an `AgentCursor.Native.<hash>.dll` behind in `%LOCALAPPDATA%\AgentUi`. After compiling a new copy it now deletes other copies not written for 7 days and leftover temp copies older than 1 day; a copy still loaded by a running agent cannot be deleted and is skipped. Tested offline in a temporary cache folder (old copy and old temp file removed; newer copies, a fresh temp file and unrelated files kept).
   - v28 - Documents that `set-toggle-state` can report success without the setting persisting (observed once, in one
     environment). The verbs re-read the UI state they just set, which confirms the control, not that the application kept
     the setting. After a change that must persist, reopen the dialog and read the state back; a real coordinate click

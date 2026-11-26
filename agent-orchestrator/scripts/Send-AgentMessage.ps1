@@ -225,12 +225,16 @@ function Select-WorkerReply {
     $waits = @($list | Where-Object { [string]$_.Text -match '^\s*Run command:.*mailbox instruction' } | ForEach-Object { [int]$_.Index })
     $upper = if ($waits.Count -ge 1) { $waits[-1] } else { [int]::MaxValue }
     $lower = if ($waits.Count -ge 2) { $waits[-2] } else { -1 }
-    $hits = @($list | Where-Object { [int]$_.Index -gt $lower -and [int]$_.Index -lt $upper -and [string]$_.Text -match '^\s*Replying to orchestrator:' })
+    # The marker may start a line inside the message: a worker that follows the bootstrap text opens the same chat message with
+    # "From orchestrator: ..." and then gives "Replying to orchestrator: ..." on a later line (seen in a real chat).
+    $marker = '(?m)^[ \t]*Replying to orchestrator:'
+    $hits = @($list | Where-Object { [int]$_.Index -gt $lower -and [int]$_.Index -lt $upper -and [string]$_.Text -match $marker })
     if ($hits.Count -eq 0) { return [pscustomobject]@{ Found = $false; Text = $null } }
-    $text = [string]$hits[-1].Text
-    $lines = @($text -split "`r?`n")
-    $body = ((@($lines | Select-Object -Skip 1) -join "`n").Trim())
-    if (-not $body) { $body = ($lines[0] -replace '^\s*Replying to orchestrator:\s*', '').Trim() }
+    $lines = @(([string]$hits[-1].Text) -split "`r?`n")
+    $at = 0
+    for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^[ \t]*Replying to orchestrator:') { $at = $i } }
+    $body = ((@($lines | Select-Object -Skip ($at + 1)) -join "`n").Trim())
+    if (-not $body) { $body = ($lines[$at] -replace '^[ \t]*Replying to orchestrator:\s*', '').Trim() }
     return [pscustomobject]@{ Found = $true; Text = $body }
 }
 

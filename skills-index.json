@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 44,
-      "whatsNew": "Send-AgentMessage.ps1 can now return the worker's answer (-WaitReply) and report a worker that is stuck on its first listen command (-Bootstrap -WaitListening)."
+      "version": 45,
+      "whatsNew": "Send-AgentMessage.ps1 -WaitReply now finds a worker's answer that sits on a later line of a From orchestrator: message."
     },
     "project-memory-management": {
       "version": 3,
@@ -18,8 +18,8 @@
       "whatsNew": "Distinguish server acceptance from phone delivery and offer optional user-confirmed receipt checks without automatic resends or changing notification consent."
     },
     "ui-interaction": {
-      "version": 28,
-      "whatsNew": "Documents that set-toggle-state can report success without the setting persisting (observed once, in one environment)."
+      "version": 29,
+      "whatsNew": "AgentCursor.ps1 removes old copies of its cached native helper."
     },
     "ui-navigation-orchestrator": {
       "version": 8,
