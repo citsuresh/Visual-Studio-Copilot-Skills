@@ -18,7 +18,7 @@ Passing this test does not mark the separate manual scenarios as passing.
 
 `scripts\agent\Test-ReadAloud.ps1` mocks speech and checks preserved failure markers/exit codes,
 stage-specific bounded diagnostics without text disclosure, non-speaking `-Diagnose`, and
-auto-TTS Active/Unknown silence. It creates/removes only its own wrapper fixture and never
+auto-TTS Active/Unknown silence, plus the meeting guard (`Test-MeetingActive.ps1` with faked microphone consent entries; mute/duck/off, defaults, fail-open). It creates/removes only its own wrapper fixture and never
 produces audio or notifications. `scripts\agent\Test-WatcherProgress.ps1` extracts the progress
 functions through the PowerShell AST and checks silent defaults, throttling, operational facts
 and terminal states without UI calls, file writes or waiting. Both accept external draft paths.

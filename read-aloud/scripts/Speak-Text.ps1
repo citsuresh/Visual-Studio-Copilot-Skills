@@ -20,6 +20,13 @@
     cannot run, the text is spoken at normal volume. A volume you changed during speech is left alone.
     The volumes are recorded in %USERPROFILE%\.copilot\tts-duck-state.txt while ducked.
 
+    Meetings: before speaking, Test-MeetingActive.ps1 (next to this script, read-only, fails open) reports
+    whether a non-excluded app holds the microphone. Settings "meeting" ("mute" default, "duck" or "off") and
+    "meetingDuckPercent" (0 to 100, default 20) decide the reaction. mute: nothing is spoken and the script prints
+    "Silent (Meeting)" (exit 0). duck: the text is spoken with this synthesizer's own Volume at that percent, prints
+    "Spoken (Meeting, ducked to N%)", and other applications' audio (including the meeting) is NOT ducked. Unknown or
+    NoMeeting: unchanged behaviour and output. The voice and the system volume are never changed.
+
     Apart from that temporary state file and the temporary per-application volume, it does not
     change the registry, the installed voices, or any system or user setting.
 
@@ -41,7 +48,11 @@ param(
     [string]$Text,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'Diagnose')]
-    [switch]$Diagnose
+    [switch]$Diagnose,
+
+    # Testing only: alternative settings file and alternative Test-MeetingActive.ps1.
+    [string]$SettingsPath,
+    [string]$MeetingCheckPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,9 +102,43 @@ catch {
     exit 1
 }
 
+function Get-SettingsPath {
+    if ($SettingsPath) { return $SettingsPath }
+    return (Join-Path $env:USERPROFILE '.copilot\tts-settings.json')
+}
+
+# Returns @{ Mode = 'off'|'mute'|'duck'; Percent = 0..100 }; defaults mute and 20; invalid values use the defaults.
+function Get-MeetingSettings {
+    $result = @{ Mode = 'mute'; Percent = 20 }
+    $path = Get-SettingsPath
+    if (-not (Test-Path -LiteralPath $path)) { return $result }
+    try {
+        $settings = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $mode = "$($settings.meeting)".Trim().ToLowerInvariant()
+        if ($mode -in @('off', 'mute', 'duck')) { $result.Mode = $mode }
+        if ($null -ne $settings.meetingDuckPercent) {
+            $result.Percent = [int][Math]::Round([Math]::Min(100, [Math]::Max(0, [double]$settings.meetingDuckPercent)))
+        }
+    }
+    catch { }
+    return $result
+}
+
+# Returns the last line of Test-MeetingActive.ps1 output, or '' when it is missing or fails (fail open).
+function Get-MeetingState {
+    try {
+        $probe = if ($MeetingCheckPath) { $MeetingCheckPath } else { Join-Path $PSScriptRoot 'Test-MeetingActive.ps1' }
+        if (-not (Test-Path -LiteralPath $probe)) { return '' }
+        $lines = @(& $probe 2>$null | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        if ($lines.Count -gt 0) { return $lines[-1] }
+    }
+    catch { }
+    return ''
+}
+
 # Returns the duck factor (0..1) when ducking is switched on in the settings file, otherwise $null.
 function Get-DuckFactor {
-    $settingsPath = Join-Path $env:USERPROFILE '.copilot\tts-settings.json'
+    $settingsPath = Get-SettingsPath
     if (-not (Test-Path -LiteralPath $settingsPath)) { return $null }
     try {
         $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
@@ -126,6 +171,20 @@ if ($null -ne $duckFactor -or $staleState) {
 }
 if ($ducker -and $staleState) { [void][AudioDucker]::Restore($statePath) }
 
+# Meeting handling (never in -Diagnose): mute speaks nothing; duck lowers only this synthesizer's own volume.
+$meetingVolume = $null
+if (-not $Diagnose) {
+    $meeting = Get-MeetingSettings
+    if ($meeting.Mode -ne 'off' -and (Get-MeetingState) -match '^Meeting\b') {
+        if ($meeting.Mode -eq 'mute') {
+            Write-Output 'Silent (Meeting)'
+            exit 0
+        }
+        $meetingVolume = $meeting.Percent
+        $duckFactor = $null   # do not lower other applications: that would also lower the meeting
+    }
+}
+
 $synth = $null
 $ducked = $false
 $stage = 'initialize'
@@ -149,7 +208,9 @@ try {
         $ducked = Test-Path -LiteralPath $statePath
     }
     $stage = 'speak'
+    if ($null -ne $meetingVolume) { $synth.Volume = $meetingVolume }
     $synth.Speak($Text)
+    if ($null -ne $meetingVolume) { Write-Output "Spoken (Meeting, ducked to $meetingVolume%)" }
 }
 catch {
     if (-not $Diagnose) { Write-Output 'NoVoice' }

@@ -39,6 +39,8 @@ handoff rule below; do not announce a question while still preparing it:
   and RDP audio routing as the failing session. After the user corrects setup, require a fresh
   enable/retest request and audible confirmation before claiming recovery. Never change push
   mode because speech failed, and never retry a push merely to test TTS.
+- `Silent (Meeting)` (see Meetings below) is intentional silence while the user is in an online meeting, not an
+  audio error: do not report a failure or retry. The written reply must still carry all the content.
 - Wait for it to finish; do not run two at once.
 
 ## Ready handoff order (both modes)
@@ -102,8 +104,11 @@ rules as Speaking (no code, paths or tables; never set a voice):
 
 The summary must be plain ASCII text with no double quotes, curly quotes, backticks or dollar signs,
 because it is passed inside a double-quoted PowerShell string. It speaks only when Visual Studio is not in
-front, and prints one line: Spoken (Inactive), Silent (Active), Silent (Unknown) or Silent (Error: reason).
+front, and prints one line: Spoken (Inactive), Silent (Active), Silent (Unknown), Silent (Meeting), Spoken (Meeting, ducked to N%)
+or Silent (Error: reason).
 `Silent (Active)` is intentional silence because the user is at the window; it is not an audio error.
+`Silent (Meeting)` is intentional silence because the user is in an online meeting (see Meetings); it is not
+an audio error either, and the written reply must still carry the content.
 `Silent (Unknown)` means the host state could not be established; no audio notification is verified.
 `Silent (Error: ...)`, including `NoVoice` or an audio failure, means audio is broken for this
 attempt and the user was NOT notified by speech. State that clearly in the written reply; never
@@ -134,3 +139,33 @@ asks. While speaking, the script lowers other applications' audio sessions on th
 device and puts them back afterwards, including after an error. It also undoes an interrupted run on
 the next speak, and leaves a volume alone that the user changed during speech. If ducking cannot run, the
 text is simply spoken at normal volume.
+
+## Meetings (stay quiet during online meetings)
+
+Both `Speak-Text.ps1` and `Speak-IfAway.ps1` (through `Speak-Text.ps1`) first run `Test-MeetingActive.ps1`
+(read-only, same folder, well under a second). It reads the Windows microphone privacy list
+(`HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone`, and its
+`NonPackaged` subkey) and treats an app as using the microphone now when `LastUsedTimeStart` is set and
+`LastUsedTimeStop` is 0. It is a meeting when such an app is not in the exclusion list (`devenv`, `VoiceType*`,
+`Speak*`, `powershell*`, `pwsh*`, `VsCopilotChatVoice*`; the `-ExcludeApps` parameter replaces the list). It prints one
+line: `Meeting (app names)`, `NoMeeting` or `Unknown (reason)`. It never reads window titles, call content, emails or
+any other personal data, never opens the microphone, and changes nothing.
+
+Optional fields in `%USERPROFILE%\.copilot\tts-settings.json` (write them only when the user asks):
+
+```json
+{"meeting":"mute","meetingDuckPercent":20}
+```
+
+- `"meeting"`: `"mute"` (default when absent), `"duck"` or `"off"`. `mute`: nothing is spoken and the script
+  prints `Silent (Meeting)` (exit 0). `duck`: the text is spoken at `meetingDuckPercent` of normal volume and the
+  script prints `Spoken (Meeting, ducked to N%)`. `off`: meetings are ignored.
+- `"meetingDuckPercent"`: 0 to 100 (default 20), the share of normal volume kept while a meeting is active. It lowers
+  only this speech's own volume. It never changes the system volume or other applications (the `duck` setting above is
+  not applied during a meeting, because that would also lower the meeting), and never sets or changes the voice.
+- Unknown or invalid values use the defaults. Unknown, a failed check or a missing `Test-MeetingActive.ps1` behave
+  as NoMeeting (fail open): speech is unchanged.
+- False positives: any app that is not excluded and holds the microphone counts, browser calls included, and so does a
+  dictation or recording tool that is not excluded. A meeting in which no app is using the microphone is not detected.
+- Agent rule: `Silent (Meeting)` is intentional silence, not an audio error. Do not retry, do not report a failure,
+  and do not describe the user as notified by speech; put the full content in the written reply as always.

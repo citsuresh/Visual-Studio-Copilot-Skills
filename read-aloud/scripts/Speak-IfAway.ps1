@@ -10,6 +10,9 @@
         Spoken (Inactive)
         Silent (Active) | Silent (Unknown) | Silent (Error: <reason>)
 
+    While away, Speak-Text.ps1 also checks for an online meeting (Test-MeetingActive.ps1 and the "meeting"
+    settings) and then the line is Silent (Meeting) (nothing spoken, exit 0) or Spoken (Meeting, ducked to N%).
+
     Exit codes: 0 = spoken or silent without an error; 1 = error in this script; otherwise the exit
     code of Speak-Text.ps1 (1 = could not start, 2 = NoVoice) when speaking failed.
     Both scripts run in this process, so only one PowerShell start-up is paid.
@@ -49,7 +52,11 @@ try {
     if ($state -eq 'Inactive') {
         $global:LASTEXITCODE = 0
         $spoken = @(& $speak -Text $Text 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
-        if ($LASTEXITCODE -eq 0) { "Spoken ($state)" }
+        if ($LASTEXITCODE -eq 0) {
+            # Speak-Text.ps1 checks for a meeting itself (Test-MeetingActive.ps1) and reports it on its own line.
+            $meetingLine = @($spoken | Where-Object { $_ -match '^(Silent \(Meeting\)|Spoken \(Meeting, ducked to \d+%\))$' })
+            if ($meetingLine.Count -gt 0) { $meetingLine[-1] } else { "Spoken ($state)" }
+        }
         else {
             $code = $LASTEXITCODE
             $why = if ($spoken.Count -gt 0) { $spoken -join '; ' } else { "Speak-Text.ps1 exit code $code" }

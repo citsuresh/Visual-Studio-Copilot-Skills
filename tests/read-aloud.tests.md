@@ -32,6 +32,14 @@ applications' volume for a few seconds; the volumes are restored at the end of e
 | R-24 | Say `enable auto tts` in a chat, then switch to another window while a reply runs | Auto TTS on said once; `Speak-IfAway.ps1` runs last in every reply, including the one that turns it on; speech only when away; `stop auto tts` says Auto TTS off, is not spoken, and stops the calls | Not run (needs a real chat and window switching) |
 | R-25 | Auto tts and plain tts both on | Every reply is spoken by plain tts, no `Speak-IfAway.ps1` call | Not run (needs a real chat) |
 | R-26 | `Test-HostVsActive.ps1` and `Speak-IfAway.ps1` in PowerShell 7 | Same as R-15 to R-23 | Not run (only Windows PowerShell 5.1 installed) |
+| R-27 | `Test-MeetingActive.ps1 -EntrySource {...}` with fake consent entries: app holding the mic, excluded apps only, stopped call, never used, no entries, sanitised names, throwing source, malformed timestamp | `Meeting (names)`, `NoMeeting`, `NoMeeting`, `NoMeeting`, `NoMeeting`, names without symbols, `Unknown (...)`, `Unknown (...)`; one line, exit 0, under 1 s | Pass 2026-11-26 (`Test-ReadAloud.ps1`, offline) |
+| R-28 | `Speak-Text.ps1 -MeetingCheckPath <stub: Meeting>` with settings absent, `mute`, invalid mode, unreadable file | Nothing spoken; prints `Silent (Meeting)`; exit 0 | Pass 2026-11-26 (`Test-ReadAloud.ps1`, synthesizer faked) |
+| R-29 | As R-28 with `"meeting":"duck"` and `meetingDuckPercent` absent, 45, 0, 250, -5, "abc" | Spoken once at synthesizer Volume 20, 45, 0, 100, 0, 20; prints `Spoken (Meeting, ducked to N%)`; no other application ducked | Pass 2026-11-26 (`Test-ReadAloud.ps1`, synthesizer faked) |
+| R-30 | As R-28 with `"meeting":"off"`; and probe returning NoMeeting, Unknown, garbage, throwing or missing, with settings absent, `mute`, `duck` | Spoken normally, Volume unchanged, no extra output (fail open) | Pass 2026-11-26 (`Test-ReadAloud.ps1`, synthesizer faked) |
+| R-31 | `-Diagnose` while a meeting is stubbed; speech failure during a meeting duck | Diagnose unchanged and silent; failure keeps `NoVoice`, exit 2, no `Spoken (Meeting...)` | Pass 2026-11-26 (`Test-ReadAloud.ps1`) |
+| R-32 | `Speak-IfAway.ps1` with the check `Inactive` and `Speak-Text.ps1` stubs printing `Silent (Meeting)` / `Spoken (Meeting, ducked to 20%)` / nothing; check `Active` | Meeting lines forwarded, `Spoken (Inactive)` otherwise, `Silent (Active)` wins; exit 0 | Pass 2026-11-26 (`Test-ReadAloud.ps1`, stub scripts) |
+| R-33 | Real registry: `Test-MeetingActive.ps1` with no parameters during a real Teams call, then with the call ended | `Meeting (MSTeams)`, then `NoMeeting` | Partly run 2026-11-26 (`Meeting (MSTeams)` seen during a live call, about 0.4 s first run; end of call not checked) |
+| R-34 | Real meeting, `"meeting":"duck"` and `"mute"`, audible check by the user | Quiet speech at the set percent, or silence | Not run (agent must not make sound during a meeting) |
 
 ## Findings
 
