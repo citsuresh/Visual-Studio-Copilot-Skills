@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 45`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 46`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v46 - Adds a way to work with a Claude desktop chat: identify the kind of chat first (Step 1b), then send the first message through its chat box and use the mailbox after that. The section "Target is a Claude desktop chat" records what a live test on one machine confirmed (Claude 6.28899.6): the `Prompt` edit and `Send` button, that a set value applies asynchronously (the read-back matched at about 117 ms, so poll it), the empty-box newline, that only the active chat exposes a `Prompt`, how to read the worker's transcript file, and that a Copilot agent in Visual Studio sent a line into a Claude chat this way. It also lists what is not verified. New scripts: `Send-ClaudePrompt.ps1` sends one single-line message into the chat box (refuses a busy chat, a draft, the calling chat and another desktop; polls the read-back; confirms the box empties) and `Read-ClaudeReply.ps1` returns the worker's `Replying to orchestrator` answer from its transcript file. Offline: 28 and 23 assertions in two new suites, with fixtures in the real record shape. Two live checks that type nothing (the sender refused its own window in 0.6 s; the reader parsed a real 17 MB transcript). A first real-send test through the installed script was refused with ClaudeBusy because the target chat was still working (typed nothing, as designed), which led to the optional `-WaitIdleSeconds`. A Copilot agent in Visual Studio also sent a line into a Claude chat by the same steps, ad hoc, before the scripts existed. A real send through the installed script from a Visual Studio agent (`-WaitIdleSeconds 120`) then worked, once on one machine: read-back after 178 ms, box empty 282 ms after Send, 10.9 s in all including the wait for an idle chat; the reader picked this session's file and, as expected, found no answer because nobody had answered with the marker.
   - v45 - `Send-AgentMessage.ps1 -WaitReply` now finds a worker's answer that sits on a later line of a `From orchestrator:` message. Before, `Select-WorkerReply` accepted only a message that began with `Replying to orchestrator:`, but a worker that follows the bootstrap text puts both lines in one chat message, so the answer was missed (seen live, one machine: the worker answered correctly, `ReplyFound` was False). The marker is now matched at the start of any line and the answer is the text after it, so the `From orchestrator:` line is not returned. A marker in the middle of a sentence still does not count, and the bounds between the last two wait cards still keep an older answer out. Offline: 75 router assertions, including the real one-message shape; the earlier tests had only separate messages. Not changed: the timing of the read; the first guess (a wait card not yet drawn) was not supported by the chat data.
   - v44 - `Send-AgentMessage.ps1` can now return the worker's answer (`-WaitReply`) and report a worker that is stuck on
     its first listen command (`-Bootstrap -WaitListening`). From an agent's feedback after a long task: the answer to a
@@ -380,7 +381,8 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 Supervise a Copilot chat agent that is running inside a *separate* Visual Studio / VS Insiders
 window, by driving its chat UI through UIA. This lets you act as the human-in-the-loop responder
 for that agent's confirmation prompts, task assignments, and commit approvals — without the
-actual user needing to manually click anything.
+actual user needing to manually click anything. A Claude desktop chat can be supervised too, by a different route: Step 1b
+says how to tell the two apart, and "Target is a Claude desktop chat" says what to do.
 
 ## Relationship to other skills
 
@@ -415,6 +417,8 @@ message, several matches the candidate list); `-Hwnd` wins when both are given.
 | `Send-CopilotPrompt.ps1` | Step 2: guard drafts, new session (optional), clear, paste, verify, then Send; `-OverwriteInput` permits draft replacement | Sends a prompt |
 | `Send-AgentMessage.ps1` | Step 2b: send one message by the fastest safe route: mailbox (worker listening), then `Send-CopilotPrompt.ps1`, then its `-Conservative` path; `-Bootstrap` starts mailbox mode, `-StopListening` ends it | Sends a message |
 | `Wait-AgentMailbox.ps1` | Run by the worker chat after each task in mailbox mode: waits for the next message and prints it | Writes only the mailbox folder |
+| `Send-ClaudePrompt.ps1` | Step 1b / "Target is a Claude desktop chat": send ONE single-line message into a Claude desktop chat box (the first message; later ones go by mailbox). UIA only, no keyboard or mouse; refuses a busy chat, a draft, the calling chat itself and another virtual desktop; polls the read-back (the editor applies a set value late) | Types into the chat box; `-NoSend` fills and clears it again |
+| `Read-ClaudeReply.ps1` | "Target is a Claude desktop chat": the worker's `Replying to orchestrator` answer from its transcript file (`-SessionFile`, or `-Folder` and `-Channel`; `-AfterTimestamp` = your send time); returns only that answer | Read-only (reads the end of the transcript file) |
 | `Get-AgentMailboxLog.ps1` | Troubleshooting: shows the sender and listener logs of a channel merged, oldest first | No |
 | `AgentMailbox.ps1` | Library for the scripts above (folder layout, liveness, limits); dot-sourced, runs nothing | No |
 | `Watch-CopilotChatV2.ps1` | Step 3 (default): light poll until Pending, Idle, or timeout; no prompt text | No |
@@ -607,6 +611,21 @@ Prefer `--pid` when available. If you don't have a pid, use
 returned hwnd and pid before use. `--titleContains` is a substring filter, not a wildcard;
 without an explicit scope, `list-windows` uses the session context pid. Do not guess among
 multiple matches — ask the user to identify the intended instance.
+
+## Step 1b - Identify what kind of chat the target is (before anything else)
+
+Read the target window's owning process and window class from Step 1, then choose the route. Do this every time; the scripts of
+Step 2 and 3 are written for one kind of chat only.
+
+- `devenv.exe` (Visual Studio / VS Insiders): a Copilot chat. Everything in this skill applies.
+- `Claude.exe`, window class `Chrome_WidgetWin_1`, window title `Claude`: a Claude desktop chat. Read "Target is a Claude
+  desktop chat" (after Step 2b) and use only what it says. Send-CopilotPrompt, Watch-CopilotChatV1/V2,
+  Select-ChoicePromptOption, Read-CopilotReply, Get-CopilotChatTranscript and the UI tiers of Send-AgentMessage do not work
+  on it.
+- Anything else: stop and ask the person.
+
+Also know which kind of chat YOU are. Never send into the chat you are running in unless the person chose that on purpose
+(a test, with a fixed harmless line).
 
 ## Step 2 — Send a task to the agent
 
@@ -811,6 +830,56 @@ The result has `Sent`, `Tier`, `Attempts` (one line per tier tried), `Preview` (
   `Replying to orchestrator: <a few words>`, so someone watching the worker's chat can follow both directions (read those
   answers with the watchers of Step 3); the printed message itself also shows in the worker's command output. Never send or summarize secrets. While a worker listens its chat shows as
 busy. Messages are private to the user's account, deleted when read or after 10 minutes, and limited to 8000 characters.
+## Target is a Claude desktop chat
+
+Used when Step 1b says the target is a Claude desktop chat. Observed on one machine (Claude desktop 6.28899.6 with Claude
+Code 2.1.330, 2026-11-26); a second machine agreed on the items marked (also seen). Treat "Not verified" items as unknown.
+
+**Strategy: use the window once, then the mailbox.**
+1. Send the FIRST message through the chat box. It tells the worker to run `Wait-AgentMailbox.ps1 -Channel <name>` (the
+   bootstrap text from Step 2b). This is the only step that needs the window.
+2. Send every later message with `Send-AgentMessage.ps1 -Channel <name> -Text ...`. Use `-Channel`, never `-Hwnd`, so no
+   Copilot UI tier is tried. Delivery took 0.4 to 0.6 s and the listener claimed within 0.1 s (also seen). A worker may move
+   the listener to the background after some minutes and still answer (also seen).
+3. Read the answer from the worker's transcript file, not from the window: `Read-ClaudeReply.ps1 -Folder <working folder> -Channel <name> -AfterTimestamp <time of your send>` returns only the answer. `-WaitReply` cannot be used: it needs `-Hwnd` and
+   the Copilot reader. The file is `~\.claude\projects\<working folder, with : and \ replaced by ->\<session id>.jsonl`, one JSON
+   object per line; the worker's text is in `message.content[].text` of records of type `assistant`. Other record types sit
+   between them and the last line is often not a message, so never decide that the worker is finished from the last line:
+   wait for a text starting with `Replying to orchestrator` that is newer than your send time. One folder holds many session
+   files and titles are not unique (two files had the same title), so pick the file by finding your channel name in its tail,
+   with the newest file by write time as the fallback. The file holds full prompts: return only the matching text, and never
+   print or log the rest.
+4. Do not trust the window for busy or idle. A listener running in the background keeps the chat busy for as long as it
+   listens. Use the mailbox ack, the listener heartbeat (`Send-AgentMessage.ps1 -Status`) and the reply text.
+
+**How to send the first message (the chat box): `Send-ClaudePrompt.ps1 -Text "<one line>"`** (add `-NoSend` to fill and clear without sending, `-WaitIdleSeconds <n>` to wait for a working chat to finish instead of refusing at once, `-AllowOwnHost` only for a deliberate test into the calling chat). It does the steps below; they are listed so you know what it refuses. The box is an Edit named `Prompt` (ValuePattern and TextPattern); the button
+named `Send` (InvokePattern) exists only while the box holds text. Find the Edit by `ControlType Edit` and `Name Prompt` with
+`System.Windows.Automation` (about 50 ms, no typed marker needed). Do it in this order and stop at the first problem:
+1. Wait for a quiet keyboard (Step 2 rules). Refuse if the button named `Stop` is present (the chat is working).
+2. Read the value and `Trim()` it. An empty box reads as one newline. If anything is left, there is a draft: stop. Never
+   overwrite a person's draft.
+3. `ValuePattern.SetValue(text)`. It applies asynchronously: a read-back at 0 to 30 ms still shows the old value, and it
+   matched exactly by 117 to 200 ms. Poll the read-back every 50 ms for up to 1.5 s until it matches exactly. If it never
+   does, set an empty string, wait until the trimmed value is empty and stop.
+4. Find `Send` again (it must be enabled) and invoke it once. Poll up to 3 s until the trimmed value is empty (it took
+   about 334 ms). No keyboard, no mouse and no focus change is needed.
+Never dump the window's tree: the output (about 300 KB) contains the whole visible chat. The greyed hint text in the box is the
+Edit's `HelpText` property (empty while idle, `Ctrl+Enter to queue` while the chat works); it is not part of the value and does
+not count as a draft. A suggested prompt that the person sees was not exposed to UIA in anything we read.
+
+**Limits and risks.**
+- Only the ACTIVE chat in the window exposes a `Prompt`, although many sessions are listed in the sidebar. A worker that is
+  not the active chat cannot be reached without switching chats, which changes the person's view. Whether split view or a
+  separate window exposes both inputs was not tested.
+- Text typed this way reaches the worker exactly like the person's own message; it cannot tell who typed it. The first
+  message is therefore the person's delegation. Do not use it for anything the person did not ask for.
+- Claude's question cards (for example action buttons under a reply) are a different shape from Copilot ChoicePrompt cards.
+  A typed answer worked on the other machine; answering by UIA was not tested.
+
+**Not verified:** a send while Claude is busy (it would queue), multi-line text, a person typing while the value is set,
+answering a question card by UIA, a Claude busy/idle signal other than `Stop` and `HelpText`, a fresh app start, reaching a
+non-active chat. The two helper scripts were tested offline and with two live checks that type nothing (the own-host refusal and a read of a real transcript); a real send with the installed sender from a Visual Studio agent worked once (178 ms read-back, 282 ms until the box was empty, one machine); a real reply read from a live Claude worker was not run.
+
 ## Step 3 — Poll for state (Working / Pending / Idle)
 
 WARNING: Run the watcher as a tracked async shell command: shell tool mode async, retain the

@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 45,
-      "whatsNew": "Send-AgentMessage.ps1 -WaitReply now finds a worker's answer that sits on a later line of a From orchestrator: message."
+      "version": 46,
+      "whatsNew": "Adds a way to work with a Claude desktop chat: identify the kind of chat first (Step 1b), then send the first message through its chat box and use the mailbox after that."
     },
     "project-memory-management": {
       "version": 3,
