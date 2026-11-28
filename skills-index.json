@@ -2,8 +2,8 @@
   "schema": 1,
   "skills": {
     "agent-orchestrator": {
-      "version": 46,
-      "whatsNew": "Adds a way to work with a Claude desktop chat: identify the kind of chat first (Step 1b), then send the first message through its chat box and use the mailbox after that."
+      "version": 47,
+      "whatsNew": "Shows the orchestrated Visual Studio window in an agent theme while it is orchestrated, and restores its own theme afterwards."
     },
     "project-memory-management": {
       "version": 3,

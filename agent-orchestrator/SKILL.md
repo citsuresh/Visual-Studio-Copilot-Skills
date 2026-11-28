@@ -5,7 +5,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
 
 ## Skill Version
 
-- `CURRENT_SKILL_VERSION = 46`. This is this file's own version, used to detect when the globally
+- `CURRENT_SKILL_VERSION = 47`. This is this file's own version, used to detect when the globally
   installed copy at `%USERPROFILE%\.copilot\skills\agent-orchestrator\SKILL.md` is behind the
   source-of-truth copy in this repo at
   `<skills repo>\agent-orchestrator\SKILL.md` (the clone path is in
@@ -243,6 +243,7 @@ description: 'Drive and supervise a Copilot chat agent running in a *different* 
     script refused with nothing typed. The trust banner could not be raised and is untested live.
     An interleaved before/after timing (4 runs each, noisy machine) gave a median of about 21 s
     before and about 13 s after. Not yet run on another machine or from inside a Visual Studio chat.
+  - v47 - Shows the orchestrated Visual Studio window in an agent theme while it is orchestrated, and restores its own theme afterwards. New scripts `Get-AgentThemeStatus.ps1` (read-only plan, run at start), `Set-AgentWindowTheme.ps1` (switch with `-Hwnd`, restore with `-Restore`) and the library `AgentTheme.ps1`. The preferred theme is "Green Light" (the person can name another), the fallback is "Sunny Day", and a missing theme never blocks. The theme is changed only during orchestration, for whichever Visual Studio window is the target, with one state entry per window written before the switch so a crash can be repaired. It is driven through `Tools > Theme` with UI Automation, with no keys sent: invoking `Tools > Options` through UI Automation opened nothing on the machine where this was built (Visual Studio 18 Insiders), and the Options page automation properties were empty. Live-tested once on one window: Light to Sunny Day, read back, restored to Light, read back (Begin about 14 s, mostly the idle check; the switch about 1 s). The real run found four bugs the simulated menu could not: the idle check passed `-QuietSeconds 2` while the watcher needs at least 5, dot-sourcing `AgentCursor.ps1` reset this script's `$Restore` switch (it has its own), a script block lost its scope, and a helper was dropped in a rewrite; source checks in `Test-AgentWindowTheme.ps1` now cover them. Not yet verified: Green Light itself (not installed there), several orchestrated windows at once, and whether other open windows of the same Visual Studio change live.
   - v46 - Adds a way to work with a Claude desktop chat: identify the kind of chat first (Step 1b), then send the first message through its chat box and use the mailbox after that. The section "Target is a Claude desktop chat" records what a live test on one machine confirmed (Claude 6.28899.6): the `Prompt` edit and `Send` button, that a set value applies asynchronously (the read-back matched at about 117 ms, so poll it), the empty-box newline, that only the active chat exposes a `Prompt`, how to read the worker's transcript file, and that a Copilot agent in Visual Studio sent a line into a Claude chat this way. It also lists what is not verified. New scripts: `Send-ClaudePrompt.ps1` sends one single-line message into the chat box (refuses a busy chat, a draft, the calling chat and another desktop; polls the read-back; confirms the box empties) and `Read-ClaudeReply.ps1` returns the worker's `Replying to orchestrator` answer from its transcript file. Offline: 28 and 23 assertions in two new suites, with fixtures in the real record shape. Two live checks that type nothing (the sender refused its own window in 0.6 s; the reader parsed a real 17 MB transcript). A first real-send test through the installed script was refused with ClaudeBusy because the target chat was still working (typed nothing, as designed), which led to the optional `-WaitIdleSeconds`. A Copilot agent in Visual Studio also sent a line into a Claude chat by the same steps, ad hoc, before the scripts existed. A real send through the installed script from a Visual Studio agent (`-WaitIdleSeconds 120`) then worked, once on one machine: read-back after 178 ms, box empty 282 ms after Send, 10.9 s in all including the wait for an idle chat; the reader picked this session's file and, as expected, found no answer because nobody had answered with the marker.
   - v45 - `Send-AgentMessage.ps1 -WaitReply` now finds a worker's answer that sits on a later line of a `From orchestrator:` message. Before, `Select-WorkerReply` accepted only a message that began with `Replying to orchestrator:`, but a worker that follows the bootstrap text puts both lines in one chat message, so the answer was missed (seen live, one machine: the worker answered correctly, `ReplyFound` was False). The marker is now matched at the start of any line and the answer is the text after it, so the `From orchestrator:` line is not returned. A marker in the middle of a sentence still does not count, and the bounds between the last two wait cards still keep an older answer out. Offline: 75 router assertions, including the real one-message shape; the earlier tests had only separate messages. Not changed: the timing of the read; the first guess (a wait card not yet drawn) was not supported by the chat data.
   - v44 - `Send-AgentMessage.ps1` can now return the worker's answer (`-WaitReply`) and report a worker that is stuck on
@@ -419,6 +420,9 @@ message, several matches the candidate list); `-Hwnd` wins when both are given.
 | `Wait-AgentMailbox.ps1` | Run by the worker chat after each task in mailbox mode: waits for the next message and prints it | Writes only the mailbox folder |
 | `Send-ClaudePrompt.ps1` | Step 1b / "Target is a Claude desktop chat": send ONE single-line message into a Claude desktop chat box (the first message; later ones go by mailbox). UIA only, no keyboard or mouse; refuses a busy chat, a draft, the calling chat itself and another virtual desktop; polls the read-back (the editor applies a set value late) | Types into the chat box; `-NoSend` fills and clears it again |
 | `Read-ClaudeReply.ps1` | "Target is a Claude desktop chat": the worker's `Replying to orchestrator` answer from its transcript file (`-SessionFile`, or `-Folder` and `-Channel`; `-AfterTimestamp` = your send time); returns only that answer | Read-only (reads the end of the transcript file) |
+| `Get-AgentThemeStatus.ps1` | Step 0 / "Agent theme": read-only plan per open Visual Studio window (is Green Light installed, which theme would be used); `-SetPreference` writes the person's choice (only when asked) | No (`-SetPreference` writes `%USERPROFILE%\.copilot\agent-theme.json`) |
+| `Set-AgentWindowTheme.ps1` | "Agent theme": `-Hwnd` switches the target window to the agent theme (records the original first), `-Restore` puts it back, `-DryRun` and `-Explore` only read | Switches a theme through `Tools > Theme` (UIA only, no keys) |
+| `AgentTheme.ps1` | Library for the two theme scripts (names, plan, state file, begin, restore); dot-sourced, runs nothing | No |
 | `Get-AgentMailboxLog.ps1` | Troubleshooting: shows the sender and listener logs of a channel merged, oldest first | No |
 | `AgentMailbox.ps1` | Library for the scripts above (folder layout, liveness, limits); dot-sourced, runs nothing | No |
 | `Watch-CopilotChatV2.ps1` | Step 3 (default): light poll until Pending, Idle, or timeout; no prompt text | No |
@@ -594,6 +598,11 @@ involved), so do it every time a new session starts rather than skipping it to s
 7. If the repo copy's `scripts\SCRIPTS.md` exists, read it so the learned scripts are in context,
    and mention the count in a few words (e.g. "2 learned scripts indexed").
 8. Start the hands-off indicator: `AgentCursor.ps1 -Session Start` (blue dot).
+9. Check the agent theme once, read-only: `.\Get-AgentThemeStatus.ps1 -AsJson`. It reports, per open Visual Studio window,
+   whether the preferred theme is installed and the plan. Tell the person in one line only when `Notices` is not empty
+   (for example Green Light is missing and Sunny Day will be used; the notice carries the install command) or `StaleState` is
+   not empty (an earlier orchestration did not restore: run `Set-AgentWindowTheme.ps1 -Hwnd <h> -Restore` for that window
+   first). A missing theme is never an error and never blocks. Nothing is changed here.
 
 ## Step 1 — Find and verify the target window
 
@@ -626,6 +635,43 @@ Step 2 and 3 are written for one kind of chat only.
 
 Also know which kind of chat YOU are. Never send into the chat you are running in unless the person chose that on purpose
 (a test, with a fixed harmless line).
+
+## Agent theme for the target window (only while orchestrating)
+
+Purpose: the person sees at a glance which Visual Studio window is being driven by an agent. Applies only when Step 1b found a
+`devenv.exe` chat. It never applies to a Claude desktop chat.
+
+Rules (the person's requirements):
+- The theme is changed **only during orchestration** of that window, never at any other time, and always restored afterwards.
+- It applies to **whichever Visual Studio instance is the target**, with no special case for any instance (no hive or
+  experimental-instance logic).
+- The preferred theme is "Green Light"; the fallback is "Sunny Day". The person may name another theme at any time: write it with
+  `.\Get-AgentThemeStatus.ps1 -SetPreference "<name>" [-SetFallback "<name>"]` (only when asked; it stores
+  `%USERPROFILE%\.copilot\agent-theme.json`). Whether a theme exists is decided by the `Tools > Theme` menu of the window itself.
+- A missing theme is announced once and orchestration goes on unchanged. When Green Light is missing, the notice carries the
+  command to install it: `"<Visual Studio folder>\VSIXInstaller.exe" "<path to GreenLight.vsix>"`, then start the orchestrator
+  again (the person installs it; it is not installed for them).
+
+When:
+1. **Begin**, after Step 1b and when the target chat is idle, before the first message of Step 2:
+   `.\Set-AgentWindowTheme.ps1 -Hwnd <h>`. It waits for a quiet keyboard and mouse, takes no key presses (UI Automation only),
+   gives the person's window and focus back, reads the current theme, writes the original into the state file
+   (`%LOCALAPPDATA%\AgentUi	heme-state.json`) BEFORE switching, switches, reads the menu again to verify, and reverts a failed
+   switch. Result `Switched`, `NoChange` or `Skipped` (with a `Reason` such as `NotIdle`, `AlreadyAgentTheme`, `NothingAvailable`);
+   none of them is a reason to stop. Allow about 15 s (the idle check is most of it); the switch itself takes about 1 s.
+2. **Restore**, when orchestration of that window ends, on EVERY path (success, error, cancellation, early exit; put it with the
+   mailbox stop in Step 7): `.\Set-AgentWindowTheme.ps1 -Hwnd <h> -Restore` (about 3 s). It verifies the result and removes the
+   entry. A failed restore keeps the entry; the next start reports it as stale. Restore also works when the window is gone.
+
+Several orchestrated windows: the theme is one Visual Studio setting, so a window that already shows an agent theme gets a
+"shared" entry that carries the true original, and the LAST window to finish restores it (an earlier one only removes its entry).
+
+`-DryRun` prints the plan and `-Explore` reads the menu; neither changes a theme. Do not run `Set-AgentWindowTheme.ps1` outside
+orchestration.
+
+Known limits: only Visual Studio 18 Insiders was tried. It has not been tried with Green Light itself, with two orchestrated
+windows at once, or with a theme menu that does not mark the current entry (then the original is unknown and nothing is
+changed: `OriginalUnknown`). Whether other open windows of the same installation change live is not known.
 
 ## Step 2 — Send a task to the agent
 
@@ -1220,7 +1266,8 @@ Run this when the orchestration session ends, including when it ends early or fa
 2. **Index check**, only if `scripts\SCRIPTS.md` exists: every index line points to an existing
    file (`Test-Path`), and every non-core `.ps1` in `scripts\` has an index line. Add a missing
    line for an unlisted learned script; report anything else and change nothing.
-3. **End mailbox mode:** for every worker started with `-Bootstrap`, run `Send-AgentMessage.ps1 -Hwnd <h> -StopListening`
+3. **Restore the agent theme** of every window switched in this session: `Set-AgentWindowTheme.ps1 -Hwnd <h> -Restore`
+   (see "Agent theme for the target window"); report a failed restore to the person. Then **end mailbox mode:** for every worker started with `-Bootstrap`, run `Send-AgentMessage.ps1 -Hwnd <h> -StopListening`
    (if it reports no live listener, the worker has already stopped or is between waits: check its chat once). Then
    **clear the indicator:** `AgentCursor.ps1 -Session Stop`.
 4. Report in a few lines: scripts saved/updated, mismatches, proposals. Skip any part with
