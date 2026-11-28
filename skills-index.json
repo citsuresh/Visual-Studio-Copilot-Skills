@@ -18,8 +18,8 @@
       "whatsNew": "Distinguish server acceptance from phone delivery and offer optional user-confirmed receipt checks without automatic resends or changing notification consent."
     },
     "ui-interaction": {
-      "version": 29,
-      "whatsNew": "AgentCursor.ps1 removes old copies of its cached native helper."
+      "version": 30,
+      "whatsNew": "Adds Watch-UserInput.ps1, a check for whether the person is at the machine that counts key presses, mouse clicks and wheel scrolls and ignores mouse movement."
     },
     "ui-navigation-orchestrator": {
       "version": 8,
